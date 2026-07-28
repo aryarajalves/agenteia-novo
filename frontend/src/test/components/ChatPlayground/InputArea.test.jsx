@@ -76,4 +76,33 @@ describe('InputArea Component - Image Preview', () => {
 
         expect(handleRemoveMock).toHaveBeenCalledTimes(1);
     });
+
+    it('deve chamar setIsInputExpanded(true) ao clicar no botão de maximizar', () => {
+        const setIsExpandedMock = vi.fn();
+        const props = {
+            ...mockProps,
+            setIsInputExpanded: setIsExpandedMock
+        };
+
+        render(<InputArea {...props} />);
+
+        const expandBtn = screen.getByTitle('Maximizar editor de texto');
+        expect(expandBtn).toBeInTheDocument();
+        fireEvent.click(expandBtn);
+
+        expect(setIsExpandedMock).toHaveBeenCalledWith(true);
+    });
+
+    it('deve renderizar o modal de editor expandido quando isInputExpanded for true', () => {
+        const props = {
+            ...mockProps,
+            isInputExpanded: true,
+            input: 'Texto de teste expandido'
+        };
+
+        render(<InputArea {...props} />);
+
+        expect(screen.getByText('Editor Expandido de Mensagem')).toBeInTheDocument();
+        expect(screen.getAllByDisplayValue('Texto de teste expandido').length).toBeGreaterThanOrEqual(1);
+    });
 });

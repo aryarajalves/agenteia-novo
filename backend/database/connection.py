@@ -26,8 +26,8 @@ engine_kwargs = {
 }
 if DATABASE_URL and "postgresql" in DATABASE_URL:
     engine_kwargs.update({
-        "pool_size": 20,
-        "max_overflow": 10,
+        "pool_size": 30,
+        "max_overflow": 20,
         "pool_timeout": 30,
         "pool_recycle": 300,
     })
@@ -43,7 +43,15 @@ async_session = async_sessionmaker(
 
 # Engine Síncrono (Celery / Scripts)
 SYNC_DATABASE_URL = DATABASE_URL.replace("+asyncpg", "").replace("+aiosqlite", "")
-engine_sync = create_engine(SYNC_DATABASE_URL, pool_pre_ping=True)
+sync_engine_kwargs = {"pool_pre_ping": True}
+if SYNC_DATABASE_URL and "postgresql" in SYNC_DATABASE_URL:
+    sync_engine_kwargs.update({
+        "pool_size": 30,
+        "max_overflow": 20,
+        "pool_timeout": 30,
+        "pool_recycle": 300,
+    })
+engine_sync = create_engine(SYNC_DATABASE_URL, **sync_engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine_sync)
 
 # Engine Async para Workers (Celery)

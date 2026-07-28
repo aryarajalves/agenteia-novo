@@ -13,6 +13,7 @@ const WebhookList = ({
     onViewErrors,
     onViewHistory,
     onViewLeads,
+    onSimulateLoad,
     onEdit,
     onDelete
 }) => {
@@ -59,6 +60,7 @@ const WebhookList = ({
                         onViewErrors={() => onViewErrors(wh)}
                         onViewHistory={() => onViewHistory(wh)}
                         onViewLeads={() => onViewLeads(wh)}
+                        onSimulateLoad={() => onSimulateLoad && onSimulateLoad(wh)}
                         onEdit={() => onEdit(wh)}
                         onDelete={() => onDelete(wh)}
                     />

@@ -33,6 +33,10 @@ app.conf.update(
             'task': 'tasks.check_backup_schedule',
             'schedule': 300.0,
         },
+        'rescue-stuck-waiting-events-1min': {
+            'task': 'tasks.rescue_stuck_waiting_events',
+            'schedule': 60.0,
+        },
     },
 )
 

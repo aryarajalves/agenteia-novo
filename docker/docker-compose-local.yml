@@ -62,7 +62,7 @@ services:
   worker:
     build: ../backend
     container_name: worker-agente-local
-    command: celery -A celery_app worker --loglevel=info --concurrency=1
+    command: celery -A celery_app worker --loglevel=info --concurrency=20
     env_file:
       - ../.env
     environment:

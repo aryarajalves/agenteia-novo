@@ -19,6 +19,7 @@ import LeadsModal from './components/LeadsModal';
 import EditWebhookModal from './components/EditWebhookModal';
 import LeadHistoryModal from './components/LeadHistoryModal';
 import ConfirmModal from './components/ConfirmModal';
+import LoadSimulatorModal from './components/LoadSimulatorModal';
 
 // Utils & Constants
 import { showToast, getReceiveUrl } from './utils/helpers';
@@ -35,6 +36,7 @@ const WebhookManager = () => {
     const [copiedToken, setCopiedToken] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [leadHistoryModal, setLeadHistoryModal] = useState(null);
+    const [loadSimulatorWebhook, setLoadSimulatorWebhook] = useState(null);
 
     // Hooks de Dados e Operações
     const { 
@@ -231,6 +233,7 @@ const WebhookManager = () => {
                     onViewErrors={(wh) => { setSelectedWebhook(wh); setHistoryTab('pipeline'); setHistoryFilters(f => ({ ...f, status: 'error' })); fetchEvents(wh, { ...historyFilters, status: 'error' }); }}
                     onViewHistory={(wh) => { setSelectedWebhook(wh); setHistoryTab('pipeline'); fetchEvents(wh); }}
                     onViewLeads={(wh) => fetchLeads(wh)}
+                    onSimulateLoad={(wh) => setLoadSimulatorWebhook(wh)}
                     onEdit={handleOpenEdit}
                     onDelete={(wh) => setConfirmModal({ isOpen: true, webhookId: wh.id, webhookName: wh.name })}
                 />
@@ -400,6 +403,19 @@ const WebhookManager = () => {
                         });
                     }}
                 />
+
+                {loadSimulatorWebhook && (
+                    <LoadSimulatorModal
+                        webhook={loadSimulatorWebhook}
+                        onClose={() => setLoadSimulatorWebhook(null)}
+                        onFinish={() => showToast('Simulação de carga concluída com sucesso!')}
+                        onViewLeads={() => {
+                            const wh = loadSimulatorWebhook;
+                            setLoadSimulatorWebhook(null);
+                            fetchLeads(wh);
+                        }}
+                    />
+                )}
 
             </div>,
             document.body

@@ -14,6 +14,7 @@ const WebhookCard = ({
     onViewErrors,
     onViewHistory,
     onViewLeads,
+    onSimulateLoad,
     onEdit,
     onDelete
 }) => {
@@ -38,7 +39,12 @@ const WebhookCard = ({
                         )}
                     </div>
                 </div>
-                <div className="status-badge-container">
+                <div className="status-badge-container" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    {webhook.disable_ai_responses && (
+                        <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', borderRadius: '6px', background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)', fontWeight: 600 }}>
+                            🤐 SILENCIOSO
+                        </span>
+                    )}
                     <span className={`status-text ${webhook.is_active ? 'active' : ''}`}>
                         {webhook.is_active ? '● LIVE' : '○ OFF'}
                     </span>
@@ -79,6 +85,9 @@ const WebhookCard = ({
                 <div className="actions-group">
                     <button onClick={onViewLeads} className="btn-action-leads" title="Ver Leads Capturados">
                         <span>👥</span> Contatos
+                    </button>
+                    <button onClick={onSimulateLoad} className="btn-action-leads" style={{ background: 'rgba(99, 102, 241, 0.15)', borderColor: 'rgba(99, 102, 241, 0.3)', color: '#a5b4fc' }} title="Simular Carga & Escala em MOCK">
+                        <span>⚡</span> Simular Carga
                     </button>
                     <button onClick={onEdit} className="btn-action-edit" title="Editar Integração">
                         <span>⚙️</span> Editar

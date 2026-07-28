@@ -226,13 +226,13 @@ const AgentHistory = ({ agentId }) => {
                                 </span>
                             </div>
                             <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                                Início: {new Date(session.startTime + 'Z').toLocaleString('pt-BR')}
+                                Início: {session.startTime ? new Date(session.startTime + 'Z').toLocaleString('pt-BR') : '—'}
                             </span>
                         </div>
 
                         <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '2rem' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                <span style={{ color: 'var(--success-color)', fontWeight: 700, fontSize: '0.9rem' }}>R$ {session.totalCost.toFixed(2)}</span>
+                                <span style={{ color: 'var(--success-color)', fontWeight: 700, fontSize: '0.9rem' }}>R$ {(session.totalCost || 0).toFixed(2)}</span>
                                 <span>{session.totalTokens} tokens</span>
                             </div>
                             <span style={{ transform: expandedSessions[session.id] ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.3s', opacity: 0.5 }}>

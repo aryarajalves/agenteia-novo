@@ -54,6 +54,7 @@ const ChatPlayground = () => {
     const [challengerHotfixPrompt, setChallengerHotfixPrompt] = useState('');
 
     const [isInputExpanded, setIsInputExpanded] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
     const [contextVars, setContextVars] = useState({});
 
@@ -219,64 +220,75 @@ const ChatPlayground = () => {
 
     return (
         <div className="playground-container fade-in">
-            <Sidebar
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                setShowGuide={setShowGuide}
-                agents={agents}
-                selectedAgentId={selectedAgentId}
-                setSelectedAgentId={setSelectedAgentId}
-                isBattleMode={isBattleMode}
-                setIsBattleMode={setIsBattleMode}
-                isTesterMode={isTesterMode}
-                setIsTesterMode={setIsTesterMode}
-                testerSentiment={testerSentiment}
-                testerPersona={testerPersona}
-                setTesterPersona={setTesterPersona}
-                customPersona={customPersona}
-                setCustomPersona={setCustomPersona}
-                testerMessageCount={testerMessageCount}
-                setTesterMessageCount={setTesterMessageCount}
-                testerDelay={testerDelay}
-                setTesterDelay={setTesterDelay}
-                testerKnowsPrompt={testerKnowsPrompt}
-                setTesterKnowsPrompt={setTesterKnowsPrompt}
-                testerIsDynamic={testerIsDynamic}
-                setTesterIsDynamic={setTesterIsDynamic}
-                isTesterAutoRunning={isTesterAutoRunning}
-                isTesterRunning={isTesterRunning}
-                toggleAutoTester={toggleAutoTester}
-                loading={loading}
-                mainModelOverride={mainModelOverride}
-                setMainModelOverride={setMainModelOverride}
-                availableModels={availableModels}
-                challengerModelOverride={challengerModelOverride}
-                setChallengerModelOverride={setChallengerModelOverride}
-                challengerAgentId={challengerAgentId}
-                setChallengerAgentId={setChallengerAgentId}
-                globalVars={globalVars}
-                contextVars={contextVars}
-                setContextVars={setContextVars}
-                sessionId={sessionId}
-                showToast={showToast}
-                sessionStats={sessionStats}
-                handleReset={handleReset}
-                sessions={sessions}
-                historyFilter={historyFilter}
-                setHistoryFilter={setHistoryFilter}
-                isSelectionMode={isSelectionMode}
-                toggleSelectionMode={toggleSelectionMode}
-                selectedSessions={selectedSessions}
-                toggleSelectAll={toggleSelectAll}
-                setShowDeleteConfirm={setShowDeleteConfirm}
-                toggleSessionSelection={toggleSessionSelection}
-                loadSession={loadSession}
-                extractBatchQuestions={() => showToast("Extração em lote em desenvolvimento", "info")}
-            />
+            {isSidebarOpen && (
+                <Sidebar
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                    setShowGuide={setShowGuide}
+                    agents={agents}
+                    selectedAgentId={selectedAgentId}
+                    setSelectedAgentId={setSelectedAgentId}
+                    isBattleMode={isBattleMode}
+                    setIsBattleMode={setIsBattleMode}
+                    isTesterMode={isTesterMode}
+                    setIsTesterMode={setIsTesterMode}
+                    testerSentiment={testerSentiment}
+                    testerPersona={testerPersona}
+                    setTesterPersona={setTesterPersona}
+                    customPersona={customPersona}
+                    setCustomPersona={setCustomPersona}
+                    testerMessageCount={testerMessageCount}
+                    setTesterMessageCount={setTesterMessageCount}
+                    testerDelay={testerDelay}
+                    setTesterDelay={setTesterDelay}
+                    testerKnowsPrompt={testerKnowsPrompt}
+                    setTesterKnowsPrompt={setTesterKnowsPrompt}
+                    testerIsDynamic={testerIsDynamic}
+                    setTesterIsDynamic={setTesterIsDynamic}
+                    isTesterAutoRunning={isTesterAutoRunning}
+                    isTesterRunning={isTesterRunning}
+                    toggleAutoTester={toggleAutoTester}
+                    loading={loading}
+                    mainModelOverride={mainModelOverride}
+                    setMainModelOverride={setMainModelOverride}
+                    availableModels={availableModels}
+                    challengerModelOverride={challengerModelOverride}
+                    setChallengerModelOverride={setChallengerModelOverride}
+                    challengerAgentId={challengerAgentId}
+                    setChallengerAgentId={setChallengerAgentId}
+                    globalVars={globalVars}
+                    contextVars={contextVars}
+                    setContextVars={setContextVars}
+                    sessionId={sessionId}
+                    showToast={showToast}
+                    sessionStats={sessionStats}
+                    handleReset={handleReset}
+                    sessions={sessions}
+                    historyFilter={historyFilter}
+                    setHistoryFilter={setHistoryFilter}
+                    isSelectionMode={isSelectionMode}
+                    toggleSelectionMode={toggleSelectionMode}
+                    selectedSessions={selectedSessions}
+                    toggleSelectAll={toggleSelectAll}
+                    setShowDeleteConfirm={setShowDeleteConfirm}
+                    toggleSessionSelection={toggleSessionSelection}
+                    loadSession={loadSession}
+                    extractBatchQuestions={() => showToast("Extração em lote em desenvolvimento", "info")}
+                />
+            )}
 
             <div className="chat-area-wrapper">
                 <div className="chat-premium-header fade-in">
                     <div className="agent-brand">
+                        <button
+                            type="button"
+                            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                            className="edit-prompt-link"
+                            style={{ marginRight: '10px' }}
+                            title={isSidebarOpen ? "Ocultar Painel Lateral" : "Exibir Painel Lateral"}
+                        >
+                            {isSidebarOpen ? '◀ Ocultar Painel' : '⚙️ Exibir Painel'}
+                        </button>
                         <div className="agent-avatar-status">
                             <div className="avatar-mini">🤖</div>
                             <span className="status-dot"></span>

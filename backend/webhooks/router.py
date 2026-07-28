@@ -3,6 +3,7 @@ import uuid
 import json
 import logging
 import os
+import time
 import asyncio
 import httpx
 import tempfile
@@ -50,6 +51,7 @@ class WebhookConfigCreate(BaseModel):
     name: str
     leads_table: str = "leads"
     description: Optional[str] = None
+    disable_ai_responses: bool = False
     delay_seconds: int = 30
     agent_id: Optional[int] = None
     blocked_messages: List[str] = []
@@ -90,6 +92,12 @@ class WebhookConfigCreate(BaseModel):
     project_assistant_entry_message: Optional[str] = None
     project_assistant_exit_message: Optional[str] = None
 
+class SimulateLoadRequest(BaseModel):
+    contact_count: int = 10
+    sample_message: str = "Olá, gostaria de testar o suporte e a automação do sistema."
+    concurrency_rate: int = 20
+    respect_delay: bool = False
+
 class WebhookConfigResponse(BaseModel):
     id: int
     name: str
@@ -98,6 +106,7 @@ class WebhookConfigResponse(BaseModel):
     leads_table: str
     description: Optional[str]
     is_active: Optional[bool] = True
+    disable_ai_responses: Optional[bool] = False
     delay_seconds: Optional[int] = 30
     agent_id: Optional[int] = None
     blocked_messages: Union[List[str], Any, None] = []
@@ -161,6 +170,7 @@ class WebhookConfigUpdate(BaseModel):
     leads_table: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    disable_ai_responses: Optional[bool] = None
     delay_seconds: Optional[int] = None
     agent_id: Optional[int] = None
     blocked_messages: Optional[List[str]] = None
@@ -401,6 +411,15 @@ async def receive_webhook(token: str, request: Request, db: AsyncSession = Depen
             client_id = str(body.get("client_id") or "")
             media_url_raw = f"{zv_url}/chat/media/{media_id}?client_id={client_id}&token={zv_token}"
         
+        zv_name = (
+            zap_contact.get("name") or 
+            zap_contact.get("pushname") or 
+            zap_contact.get("push_name") or 
+            body.get("contact_name") or 
+            body.get("name")
+        )
+        contato_nome_val = str(zv_name).strip() if zv_name and str(zv_name).strip() and str(zv_name).strip().lower() not in ("none", "null", "contato desconhecido") else None
+
         extracted = {
             "conta_id": str(body.get("client_id") or ""),
             "inbox_id": str(body.get("client_id") or ""),
@@ -409,7 +428,7 @@ async def receive_webhook(token: str, request: Request, db: AsyncSession = Depen
             "mensagem_id": msg_id,
             "contato_id": str(zap_contact.get("phone") or ""),
             "telefone": phone,
-            "contato_nome": str(zap_contact.get("name") or "Contato Desconhecido"),
+            "contato_nome": contato_nome_val,
             "mensagem": str(zap_msg.get("template_content") or zap_msg.get("content") or ""),
             "labels": labels_str,
             "link": media_url_raw,
@@ -444,6 +463,19 @@ async def receive_webhook(token: str, request: Request, db: AsyncSession = Depen
             elif "file" in file_type or "application" in file_type: content_type = "document"
             else: content_type = file_type or "file"
 
+        meta_sender = (conv.get("meta", {}) or {}).get("sender", {}) or {}
+        cw_name = (
+            sender.get("name") or 
+            sender.get("push_name") or 
+            sender.get("pushname") or 
+            meta_sender.get("name") or 
+            meta_sender.get("push_name") or 
+            (body.get("contact", {}) or {}).get("name") or 
+            body.get("contact_name") or 
+            body.get("name")
+        )
+        contato_nome_val = str(cw_name).strip() if cw_name and str(cw_name).strip() and str(cw_name).strip().lower() not in ("none", "null", "contato desconhecido") else None
+
         extracted = {
             "conta_id": str(body.get("account_id") or account.get("id") or conv.get("account_id") or ""),
             "inbox_id": str(inbox.get("id") or body.get("inbox_id") or conv.get("inbox_id") or ""),
@@ -452,7 +484,7 @@ async def receive_webhook(token: str, request: Request, db: AsyncSession = Depen
             "mensagem_id": msg_id,
             "contato_id": str(sender.get("id") or body.get("contact_id") or ""),
             "telefone": phone,
-            "contato_nome": str(sender.get("name") or "Contato Desconhecido"),
+            "contato_nome": contato_nome_val,
             "mensagem": str(body.get("template_content") or body.get("content") or (body.get("message", {}) or {}).get("content") or ""),
             "labels": labels_str,
             "link": str(attachments[0].get("data_url") if attachments else ""),
@@ -774,12 +806,29 @@ async def receive_memory_webhook(token: str, request: Request, db: AsyncSession 
     mensagem_text = get_value_by_path(body, "template_content") or get_value_by_path(body, "content") or ""
     dono = get_value_by_path(body, "Dono") or get_value_by_path(body, "dono") or "cliente"
 
+    name_raw = None
+    if getattr(config, 'memory_name_path', None):
+        name_raw = get_value_by_path(body, config.memory_name_path)
+    if not name_raw:
+        name_raw = (
+            get_value_by_path(body, "name") or 
+            get_value_by_path(body, "nome") or 
+            get_value_by_path(body, "contato_nome") or 
+            get_value_by_path(body, "sender.name") or 
+            get_value_by_path(body, "contact.name") or 
+            get_value_by_path(body, "pushname")
+        )
+
+    memory_contato_nome = str(name_raw).strip() if name_raw and str(name_raw).strip() and str(name_raw).strip().lower() not in ("none", "null", "contato desconhecido") and not str(name_raw).strip().startswith("Lead_") else None
+
     await ensure_leads_table(config.leads_table)
     await upsert_lead(config.leads_table, {
         "telefone": phone, 
-        "contato_nome": "Lead_" + phone[-4:], 
+        "contato_nome": memory_contato_nome, 
         "dono": dono,
-        "mensagem": mensagem_text
+        "mensagem": mensagem_text,
+        "is_memory": True,
+        "event_type": "memory"
     }, config.id)
     
     # Criar o registro de evento para sincronização de memória
@@ -792,7 +841,7 @@ async def receive_memory_webhook(token: str, request: Request, db: AsyncSession 
         status="waiting",
         raw_payload=json.dumps(body, ensure_ascii=False),
         telefone=phone,
-        contato_nome="Lead_" + phone[-4:],
+        contato_nome=memory_contato_nome or ("Lead_" + phone[-4:]),
         dono=dono,
         mensagem=mensagem_text,
         created_at=now_br,
@@ -815,6 +864,107 @@ async def full_purge_lead_by_phone(webhook_id: int, phone: str, db: AsyncSession
     if not config: raise HTTPException(status_code=404, detail="Webhook não encontrado")
     await delete_contact_data(db, webhook_id, config.leads_table, [phone])
     await db.commit()
+
+@router.post("/{webhook_id}/simulate-load", status_code=200)
+async def simulate_webhook_load(
+    webhook_id: int, 
+    payload: SimulateLoadRequest, 
+    db: AsyncSession = Depends(get_db)
+):
+    config = await db.get(WebhookConfigModel, webhook_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Integração de Webhook não encontrada")
+
+    await ensure_leads_table(config.leads_table)
+
+    start_time = time.time()
+    contacts_processed = 0
+    errors_count = 0
+    now_br = get_now_br()
+
+    base_phone_num = 558599000000
+    msg_text = payload.sample_message or "Olá, gostaria de testar o suporte e a automação do sistema."
+    
+    delay_sec = config.delay_seconds if (config.delay_seconds is not None) else 30
+    events_to_process = []
+
+    for i in range(1, payload.contact_count + 1):
+        fake_phone = str(base_phone_num + i)
+        fake_name = f"Contato Simulado {i}"
+        
+        try:
+            await upsert_lead(config.leads_table, {
+                "telefone": fake_phone,
+                "contato_nome": fake_name,
+                "mensagem": msg_text,
+                "dono": "cliente"
+            }, config.id)
+
+            initial_steps = []
+            if delay_sec > 0:
+                initial_steps.append({
+                    "step": "⏱️ Agrupamento Ativo (Debounce)",
+                    "detail": f"Aguardando {delay_sec}s para ver se o usuário envia mais mensagens.",
+                    "timestamp": now_br.isoformat()
+                })
+
+            is_waiting = payload.respect_delay and (delay_sec > 0)
+
+            event = WebhookEventModel(
+                webhook_config_id=config.id,
+                event_type="message",
+                message_type="text",
+                status="waiting" if is_waiting else "received",
+                raw_payload=json.dumps({"simulated": True, "phone": fake_phone, "message": msg_text}, ensure_ascii=False),
+                telefone=fake_phone,
+                contato_nome=fake_name,
+                mensagem=msg_text,
+                conversa_id=str(900000 + i),
+                conta_id="1",
+                dono="usuario",
+                created_at=now_br,
+                scheduled_at=now_br + timedelta(seconds=delay_sec) if is_waiting else None,
+                processing_steps=json.dumps(initial_steps, ensure_ascii=False) if initial_steps else None
+            )
+            db.add(event)
+            await db.flush()
+
+            if is_waiting:
+                process_webhook_automation.apply_async(args=[event.id], countdown=delay_sec)
+                contacts_processed += 1
+            else:
+                events_to_process.append(event.id)
+        except Exception as e:
+            logger.error(f"Erro ao criar evento simulado para contato {i}: {e}")
+            errors_count += 1
+
+    await db.commit()
+
+    # Executar a pipeline de automação para cada evento se modo instantâneo
+    if not payload.respect_delay:
+        for eid in events_to_process:
+            try:
+                process_webhook_automation(eid)
+                contacts_processed += 1
+            except Exception as e:
+                logger.error(f"Erro ao executar pipeline para evento {eid}: {e}")
+                errors_count += 1
+
+    elapsed_sec = max(0.001, time.time() - start_time)
+    elapsed_ms = round(elapsed_sec * 1000, 2)
+    throughput = round(contacts_processed / elapsed_sec, 1)
+    avg_latency_ms = round(elapsed_ms / max(1, contacts_processed), 2)
+
+    return {
+        "ok": True,
+        "total_requested": payload.contact_count,
+        "contacts_processed": contacts_processed,
+        "errors_count": errors_count,
+        "elapsed_ms": elapsed_ms,
+        "throughput_per_sec": throughput,
+        "avg_latency_ms": avg_latency_ms,
+        "message": f"Simulação de carga concluída: {contacts_processed} contatos processados por TODA A PIPELINE a {throughput} req/s."
+    }
 
 @router.get("/{webhook_id}/events", response_model=WebhookEventsPaginatedResponse)
 async def list_webhook_events(

@@ -125,6 +125,7 @@ class AgentConfig(BaseModel):
     knowledge_base: list = []
     knowledge_base_id: Optional[int] = None
     knowledge_base_ids: List[int] = []
+    knowledge_bases: List[Any] = []
     rag_retrieval_count: int = 5
     rag_translation_enabled: bool = False
     rag_multi_query_enabled: bool = False

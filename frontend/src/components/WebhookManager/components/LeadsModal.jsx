@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { formatDate } from '../utils/helpers';
 import { api } from '../../../api/client';
 import AutomationPipelineModal from './AutomationPipelineModal';
+import LeadFilterBar from './LeadFilterBar';
 
 const parseLabels = (labelsField) => {
     if (!labelsField) return [];
@@ -139,87 +140,70 @@ const LeadsModal = ({
                     </div>
                 </div>
 
-                {/* Filtros - Mais compactos */}
-                <div style={{ padding: '1rem 1.5rem', background: 'rgba(15, 23, 42, 0.4)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'grid', gridTemplateColumns: '1fr 110px 110px 110px 130px 130px auto', gap: '0.75rem', alignItems: 'flex-end' }}>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.05em' }}>Buscar</label>
-                        <input
-                            type="text"
-                            placeholder="Nome ou número..."
-                            value={search}
-                            onChange={e => onSearch(e.target.value)}
-                            style={{ width: '100%', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.5rem 0.75rem', color: '#fff', fontSize: '0.8rem' }}
-                        />
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.05em' }}>Permissão</label>
-                        <select
-                            value={podeEnviar}
-                            onChange={e => onFilterChange({ podeEnviar: e.target.value })}
-                            style={{ width: '100%', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.5rem 0.5rem', color: '#fff', fontSize: '0.8rem' }}
-                        >
-                            <option value="all">Todos</option>
-                            <option value="true">Ativos</option>
-                            <option value="false">Bloqueados</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.05em' }}>Janela 24h</label>
-                        <select
-                            value={janelaAberta}
-                            onChange={e => onFilterChange({ janelaAberta: e.target.value })}
-                            style={{ width: '100%', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.5rem 0.5rem', color: '#fff', fontSize: '0.8rem' }}
-                        >
-                            <option value="all">Todas</option>
-                            <option value="true">Aberta</option>
-                            <option value="false">Fechada</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.05em' }}>Interação</label>
-                        <select
-                            value={semMensagens}
-                            onChange={e => onFilterChange({ semMensagens: e.target.value })}
-                            style={{ width: '100%', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.5rem 0.5rem', color: '#fff', fontSize: '0.8rem' }}
-                        >
-                            <option value="all">Todos</option>
-                            <option value="true">Sem Mensagens</option>
-                            <option value="false">Com Mensagens</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.05em' }}>Início</label>
-                        <input type="date" value={dateStart} onChange={e => onFilterChange({ dateStart: e.target.value })} style={{ width: '100%', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.45rem 0.5rem', color: '#fff', fontSize: '0.75rem' }} />
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: '0.6rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.05em' }}>Fim</label>
-                        <input type="date" value={dateEnd} onChange={e => onFilterChange({ dateEnd: e.target.value })} style={{ width: '100%', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', padding: '0.45rem 0.5rem', color: '#fff', fontSize: '0.75rem' }} />
-                    </div>
-                    <button
-                        style={{
-                            background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', color: '#fff',
-                            borderRadius: '8px', padding: '0.5rem 1.25rem', cursor: 'pointer', fontSize: '0.8rem',
-                            fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px'
-                        }}
-                    >
-                        🔍 Filtrar
-                    </button>
-                </div>
+                {/* Filtros - Componente Modular de Alto Contraste */}
+                <LeadFilterBar
+                    search={search}
+                    onSearch={onSearch}
+                    podeEnviar={podeEnviar}
+                    janelaAberta={janelaAberta}
+                    semMensagens={semMensagens}
+                    dateStart={dateStart}
+                    dateEnd={dateEnd}
+                    onFilterChange={onFilterChange}
+                />
 
                 {/* Seleção em Massa - Compacta */}
-                <div style={{ padding: '0.6rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.01)' }}>
+                <div style={{
+                    padding: '0.6rem 1.5rem',
+                    borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    background: selectedLeads?.size > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255,255,255,0.01)',
+                    transition: 'all 0.2s ease'
+                }}>
                     <div
                         onClick={() => toggleSelectAllLeads()}
                         style={{
-                            width: '20px', height: '20px', borderRadius: '6px', border: '2px solid rgba(255,255,255,0.1)',
-                            background: safeLeads.length > 0 && safeLeads.every(l => selectedLeads.has(l.id)) ? '#6366f1' : 'rgba(255,255,255,0.03)',
+                            width: '20px', height: '20px', borderRadius: '6px', border: '2px solid rgba(255,255,255,0.15)',
+                            background: safeLeads.length > 0 && safeLeads.every(l => selectedLeads?.has(l.id)) ? '#6366f1' : 'rgba(255,255,255,0.03)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginRight: '0.75rem'
                         }}
                     >
-                        {safeLeads.length > 0 && safeLeads.every(l => selectedLeads.has(l.id)) && <span style={{ color: '#fff', fontSize: '0.7rem' }}>✓</span>}
+                        {safeLeads.length > 0 && safeLeads.every(l => selectedLeads?.has(l.id)) && <span style={{ color: '#fff', fontSize: '0.7rem' }}>✓</span>}
                     </div>
-                    <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>Selecionar Todos</span>
-                    <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#475569' }}>
+                    <span style={{ fontSize: '0.82rem', color: '#cbd5e1', fontWeight: 700 }}>Selecionar Todos</span>
+
+                    {/* Botão de Excluir em Massa para Contatos Selecionados */}
+                    {selectedLeads?.size > 0 && (
+                        <div style={{ marginLeft: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#f87171' }}>
+                                ({selectedLeads.size} {selectedLeads.size === 1 ? 'contato selecionado' : 'contatos selecionados'})
+                            </span>
+                            <button
+                                type="button"
+                                onClick={onBulkDelete}
+                                style={{
+                                    background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                                    boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)',
+                                    border: '1.5px solid rgba(255, 255, 255, 0.15)',
+                                    color: '#ffffff',
+                                    borderRadius: '8px',
+                                    padding: '0.45rem 1.1rem',
+                                    cursor: 'pointer',
+                                    fontSize: '0.82rem',
+                                    fontWeight: 800,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                🗑️ Excluir Selecionados
+                            </button>
+                        </div>
+                    )}
+
+                    <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#64748b' }}>
                         Dica: Clique no contato para ver detalhes
                     </span>
                 </div>

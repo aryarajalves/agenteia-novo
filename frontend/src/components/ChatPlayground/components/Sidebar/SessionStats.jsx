@@ -28,7 +28,7 @@ const SessionStats = ({
                     <div className="stat-icon-mini" style={{ color: '#818cf8' }}>⚡</div>
                     <div className="stat-info">
                         <span className="modern-label">Tokens</span>
-                        <strong className="modern-value highlight-tokens">{sessionStats.totalTokens.toLocaleString()}</strong>
+                        <strong className="modern-value highlight-tokens">{(sessionStats?.totalTokens || 0).toLocaleString()}</strong>
                     </div>
                 </div>
 
@@ -36,7 +36,7 @@ const SessionStats = ({
                     <div className="stat-icon-mini" style={{ color: '#10b981' }}>💰</div>
                     <div className="stat-info">
                         <span className="modern-label">Investimento</span>
-                        <strong className="modern-value highlight-cost">R$ {sessionStats.totalCost.toFixed(2)}</strong>
+                        <strong className="modern-value highlight-cost">R$ {(sessionStats?.totalCost || 0).toFixed(2)}</strong>
                     </div>
                 </div>
             </div>

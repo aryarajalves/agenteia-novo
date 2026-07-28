@@ -146,4 +146,40 @@ describe('LeadsModal Component', () => {
         // Deve disparar onDeleteLead com o lead correspondente
         expect(defaultProps.onDeleteLead).toHaveBeenCalledWith(mockLeads[0]);
     });
+
+    it('deve renderizar a busca destacada e abrir filtros avançados ao clicar em Mais Opções', () => {
+        render(<LeadsModal {...defaultProps} />);
+
+        // Campo de busca em destaque com placeholder amplo
+        expect(screen.getByPlaceholderText('Buscar por nome, número de telefone ou mensagem...')).toBeInTheDocument();
+        expect(screen.getByText('🔍 BUSCAR CONTATO')).toBeInTheDocument();
+        expect(screen.getByText('🛡️ PERMISSÃO')).toBeInTheDocument();
+        expect(screen.getByText('Mais Opções')).toBeInTheDocument();
+        expect(screen.getByText('⚡ Filtrar')).toBeInTheDocument();
+
+        // Inicialmente os filtros avançados estão ocultos
+        expect(screen.queryByText('⏰ JANELA 24H')).not.toBeInTheDocument();
+
+        // Ao clicar em 'Mais Opções', abre o painel avançado
+        fireEvent.click(screen.getByText('Mais Opções'));
+        expect(screen.getByText('⏰ JANELA 24H')).toBeInTheDocument();
+        expect(screen.getByText('💬 INTERAÇÃO')).toBeInTheDocument();
+        expect(screen.getByText('📅 DATA INÍCIO')).toBeInTheDocument();
+        expect(screen.getByText('📅 DATA FIM')).toBeInTheDocument();
+    });
+
+    it('deve renderizar o botão Excluir Selecionados quando houver contatos selecionados e disparar onBulkDelete', () => {
+        const propsComSelecao = {
+            ...defaultProps,
+            selectedLeads: new Set([1, 2])
+        };
+        render(<LeadsModal {...propsComSelecao} />);
+
+        expect(screen.getByText('(2 contatos selecionados)')).toBeInTheDocument();
+        const btnBulkDelete = screen.getByText('🗑️ Excluir Selecionados');
+        expect(btnBulkDelete).toBeInTheDocument();
+
+        fireEvent.click(btnBulkDelete);
+        expect(defaultProps.onBulkDelete).toHaveBeenCalledTimes(1);
+    });
 });

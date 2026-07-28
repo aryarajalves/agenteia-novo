@@ -47,6 +47,15 @@ A plataforma divide os prompts dos agentes de IA em duas seções chaveadas:
 ### 4. Gravação e Transcrição em Tempo Real
 No ambiente de testes `ChatPlayground`, o usuário pode utilizar o microfone para conversar com o robô. O sistema utiliza a `Web Speech API` para fornecer feedback visual instantâneo do texto falado no input. Ao terminar, o áudio binário é processado com alta fidelidade no Whisper-1 da OpenAI com conversão automática fallback resiliente via `ffmpeg` no backend.
 
+### 5. Resposta Direta no 1º Atendimento e RAG Multicamada
+- **Desvio de Mensagem Padrão:** Quando um lead envia uma pergunta ou dúvida na primeira mensagem (ou vinda de anúncios), o sistema desativa a saudação genérica inicial e responde diretamente à dúvida utilizando o RAG.
+- **Resolução de Bases (`knowledge_base_ids`):** Suporte completo para vincular múltiplas bases de conhecimento por array de IDs com fallback direto no banco SQL.
+- **Raio-X do Pensamento:** Inspeção detalhada de cada etapa da pipeline (Pre-Router, RAG, Injeção de Prompt e Resposta Final) no Playground.
+
+### 6. Editor Expandido In-Place e Painel Lateral Ocultável
+- **Editor Expandido (`⤢`):** Expansão in-place da caixa de mensagem no chat com visual Neon Indigo, suporte a parágrafos e contagem em tempo real de caracteres.
+- **Painel Ocultável (`◀ Ocultar Painel`):** Barra lateral limpa sem fundo cinza transparente, com botão de ocultar/exibir para expandir o chat para 100% da largura.
+
 ---
 
 ---

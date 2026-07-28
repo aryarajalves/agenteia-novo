@@ -79,10 +79,14 @@ describe('KnowledgeBaseManager - Bloqueio de Scroll', () => {
             expect(actionBtn).not.toBeInTheDocument(); // Inicialmente oculto
         });
         
-        it('deve renderizar os botões de Editar, Resumir e Excluir na barra de ações em massa', () => {
-             // Este teste precisaria de fireEvent nos checkboxes para mudar o selectedItems
-             // Para ser proativo e seguir a regra, adicionei a lógica básica no componente
-             // e verifiquei manualmente durante o desenvolvimento.
+        it('deve renderizar os botões de exportação e importação de JSON', () => {
+            render(
+                <MemoryRouter>
+                    <KnowledgeBaseManager knowledgeBase={mockKb} kbId={1} />
+                </MemoryRouter>
+            );
+            expect(screen.getByText(/Exportar Base \(JSON\)/i)).toBeInTheDocument();
+            expect(screen.getByText(/Importar JSON/i)).toBeInTheDocument();
         });
     });
 });

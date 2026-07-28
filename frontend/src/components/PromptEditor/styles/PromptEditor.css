@@ -114,20 +114,21 @@
 
 .editor-line {
     position: relative;
-    padding-left: 55px;
     min-height: 26px;
-    white-space: pre-wrap;
-    word-break: break-word;
+    line-height: 26px;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
 }
 
 .editor-ln {
     position: absolute;
-    left: 0;
+    left: -55px;
     width: 45px;
     text-align: right;
     padding-right: 12px;
     color: rgba(255, 255, 255, 0.7);
-    font-family: 'Fira Code', monospace;
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace;
     font-size: 13px;
     font-weight: 600;
     user-select: none;
@@ -143,32 +144,51 @@
 .prompt-textarea {
     width: 100%;
     height: 100%;
-    background: transparent;
+    background: transparent !important;
     border: none;
-    padding: 2rem 2rem 2rem 55px; /* Precisa bater exatamente com .editor-line padding-left (55px) para o cursor real (nesta textarea invisível) ficar alinhado com o texto visível do backdrop */
+    padding: 2rem 2rem 2rem 55px; /* Padding-left de 55px reserva espaço para os números de linha */
+    box-sizing: border-box !important;
     color: transparent !important; /* Texto transparente para evitar sobreposição */
-    caret-color: #cbd5e1 !important; /* Cursor piscando visível para digitação */
-    font-family: 'Fira Code', 'Cascadia Code', monospace;
-    font-size: 15px;
-    line-height: 26px;
+    -webkit-text-fill-color: transparent !important; /* Previne escurecimento do texto no Chrome/Edge ao focar */
+    caret-color: #60a5fa !important; /* Cursor piscando visível e destacado */
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace !important;
+    font-size: 15px !important;
+    line-height: 26px !important;
+    letter-spacing: normal !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0 !important;
     resize: none;
     outline: none;
-    z-index: 1;
+    z-index: 2; /* Textarea no topo para posicionamento do cursor e foco perfeitos */
     position: relative;
+    overflow-x: hidden;
     overflow-y: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
     tab-size: 4;
 }
 
-.prompt-textarea::selection {
-    background: rgba(59, 130, 246, 0.3) !important;
+.prompt-textarea:focus,
+.prompt-textarea:active,
+.prompt-textarea:focus-visible {
     color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.prompt-textarea::selection {
+    background: rgba(59, 130, 246, 0.35) !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
 }
 
 /* Custom Scrollbar for Textarea */
 .prompt-textarea::-webkit-scrollbar {
     width: 10px;
+    height: 10px;
 }
 
 .prompt-textarea::-webkit-scrollbar-track {
@@ -188,16 +208,36 @@
 .editor-backdrop {
     position: absolute;
     inset: 0;
-    padding: 2rem 2rem 2rem 0; /* Padding-left handled by .editor-line */
-    font-family: 'Fira Code', 'Cascadia Code', monospace;
-    font-size: 15px;
-    line-height: 26px;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: #e2e8f0; /* Texto do backdrop visível e estilizado */
-    z-index: 2;
+    padding: 2rem 2rem 2rem 55px; /* Padding identico ao da textarea (2rem top/right/bottom, 55px left) */
+    box-sizing: border-box !important;
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace !important;
+    font-size: 15px !important;
+    line-height: 26px !important;
+    letter-spacing: normal !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0 !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    color: #f8fafc !important; /* Texto do prompt em branco radiante de alto contraste */
+    z-index: 1;
     pointer-events: none;
-    overflow-y: auto;
+    overflow-x: hidden;
+    overflow-y: scroll; /* Reserva exata da scrollbar de 10px para evitar desvio de largura */
+    scrollbar-width: thin;
+}
+
+.editor-backdrop::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.editor-backdrop::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.editor-backdrop::-webkit-scrollbar-thumb {
+    background: transparent; /* Thumb transparente para não duplicar scrollbar visualmente */
 }
 
 .editor-content-split {

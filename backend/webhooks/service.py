@@ -106,7 +106,7 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
         "mensagem_id": None,
         "contato_id": None,
         "telefone": None,
-        "labels": "[]",
+        "labels": None,
         "contato_nome": None,
         "mensagem": None,
         "message_type": "text",
@@ -115,10 +115,21 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
     }
     data = {**default_fields, **data}
 
-    is_agent = data.get("dono") == "agente"
+    is_agent = data.get("is_agent", False) or data.get("dono") == "agente"
+    is_memory = data.get("is_memory", False) or data.get("event_type") == "memory" or data.get("dono") in ("outro", "outra_plataforma", "memoria")
     phone_raw = data.get("telefone")
     phone_clean = normalize_phone(phone_raw)
     tel_suffix = get_phone_suffix(phone_clean)
+
+    raw_name = data.get("contato_nome")
+    valid_name = None
+    if raw_name and str(raw_name).strip():
+        s_name = str(raw_name).strip()
+        if s_name.lower() not in ("none", "null", "contato desconhecido", "") and not s_name.startswith("Lead_"):
+            valid_name = s_name
+    fallback_name = "Lead_" + (phone_clean[-4:] if phone_clean and len(phone_clean) >= 4 else "0000")
+    
+    data_to_pass = {**data, "valid_name": valid_name, "fallback_name": fallback_name, "is_memory": is_memory}
 
     async with engine.begin() as conn:
         existing = await conn.execute(text(f"""
@@ -144,7 +155,15 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                         inbox_id = :inbox_id, inbox_nome = :inbox_nome,
                         conversa_id = :conversa_id,
                         mensagem_id = :mensagem_id, contato_id = :contato_id,
-                        labels = :labels, contato_nome = :contato_nome, 
+                        labels = CASE 
+                            WHEN CAST(:labels AS VARCHAR) IS NOT NULL AND CAST(:labels AS VARCHAR) != '' AND CAST(:labels AS VARCHAR) != '[]' THEN CAST(:labels AS VARCHAR)
+                            ELSE labels 
+                        END,
+                        contato_nome = CASE 
+                            WHEN CAST(:valid_name AS VARCHAR) IS NOT NULL THEN CAST(:valid_name AS VARCHAR)
+                            WHEN contato_nome IS NOT NULL AND contato_nome != '' AND contato_nome != 'Contato Desconhecido' AND contato_nome NOT LIKE 'Lead_%' THEN contato_nome
+                            ELSE COALESCE(CAST(:valid_name AS VARCHAR), contato_nome, CAST(:fallback_name AS VARCHAR))
+                        END,
                         message_type = :message_type, link = :link,
                         ultima_resposta_agente = CASE 
                             WHEN ultima_resposta_agente_em IS NOT NULL AND ultima_resposta_agente_em > :two_min_ago
@@ -159,7 +178,7 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                         ),
                         updated_at = :now_utc
                     WHERE id = :id
-                """), {**data, "id": row[0], "now_utc": now_utc, "two_min_ago": two_min_ago})
+                """), {**data_to_pass, "id": row[0], "now_utc": now_utc, "two_min_ago": two_min_ago})
             else:
                 await conn.execute(text(f"""
                     UPDATE {table_name} SET
@@ -167,14 +186,27 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                         inbox_id = :inbox_id, inbox_nome = :inbox_nome,
                         conversa_id = :conversa_id,
                         mensagem_id = :mensagem_id, contato_id = :contato_id,
-                        labels = :labels, contato_nome = :contato_nome,
+                        labels = CASE 
+                            WHEN CAST(:labels AS VARCHAR) IS NOT NULL AND CAST(:labels AS VARCHAR) != '' AND CAST(:labels AS VARCHAR) != '[]' THEN CAST(:labels AS VARCHAR)
+                            ELSE labels 
+                        END,
+                        contato_nome = CASE 
+                            WHEN CAST(:valid_name AS VARCHAR) IS NOT NULL THEN CAST(:valid_name AS VARCHAR)
+                            WHEN contato_nome IS NOT NULL AND contato_nome != '' AND contato_nome != 'Contato Desconhecido' AND contato_nome NOT LIKE 'Lead_%' THEN contato_nome
+                            ELSE COALESCE(CAST(:valid_name AS VARCHAR), contato_nome, CAST(:fallback_name AS VARCHAR))
+                        END,
                         mensagem = :mensagem, message_type = :message_type, link = :link,
-                        ultima_mensagem_em = :now_utc, window_close_processed = FALSE,
+                        ultima_mensagem_em = CASE 
+                            WHEN :is_memory = TRUE THEN ultima_mensagem_em
+                            ELSE CAST(:now_utc AS TIMESTAMP)
+                        END,
+                        window_close_processed = FALSE,
                         followup_step = 0, updated_at = :now_utc
                     WHERE id = :id
-                """), {**data, "id": row[0], "now_utc": now_utc})
+                """), {**data_to_pass, "id": row[0], "now_utc": now_utc})
         else:
-            logger.info(f"🆕 Inserindo NOVO lead na tabela {table_name}: {phone_raw} (is_agent={is_agent})")
+            logger.info(f"🆕 Inserindo NOVO lead na tabela {table_name}: {phone_raw} (is_agent={is_agent}, is_memory={is_memory}, nome={valid_name or fallback_name})")
+            insert_data = {**data_to_pass, "contato_nome": valid_name or fallback_name}
             if is_agent:
                 # Criando lead a partir de uma mensagem enviada pelo agente (disparo ativo)
                 await conn.execute(text(f"""
@@ -185,12 +217,12 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                          ultima_mensagem_em, updated_at, created_at)
                     VALUES
                         (:webhook_config_id, :conta_id, :inbox_id, :inbox_nome, :conversa_id,
-                         :mensagem_id, :contato_id, :telefone, :labels, :contato_nome, :mensagem,
+                         :mensagem_id, :contato_id, :telefone, COALESCE(:labels, '[]'), :contato_nome, :mensagem,
                          :now_utc, :message_type, :link, TRUE,
                          NULL, :now_utc, :now_utc)
-                """), {"webhook_config_id": webhook_config_id, "now_utc": now_utc, **data})
+                """), {"webhook_config_id": webhook_config_id, "now_utc": now_utc, **insert_data})
             else:
-                # Criando lead a partir de uma mensagem enviada pelo cliente (recebimento)
+                # Criando lead a partir de uma mensagem enviada pelo cliente ou outra plataforma
                 await conn.execute(text(f"""
                     INSERT INTO {table_name}
                         (webhook_config_id, conta_id, inbox_id, inbox_nome, conversa_id,
@@ -199,10 +231,11 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                          ultima_mensagem_em, updated_at, created_at)
                     VALUES
                         (:webhook_config_id, :conta_id, :inbox_id, :inbox_nome, :conversa_id,
-                         :mensagem_id, :contato_id, :telefone, :labels, :contato_nome, :mensagem,
+                         :mensagem_id, :contato_id, :telefone, COALESCE(:labels, '[]'), :contato_nome, :mensagem,
                          :message_type, :link, TRUE,
-                         :now_utc, :now_utc, :now_utc)
-                """), {"webhook_config_id": webhook_config_id, "now_utc": now_utc, **data})
+                         CASE WHEN :is_memory = TRUE THEN NULL ELSE CAST(:now_utc AS TIMESTAMP) END,
+                         :now_utc, :now_utc)
+                """), {"webhook_config_id": webhook_config_id, "now_utc": now_utc, **insert_data})
             logger.info(f"✅ Lead {phone_raw} inserido com sucesso em {table_name}.")
 
 

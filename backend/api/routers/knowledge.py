@@ -243,6 +243,190 @@ async def upload_kb_file(kb_id: int, file: UploadFile = File(...), db: AsyncSess
     await db.commit()
     return {"message": f"Extraído {len(lines)} itens do arquivo {file.filename}"}
 
+@router.get("/knowledge-bases/{kb_id}/export")
+async def export_knowledge_base(kb_id: int, db: AsyncSession = Depends(get_db), _: None = Depends(verify_api_key)):
+    result = await db.execute(
+        select(KnowledgeBaseModel)
+        .where(KnowledgeBaseModel.id == kb_id)
+        .options(selectinload(KnowledgeBaseModel.items))
+    )
+    kb = result.scalars().first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Base de conhecimento não encontrada")
+    
+    export_data = {
+        "name": kb.name,
+        "description": kb.description,
+        "kb_type": kb.kb_type,
+        "question_label": kb.question_label,
+        "answer_label": kb.answer_label,
+        "metadata_label": kb.metadata_label,
+        "version": "1.0",
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "items": [
+            {
+                "question": item.question,
+                "answer": item.answer,
+                "category": item.category,
+                "metadata_val": item.metadata_val
+            }
+            for item in (kb.items or [])
+        ]
+    }
+    
+    filename = f"base_conhecimento_{kb_id}.json"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=json.dumps(export_data, ensure_ascii=False, indent=2), media_type="application/json", headers=headers)
+
+@router.post("/knowledge-bases/{kb_id}/import")
+async def import_knowledge_base_items(
+    kb_id: int, 
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db), 
+    _: None = Depends(verify_api_key)
+):
+    result = await db.execute(select(KnowledgeBaseModel).where(KnowledgeBaseModel.id == kb_id))
+    kb = result.scalars().first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Base de conhecimento não encontrada")
+    
+    raw_data = None
+    if file:
+        content = await file.read()
+        try:
+            raw_data = json.loads(content.decode("utf-8"))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Arquivo JSON inválido: {str(e)}")
+    else:
+        try:
+            body = await request.body()
+            if body:
+                raw_data = json.loads(body.decode("utf-8"))
+        except Exception:
+            pass
+            
+    if not raw_data:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo ou JSON fornecido.")
+        
+    items_data = raw_data.get("items") if isinstance(raw_data, dict) and "items" in raw_data else (raw_data if isinstance(raw_data, list) else [])
+    if not items_data or not isinstance(items_data, list):
+        raise HTTPException(status_code=400, detail="Formato inválido. O JSON deve conter um array 'items' ou uma lista de itens.")
+    
+    valid_items = []
+    for item in items_data:
+        if not isinstance(item, dict):
+            continue
+        q = item.get("question") or item.get("pergunta") or item.get("title") or ""
+        a = item.get("answer") or item.get("resposta") or item.get("content") or ""
+        cat = item.get("category") or item.get("categoria") or "Geral"
+        meta = item.get("metadata_val") or item.get("metadata") or ""
+        if q and a:
+            valid_items.append({"question": q, "answer": a, "category": cat, "metadata_val": meta})
+            
+    if not valid_items:
+        raise HTTPException(status_code=400, detail="Nenhum item válido com 'pergunta' e 'resposta' encontrado no arquivo.")
+        
+    questions = [i["question"] for i in valid_items]
+    try:
+        embeddings, _ = await get_batch_embeddings(questions)
+    except Exception as e:
+        logger.warning(f"Falha ao gerar batch embeddings no import: {e}. Usando fallback item a item.")
+        embeddings = []
+        for q in questions:
+            try:
+                emb, _ = await get_embedding(q)
+                embeddings.append(emb)
+            except Exception:
+                embeddings.append(None)
+                
+    imported_count = 0
+    for idx, item in enumerate(valid_items):
+        emb = embeddings[idx] if idx < len(embeddings) else None
+        db_item = KnowledgeItemModel(
+            knowledge_base_id=kb_id,
+            question=item["question"],
+            answer=item["answer"],
+            category=item["category"],
+            metadata_val=item["metadata_val"],
+            embedding=emb
+        )
+        db.add(db_item)
+        imported_count += 1
+        
+    await db.commit()
+    return {"message": f"Importação concluída! {imported_count} itens adicionados.", "imported_count": imported_count}
+
+@router.post("/knowledge-bases/import-new", response_model=KnowledgeBase)
+async def import_new_knowledge_base(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_api_key)
+):
+    content = await file.read()
+    try:
+        raw_data = json.loads(content.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Arquivo JSON inválido: {str(e)}")
+        
+    if not isinstance(raw_data, dict):
+        raise HTTPException(status_code=400, detail="O JSON de importação de nova base deve conter um objeto com os dados da base.")
+        
+    base_name = raw_data.get("name") or f"Base Importada {time.strftime('%d/%m/%Y %H:%M')}"
+    res = await db.execute(select(KnowledgeBaseModel).where(KnowledgeBaseModel.name == base_name))
+    if res.scalars().first():
+        base_name = f"{base_name} ({time.strftime('%H%M%S')})"
+        
+    db_kb = KnowledgeBaseModel(
+        name=base_name,
+        description=raw_data.get("description") or "Base criada via importação completa de JSON.",
+        kb_type=raw_data.get("kb_type") or "qa",
+        question_label=raw_data.get("question_label") or "Pergunta",
+        answer_label=raw_data.get("answer_label") or "Resposta",
+        metadata_label=raw_data.get("metadata_label") or "Metadado"
+    )
+    db.add(db_kb)
+    await db.commit()
+    await db.refresh(db_kb)
+    
+    items_data = raw_data.get("items", [])
+    valid_items = []
+    for item in items_data:
+        if isinstance(item, dict):
+            q = item.get("question") or item.get("pergunta") or ""
+            a = item.get("answer") or item.get("resposta") or ""
+            cat = item.get("category") or item.get("categoria") or "Geral"
+            meta = item.get("metadata_val") or item.get("metadata") or ""
+            if q and a:
+                valid_items.append({"question": q, "answer": a, "category": cat, "metadata_val": meta})
+                
+    if valid_items:
+        questions = [i["question"] for i in valid_items]
+        try:
+            embeddings, _ = await get_batch_embeddings(questions)
+        except Exception as e:
+            logger.warning(f"Batch embedding fallback no import-new: {e}")
+            embeddings = [None] * len(questions)
+            
+        for idx, item in enumerate(valid_items):
+            emb = embeddings[idx] if idx < len(embeddings) else None
+            db.add(KnowledgeItemModel(
+                knowledge_base_id=db_kb.id,
+                question=item["question"],
+                answer=item["answer"],
+                category=item["category"],
+                metadata_val=item["metadata_val"],
+                embedding=emb
+            ))
+        await db.commit()
+        
+    result = await db.execute(
+        select(KnowledgeBaseModel)
+        .where(KnowledgeBaseModel.id == db_kb.id)
+        .options(selectinload(KnowledgeBaseModel.items))
+    )
+    return result.scalars().one()
+
 # --- KNOWLEDGE ITEM ENDPOINTS ---
 
 @router.post("/knowledge-bases/{kb_id}/items", response_model=KnowledgeItem)

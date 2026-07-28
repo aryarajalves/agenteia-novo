@@ -28,6 +28,7 @@ def db_to_pydantic_agent(a: AgentConfigModel) -> AgentConfig:
         knowledge_base=json.loads(a.knowledge_base) if a.knowledge_base else [],
         knowledge_base_id=a.knowledge_base_id,
         knowledge_base_ids=[kb.id for kb in a.knowledge_bases],
+        knowledge_bases=[{"id": kb.id, "name": kb.name} for kb in a.knowledge_bases],
         rag_retrieval_count=a.rag_retrieval_count,
         rag_translation_enabled=a.rag_translation_enabled,
         rag_multi_query_enabled=a.rag_multi_query_enabled,

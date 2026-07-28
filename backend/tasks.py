@@ -575,3 +575,35 @@ def trigger_manual_backup():
         logger.error(f"[ManualBackup] Erro ao disparar backup manual: {e}")
     finally:
         db.close()
+
+
+@app.task(name="tasks.rescue_stuck_waiting_events")
+def rescue_stuck_waiting_events():
+    """Busca eventos em status 'waiting' cujo scheduled_at já passou e re-agenda o processamento."""
+    db = SessionLocal()
+    try:
+        from core.timezone import get_now_br
+        from webhook_tasks import process_webhook_automation
+        
+        now = get_now_br()
+        # Buscar eventos com status waiting que deveriam ter rodado
+        events = db.query(WebhookEventModel).filter(
+            WebhookEventModel.status == "waiting",
+            WebhookEventModel.scheduled_at <= now
+        ).all()
+        
+        if not events:
+            return
+            
+        logger.info(f"📍 [Rescue System] Encontrados {len(events)} eventos pendentes/travados para resgate.")
+        
+        for event in events:
+            logger.info(f"📍 [Rescue System] Resgatando evento {event.id} para telefone {event.telefone}")
+            # Despachar a execução da automação via Celery imediatamente
+            process_webhook_automation.delay(event.id)
+            
+    except Exception as e:
+        logger.error(f"Erro na execução da tarefa de resgate periódico: {e}")
+    finally:
+        db.close()
+

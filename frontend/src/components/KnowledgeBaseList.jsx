@@ -45,6 +45,50 @@ function KnowledgeBaseList() {
         fetchBases();
     }, []);
 
+    const handleExportJSON = async (e, baseId) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+            const res = await api.get(`/knowledge-bases/${baseId}/export`);
+            if (!res.ok) throw new Error('Falha ao exportar base.');
+            const data = await res.json();
+            const jsonStr = JSON.stringify(data, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `base_conhecimento_${baseId}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            window.dispatchEvent(new CustomEvent('app:toast', { detail: { message: 'Base exportada com sucesso!', type: 'success' } }));
+        } catch (err) {
+            console.error('Erro ao exportar:', err);
+            window.dispatchEvent(new CustomEvent('app:toast', { detail: { message: 'Erro ao exportar base.', type: 'error' } }));
+        }
+    };
+
+    const handleImportNewJSON = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        e.target.value = '';
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const res = await api.post('/knowledge-bases/import-new', formData);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.detail || 'Erro ao importar nova base.');
+            }
+            window.dispatchEvent(new CustomEvent('app:toast', { detail: { message: 'Nova base importada com sucesso!', type: 'success' } }));
+            fetchBases();
+        } catch (err) {
+            console.error('Erro na importação:', err);
+            window.dispatchEvent(new CustomEvent('app:toast', { detail: { message: err.message || 'Falha ao importar nova base.', type: 'error' } }));
+        }
+    };
+
     const handleDeleteClick = (e, id, name) => {
         e.preventDefault();
         setModalConfig({ isOpen: true, baseId: id, baseName: name });
@@ -140,9 +184,15 @@ function KnowledgeBaseList() {
                     </p>
                 </div>
                 {activeTab !== 'inbox' && (
-                    <Link to="/knowledge-bases/new" className="create-agent-btn-shiny">
-                        <span>+</span> Nova Base
-                    </Link>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                        <label className="create-agent-btn" style={{ cursor: 'pointer', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'white', display: 'flex', alignItems: 'center', gap: '6px', padding: '0.8rem 1.2rem', borderRadius: '12px', fontSize: '0.9rem', fontWeight: 700 }}>
+                            <span>📥</span> Importar Base (JSON)
+                            <input type="file" accept=".json" onChange={handleImportNewJSON} style={{ display: 'none' }} />
+                        </label>
+                        <Link to="/knowledge-bases/new" className="create-agent-btn-shiny">
+                            <span>+</span> Nova Base
+                        </Link>
+                    </div>
                 )}            </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
@@ -420,6 +470,14 @@ function KnowledgeBaseList() {
                                         <Link to={`/knowledge-bases/${base.id}?view=content`} className="access-btn">
                                             Editar Conteúdo
                                         </Link>
+                                        <button
+                                            onClick={(e) => handleExportJSON(e, base.id)}
+                                            className="delete-btn"
+                                            style={{ background: 'rgba(255,255,255,0.05)', color: '#818cf8' }}
+                                            title="Exportar Base (JSON)"
+                                        >
+                                            📤
+                                        </button>
                                         <Link 
                                             to={`/knowledge-bases/${base.id}?view=metadata`} 
                                             className="delete-btn" 

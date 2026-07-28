@@ -18,12 +18,12 @@
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background: rgba(15, 23, 42, 0.4);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 24px;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
     overflow: hidden;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
 }
 
 /* Área Principal do Chat */
@@ -112,12 +112,12 @@
 
 .input-container-premium {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 1rem;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 20px;
-    padding: 0.75rem 1.25rem;
+    padding: 0.5rem 1.25rem;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -186,6 +186,25 @@
 .btn-send-modern:hover {
     transform: scale(1.05);
     box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+}
+
+/* Modal de Editor Expandido */
+.modal-backdrop-expanded-editor {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.8) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    z-index: 999999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 2rem !important;
 }
 
 /* Loading Overlay */
@@ -408,10 +427,80 @@
     color: #fca5a5;
 }
 
-.toast-notification.info {
-    background: rgba(99, 102, 241, 0.15);
-    border-color: rgba(99, 102, 241, 0.3);
+/* Container de Input Expandido em Tempo Real */
+.chat-input-wrapper-modern.expanded-mode {
+    padding: 1rem 1.5rem;
+}
+
+.input-container-premium.is-expanded {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid #6366f1;
+    box-shadow: 0 0 25px rgba(99, 102, 241, 0.25), inset 0 1px 2px rgba(255, 255, 255, 0.1);
+    border-radius: 18px;
+    padding: 1rem 1.25rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.expanded-input-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.expanded-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
     color: #a5b4fc;
+}
+
+.btn-minimize-input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-minimize-input:hover {
+    background: rgba(99, 102, 241, 0.2);
+    color: #f1f5f9;
+    border-color: rgba(99, 102, 241, 0.4);
+}
+
+.chat-input-premium.textarea-expanded {
+    min-height: 140px !important;
+    max-height: 260px !important;
+    font-size: 0.95rem !important;
+    line-height: 1.6 !important;
+    color: #f8fafc !important;
+}
+
+.input-toolbar-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.expanded-char-counter {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin-left: 0.5rem;
 }
 
 @keyframes toastSlideIn {

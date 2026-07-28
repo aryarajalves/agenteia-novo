@@ -357,6 +357,7 @@ class WebhookConfigModel(Base):
     leads_table = Column(String, nullable=False, default="leads")
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
+    disable_ai_responses = Column(Boolean, default=False) # Se True, salva dados/memória mas bloqueia resposta do agente de IA
     delay_seconds = Column(Integer, default=30)
     agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="SET NULL"), nullable=True)
     blocked_messages = Column(Text, nullable=True)  # JSON array of strings

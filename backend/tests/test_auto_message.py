@@ -232,3 +232,50 @@ def test_process_webhook_ignores_automatic_message(mock_build_config, mock_redis
         assert event.is_automatic is True
         # db_mock.commit deve ter sido chamado
         assert db_mock.commit.called
+
+@pytest.mark.asyncio
+async def test_pre_router_ad_click_to_chat_not_automatic():
+    """Garante que mensagens pre-configuradas de anuncio (ex: 'Olá! Quero saber mais sobre o método laser day') NAO sao tratadas como mensagem automatica de ausencia."""
+    main_agent = MagicMock(spec=AgentConfigModel)
+    main_agent.id = 1
+    main_agent.name = "Main"
+    main_agent.description = "Principal"
+    main_agent.router_simple_model = "gpt-4o-mini"
+    main_agent.initial_message = None
+    main_agent.initial_ignore_message = None
+    main_agent.system_prompt = ""
+    main_agent.dynamic_prompt = ""
+    main_agent.pre_router_prompt = ""
+    main_agent.date_awareness = False
+    main_agent.date_awareness_past_days = 7
+    main_agent.date_awareness_future_days = 7
+    main_agent.context_window = 5
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock()]
+    mock_response.choices[0].message.content = (
+        '{"eh_saudacao": true, "eh_agradecimento": false, "eh_mensagem_automatica": false, '
+        '"precisa_esclarecimento": false, "resposta_direta": "Olá! Que ótimo ver seu interesse no método Laser Day!", '
+        '"resposta_esclarecimento": null, "id_agente_alvo": 1, "perguntas_extraidas": "método laser day", "data_extraida": null, "precisa_rag": true}'
+    )
+    mock_response.usage = MagicMock()
+    mock_response.usage.prompt_tokens = 10
+    mock_response.usage.completion_tokens = 5
+    mock_response.usage.total_tokens = 15
+
+    with patch("os.getenv", return_value="fake-key"):
+        with patch("openai.AsyncOpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+            result = await run_pre_router_ai(
+                "Olá! Quero saber mais sobre o método laser day",
+                [],
+                main_agent,
+                []
+            )
+
+            assert result["eh_mensagem_automatica"] is False
+            assert result["precisa_rag"] is True
+

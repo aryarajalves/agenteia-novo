@@ -53,10 +53,24 @@ export const KBProvider = ({ children, initialKB, kbId, kbType, onAdd, onDelete,
         fetchKbData();
     }, [kbId]);
 
+    const reloadKnowledgeBase = async () => {
+        if (!kbId) return;
+        try {
+            const res = await api.get(`/knowledge-bases/${kbId}`);
+            if (res.ok) {
+                const data = await res.json();
+                setKnowledgeBase(data.items || []);
+            }
+        } catch (e) {
+            console.error("Erro ao recarregar a KB:", e);
+        }
+    };
+
     const value = {
         kbId,
         kbType,
         knowledgeBase, setKnowledgeBase,
+        reloadKnowledgeBase,
         kbLabels, setKbLabels,
         currentPage, setCurrentPage,
         itemsPerPage, setItemsPerPage,

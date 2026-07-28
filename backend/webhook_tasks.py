@@ -168,8 +168,18 @@ def process_webhook_automation(self, event_id: int):
 
         event.status = "processing"
         db.commit()
+
+        is_simulated = False
+        if event.raw_payload:
+            try:
+                import json as _json
+                p_data = _json.loads(event.raw_payload)
+                if isinstance(p_data, dict) and p_data.get("simulated"):
+                    is_simulated = True
+            except Exception:
+                pass
         
-        _add_step(db, event_id, "🚀 Iniciando Pipeline", "A tarefa de automação foi iniciada pelo worker.")
+        _add_step(db, event_id, "🚀 Iniciando Pipeline", "A tarefa de automação foi iniciada pelo worker." + (" (Modo Simulação MOCK)" if is_simulated else ""))
 
         config = db.query(WebhookConfigModel).filter(WebhookConfigModel.id == event.webhook_config_id).first()
         if not config:
@@ -318,6 +328,14 @@ def process_webhook_automation(self, event_id: int):
                 logger.error(f"Erro ao verificar trap de automação: {e}")
                 _add_step(db, event_id, "🔍 Aviso: Trap Ignorado", f"Erro ao verificar lead: {str(e)}")
 
+        # --- MODO SILENCIOSO (DESATIVAR RESPOSTAS DA IA) ---
+        if getattr(config, "disable_ai_responses", False) is True:
+            _add_step(db, event_id, "🤐 Modo Silencioso Ativo", "Mensagem e dados persistidos com sucesso na memória. Resposta automática de IA pausada por opção da integração.")
+            event = db.query(WebhookEventModel).filter(WebhookEventModel.id == event_id).first()
+            event.status = "ignored_silent"
+            db.commit()
+            return
+
         agent_config = _build_agent_config(db_agent)
         _add_step(db, event_id, "🤖 Conectando ao agente", f"Agente: {db_agent.name}")
 
@@ -366,17 +384,30 @@ def process_webhook_automation(self, event_id: int):
                     except Exception as e:
                         logger.error(f"Erro ao carregar agentes secundarios: {e}")
                 
-                _add_step(db, event_id, "🧠 Analisando Intenção (Pre-Router)", "A IA está decidindo o roteamento e entendendo o contexto da mensagem...")
-                db.commit()
-                
-                pre_router_result = await run_pre_router_ai(
-                    mensagem, 
-                    history, 
-                    db_agent, 
-                    secondary_agents,
-                    context_variables={"session_id": session_id},
-                    db=db
-                )
+                if is_simulated:
+                    _add_step(db, event_id, "🧠 Analisando Intenção (Pre-Router MOCK)", "Simulando análise de intenção e roteamento sem consumo de tokens de API...")
+                    pre_router_result = {
+                        "eh_saudacao": False,
+                        "eh_mensagem_automatica": False,
+                        "eh_anuncio": False,
+                        "precisa_rag": False,
+                        "decisao": "Encaminhar para o agente de IA principal (Simulação MOCK)",
+                        "_model_used": "gpt-4o-mini (MOCK)",
+                        "_usage": {"prompt_tokens": 85, "completion_tokens": 30, "total_tokens": 115},
+                        "_debug_prompt": "[MOCK PRE-ROUTER PROMPT] Análise de intenção simulada para teste de carga."
+                    }
+                else:
+                    _add_step(db, event_id, "🧠 Analisando Intenção (Pre-Router)", "A IA está decidindo o roteamento e entendendo o contexto da mensagem...")
+                    db.commit()
+                    
+                    pre_router_result = await run_pre_router_ai(
+                        mensagem, 
+                        history, 
+                        db_agent, 
+                        secondary_agents,
+                        context_variables={"session_id": session_id},
+                        db=db
+                    )
                 
                 # Se for mensagem automática, salva o estado no banco de dados do evento e ignora
                 if pre_router_result.get("eh_mensagem_automatica"):
@@ -770,29 +801,43 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
                         "output": tool_result
                     })
                     
-                result = await process_message(
-                    message=mensagem,
-                    history=history,
-                    config=final_agent_config,
-                    tools=final_db_agent_tools,
-                    context_variables={
-                        "account_id": int(event.conta_id) if event.conta_id and str(event.conta_id).isdigit() else 0,
-                        "conversation_id": int(event.conversa_id) if event.conversa_id and str(event.conversa_id).isdigit() else 0,
-                        "webhook_config_id": event.webhook_config_id,
-                        "contact_phone": event.telefone,
-                        "contact_name": event.contato_nome,
-                        "thread_id": event.conversa_id,
-                        "session_id": session_id,
-                        "leads_table": config.leads_table if config else None,
-                        "dias_desde_criacao": (get_now_utc() - (lead_created_at if lead_created_at.tzinfo else lead_created_at.replace(tzinfo=timezone.utc))).days if 'lead_created_at' in locals() and lead_created_at else 0
-                    },
+                if is_simulated:
+                    _add_step(db, event_id, "🤖 Chamada ao Agente de IA (MOCK)", "Gerando resposta simulada sem consumo de tokens reais da OpenAI...")
+                    mock_resp_text = f"[MOCK IA] Olá {event.contato_nome or 'Cliente'}! Recebi sua mensagem: '{mensagem}'. Resposta simulada para teste de carga em escala."
+                    result = {
+                        "content": mock_resp_text,
+                        "model": "gpt-4o-mini (MOCK)",
+                        "usage": {"prompt_tokens": 120, "completion_tokens": 45, "total_tokens": 165},
+                        "debug": {
+                            "resolved_prompt": getattr(final_agent_config, 'system_prompt', ''),
+                            "rag_context": pre_executed_rag_context or "",
+                            "tool_calls": []
+                        }
+                    }
+                else:
+                    result = await process_message(
+                        message=mensagem,
+                        history=history,
+                        config=final_agent_config,
+                        tools=final_db_agent_tools,
+                        context_variables={
+                            "account_id": int(event.conta_id) if event.conta_id and str(event.conta_id).isdigit() else 0,
+                            "conversation_id": int(event.conversa_id) if event.conversa_id and str(event.conversa_id).isdigit() else 0,
+                            "webhook_config_id": event.webhook_config_id,
+                            "contact_phone": event.telefone,
+                            "contact_name": event.contato_nome,
+                            "thread_id": event.conversa_id,
+                            "session_id": session_id,
+                            "leads_table": config.leads_table if config else None,
+                            "dias_desde_criacao": (get_now_utc() - (lead_created_at if lead_created_at.tzinfo else lead_created_at.replace(tzinfo=timezone.utc))).days if 'lead_created_at' in locals() and lead_created_at else 0
+                        },
 
-                    db=async_db,
-                    image_url=image_url,
-                    on_step=lambda step, detail: _add_step(db, event_id, step, detail),
-                    pre_executed_tool_calls=pre_executed_tool_calls,
-                    pre_executed_rag_context=pre_executed_rag_context
-                )
+                        db=async_db,
+                        image_url=image_url,
+                        on_step=lambda step, detail: _add_step(db, event_id, step, detail),
+                        pre_executed_tool_calls=pre_executed_tool_calls,
+                        pre_executed_rag_context=pre_executed_rag_context
+                    )
                 
                 if isinstance(result, dict) and "usage" in result and pre_router_result and "_usage" in pre_router_result:
                     pr_u = pre_router_result["_usage"]
@@ -811,7 +856,17 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
         ai_metadata = {}
 
         try:
-            result = asyncio.run(_run())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    result = executor.submit(lambda: asyncio.run(_run())).result()
+            else:
+                result = asyncio.run(_run())
         except Exception as ai_err:
             logger.error(f"❌ Erro crítico na execução da IA: {ai_err}")
             _add_step(db, event_id, "❌ Falha na IA", f"Ocorreu um erro ao processar a mensagem com o agente: {str(ai_err)}")
@@ -960,7 +1015,10 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
         response_delay = getattr(config, 'response_delay_seconds', 0) or 0
         
         send_success = True
-        if response_text and event.conversa_id and event.conta_id:
+        if is_simulated:
+            _add_step(db, event_id, "📤 Resposta Final Enviada (MOCK)", f"Mensagem simulada enviada com sucesso no ambiente MOCK:\n\n{response_text}")
+            send_success = True
+        elif response_text and event.conversa_id and event.conta_id:
             split_enabled = getattr(config, 'split_response_enabled', True)
             if split_enabled is None:
                 split_enabled = True

@@ -177,33 +177,33 @@ const MessageBubble = ({
                             {msg.metrics.input_tokens !== undefined ? (
                                 <>
                                     <span className="meta-pill input-tokens-pill" title="Tokens de Entrada Cobrados">
-                                        📥 {(msg.metrics.input_tokens - (msg.metrics.cached_tokens || 0)).toLocaleString()} IN
+                                        📥 {((msg.metrics.input_tokens || 0) - (msg.metrics.cached_tokens || 0)).toLocaleString()} IN
                                     </span>
                                     {msg.metrics.cached_tokens ? (
                                         <span className="meta-pill cached-tokens-pill" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)' }} title="Tokens vindos do cache (Prompt Caching)">
-                                            💾 {msg.metrics.cached_tokens.toLocaleString()} CACHED
+                                            💾 {(msg.metrics.cached_tokens || 0).toLocaleString()} CACHED
                                         </span>
                                     ) : null}
                                     <span className="meta-pill output-tokens-pill" title="Tokens de Saída (Resposta da IA)">
-                                        📤 {msg.metrics.output_tokens.toLocaleString()} OUT
+                                        📤 {(msg.metrics.output_tokens || 0).toLocaleString()} OUT
                                     </span>
                                     <span className="meta-pill tokens-pill total" title="Total de Tokens consumidos">
-                                        ⚡ {msg.metrics.tokens.toLocaleString()} TOTAL
+                                        ⚡ {(msg.metrics.tokens || 0).toLocaleString()} TOTAL
                                     </span>
                                     {msg.metrics.cost !== undefined && (
                                         <span className="meta-pill cost-pill" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308' }} title="Custo estimado desta resposta em BRL">
-                                            💰 R$ {(msg.metrics.cost + (explanationData?.cost_brl || 0) + (debateCostBrl || 0)).toFixed(4)}
+                                            💰 R$ {((msg.metrics.cost || 0) + (explanationData?.cost_brl || 0) + (debateCostBrl || 0)).toFixed(4)}
                                         </span>
                                     )}
                                     {msg.metrics.response_time_ms !== undefined && (
                                         <span className="meta-pill time-pill" style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8' }} title="Tempo total de processamento">
-                                            ⏱️ {(msg.metrics.response_time_ms / 1000).toFixed(2)}s
+                                            ⏱️ {((msg.metrics.response_time_ms || 0) / 1000).toFixed(2)}s
                                         </span>
                                     )}
                                 </>
                             ) : (
                                 <>
-                                    <span className="meta-pill tokens-pill">⚡ {msg.metrics.tokens.toLocaleString()} toks</span>
+                                    <span className="meta-pill tokens-pill">⚡ {(msg.metrics.tokens || 0).toLocaleString()} toks</span>
                                     {msg.metrics.cost !== undefined && (
                                         <span className="meta-pill cost-pill" style={{ background: 'rgba(234, 179, 8, 0.15)', color: '#eab308' }}>
                                             💰 R$ {(msg.metrics.cost + (explanationData?.cost_brl || 0) + (debateCostBrl || 0)).toFixed(4)}
@@ -289,7 +289,28 @@ const MessageBubble = ({
                         msg.debug ? (
                             <div className="debug-panel">
                                 <h5 style={{ margin: '0 0 10px 0', color: '#fbbf24' }}>🧠 Raio-X do Pensamento</h5>
-                                <TimelineView debug={msg.debug} />
+                                <TimelineView 
+                                    debug={msg.debug} 
+                                    onOpenPreRouterDecision={msg.debug?.pre_router ? () => {
+                                        setActivePreRouterTab('classifications');
+                                        setActiveModal({
+                                            title: "Decisão do Pre-Router",
+                                            content: JSON.stringify(
+                                                Object.fromEntries(Object.entries(msg.debug.pre_router).filter(([k]) => !k.startsWith('_'))), 
+                                                null, 2
+                                            ),
+                                            type: "pre_router",
+                                            rawData: msg.debug.pre_router
+                                        });
+                                    } : null}
+                                    onOpenPreRouterPrompt={msg.debug?.pre_router?._debug_prompt ? () => {
+                                        setActiveModal({
+                                            title: "Prompt do Pre-Router",
+                                            content: msg.debug.pre_router._debug_prompt,
+                                            type: "pre_router_prompt"
+                                        });
+                                    } : null}
+                                />
                                 {msg.debug.rag_items && msg.debug.rag_items.length > 0 ? (
                                     <div className="debug-section">
                                         <strong>📚 Fontes Recuperadas (RAG):</strong>
@@ -337,44 +358,6 @@ const MessageBubble = ({
                                         <pre>{msg.debug.rag_context}</pre>
                                     </div>
                                 )}
-                                 {msg.debug.pre_router && (
-                                     <div className="debug-section" style={{ borderLeft: '3px solid #fbbf24', paddingLeft: '10px', marginBottom: '20px' }}>
-                                         <strong style={{ color: '#fbbf24' }}>🧠 Classificador Inicial (Pre-Router)</strong>
-                                         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                             <button
-                                                 onClick={() => {
-                                                     setActivePreRouterTab('classifications');
-                                                     setActiveModal({
-                                                         title: "Decisão do Pre-Router",
-                                                         content: JSON.stringify(
-                                                             Object.fromEntries(Object.entries(msg.debug.pre_router).filter(([k]) => !k.startsWith('_'))), 
-                                                             null, 2
-                                                         ),
-                                                         type: "pre_router",
-                                                         rawData: msg.debug.pre_router
-                                                     });
-                                                 }}
-                                                 style={buttonStyle}
-                                                 className="playground-action-btn"
-                                             >
-                                                 🧠 Ver Decisão do Pre-Router
-                                             </button>
-                                             {msg.debug.pre_router._debug_prompt && (
-                                                 <button
-                                                     onClick={() => setActiveModal({
-                                                         title: "Prompt do Pre-Router",
-                                                         content: msg.debug.pre_router._debug_prompt,
-                                                         type: "pre_router_prompt"
-                                                     })}
-                                                     style={buttonStyle}
-                                                     className="playground-action-btn"
-                                                 >
-                                                     📄 Ver Prompt do Pre-Router
-                                                 </button>
-                                             )}
-                                         </div>
-                                     </div>
-                                 )}
 
                                  {msg.debug.resolved_prompt && (
                                      <div className="debug-section" style={{ borderLeft: '3px solid #4ade80', paddingLeft: '10px', marginTop: '20px' }}>

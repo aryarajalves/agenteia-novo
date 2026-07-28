@@ -1,4 +1,15 @@
-.playground-sidebar { width: 320px; flex-shrink: 0; background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(12px); border-radius: 20px; display: flex; flex-direction: column; border: 1px solid rgba(255,255,255,0.05); overflow: hidden; }
+.playground-sidebar { 
+    width: 320px; 
+    flex-shrink: 0; 
+    background: transparent !important; 
+    backdrop-filter: none !important; 
+    border: none !important; 
+    border-radius: 0 !important; 
+    display: flex; 
+    flex-direction: column; 
+    box-shadow: none !important; 
+    overflow: hidden; 
+}
 
 .sidebar-tabs { 
     display: flex; 

@@ -142,6 +142,7 @@ const EditWebhookModal = ({
         delay_seconds: 30,
         response_delay_seconds: 0,
         split_response_enabled: true,
+        disable_ai_responses: false,
         process_audio: false,
         process_image: false,
         followup_enabled: false,
@@ -317,6 +318,19 @@ const EditWebhookModal = ({
                                                 <div className="switch-knob" />
                                             </button>
                                         </div>
+                                    </div>
+
+                                    <div className="control-item" style={{ marginTop: '1rem', padding: '1rem', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                                        <div className="control-info">
+                                            <div className="control-title">🤐 Modo Silencioso (Desativar IA)</div>
+                                            <div className="control-desc">Salva contatos e histórico na memória, mas bloqueia o envio de respostas da IA</div>
+                                        </div>
+                                        <button type="button"
+                                            onClick={() => setEditForm({ ...safeEditForm, disable_ai_responses: !safeEditForm.disable_ai_responses })}
+                                            className={`premium-switch ${safeEditForm.disable_ai_responses ? 'active' : ''}`}
+                                        >
+                                            <div className="switch-knob" />
+                                        </button>
                                     </div>
 
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>

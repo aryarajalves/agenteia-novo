@@ -415,15 +415,15 @@ const AutomationPipelineModal = ({
                                                 {step.metadata.usage && (
                                                     <>
                                                         <span style={{ fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 10px', borderRadius: '6px', fontWeight: 800 }} title="Total de tokens consumidos">
-                                                            💎 {step.metadata.usage.total_tokens.toLocaleString()} tokens
+                                                            💎 {(step.metadata.usage.total_tokens || 0).toLocaleString()} tokens
                                                         </span>
                                                         {step.metadata.usage.cached_tokens ? (
                                                             <>
                                                                 <span style={{ fontSize: '0.7rem', background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '4px 10px', borderRadius: '6px', fontWeight: 800 }} title="Tokens de cache (Prompt Caching)">
-                                                                    💾 {step.metadata.usage.cached_tokens.toLocaleString()} CACHED
+                                                                    💾 {(step.metadata.usage.cached_tokens || 0).toLocaleString()} CACHED
                                                                 </span>
                                                                 <span style={{ fontSize: '0.7rem', background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', padding: '4px 10px', borderRadius: '6px', fontWeight: 800 }} title="Tokens de entrada efetivamente cobrados">
-                                                                    📥 {(step.metadata.usage.prompt_tokens - step.metadata.usage.cached_tokens).toLocaleString()} IN Cobrado
+                                                                    📥 {((step.metadata.usage.prompt_tokens || 0) - (step.metadata.usage.cached_tokens || 0)).toLocaleString()} IN Cobrado
                                                                 </span>
                                                             </>
                                                         ) : null}
@@ -431,7 +431,7 @@ const AutomationPipelineModal = ({
                                                 )}
                                                 {step.metadata.cost > 0 && (
                                                     <span style={{ fontSize: '0.7rem', background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '4px 10px', borderRadius: '6px', fontWeight: 800 }}>
-                                                        💰 R$ {step.metadata.cost.toFixed(2)}
+                                                        💰 R$ {(step.metadata.cost || 0).toFixed(2)}
                                                     </span>
                                                 )}
                                             </div>

@@ -11,13 +11,22 @@ def mock_embeddings(monkeypatch):
                 self.total_tokens = 10
                 self.prompt_tokens = 5
                 self.completion_tokens = 5
-        # Retorna 1536 zeros (Conforme definido em models.py)
         return [0.0] * 1536, MockUsage()
+
+    async def mock_get_batch_emb(texts):
+        class MockUsage:
+            def __init__(self):
+                self.total_tokens = 10
+                self.prompt_tokens = 5
+                self.completion_tokens = 5
+        return [[0.0] * 1536 for _ in texts], MockUsage()
     
     import rag_service
-    import main
+    import api.routers.knowledge as knowledge_router
     monkeypatch.setattr(rag_service, "get_embedding", mock_get_emb)
-    monkeypatch.setattr(main, "get_embedding", mock_get_emb)
+    monkeypatch.setattr(knowledge_router, "get_embedding", mock_get_emb)
+    monkeypatch.setattr(rag_service, "get_batch_embeddings", mock_get_batch_emb)
+    monkeypatch.setattr(knowledge_router, "get_batch_embeddings", mock_get_batch_emb)
 
 @pytest.mark.asyncio
 async def test_create_knowledge_base(client: AsyncClient):
@@ -145,3 +154,56 @@ async def test_propose_merge(client: AsyncClient, monkeypatch):
     merge_res = await client.post(f"/knowledge-bases/{kb_id}/propose-merge", json={"item_ids": ids})
     assert merge_res.status_code == 200
     assert merge_res.json()["proposed"]["question"] == "Mesclado"
+
+@pytest.mark.asyncio
+async def test_export_knowledge_base(client: AsyncClient):
+    kbid = int(time.time() + 500)
+    kb_res = await client.post("/knowledge-bases", json={"name": f"Export Test {kbid}", "description": "Export test desc"})
+    kb_id = kb_res.json()["id"]
+    await client.post(f"/knowledge-bases/{kb_id}/items", json={"question": "Q Export", "answer": "A Export", "category": "Test"})
+    
+    export_res = await client.get(f"/knowledge-bases/{kb_id}/export")
+    assert export_res.status_code == 200
+    data = export_res.json()
+    assert data["name"] == f"Export Test {kbid}"
+    assert len(data["items"]) == 1
+    assert data["items"][0]["question"] == "Q Export"
+
+@pytest.mark.asyncio
+async def test_import_knowledge_base_items(client: AsyncClient):
+    kbid = int(time.time() + 600)
+    kb_res = await client.post("/knowledge-bases", json={"name": f"Import Items Test {kbid}"})
+    kb_id = kb_res.json()["id"]
+    
+    payload = {
+        "items": [
+            {"question": "Imp Q1", "answer": "Imp A1", "category": "General"},
+            {"question": "Imp Q2", "answer": "Imp A2", "category": "General"}
+        ]
+    }
+    import_res = await client.post(f"/knowledge-bases/{kb_id}/import", json=payload)
+    assert import_res.status_code == 200
+    assert import_res.json()["imported_count"] == 2
+
+@pytest.mark.asyncio
+async def test_import_new_knowledge_base(client: AsyncClient):
+    import json
+    import io
+    kbid = int(time.time() + 700)
+    json_data = {
+        "name": f"New Base Import {kbid}",
+        "description": "Imported KB description",
+        "kb_type": "qa",
+        "items": [
+            {"question": "New KB Q1", "answer": "New KB A1", "category": "NewCat"}
+        ]
+    }
+    file_bytes = json.dumps(json_data).encode("utf-8")
+    files = {"file": ("test_import.json", io.BytesIO(file_bytes), "application/json")}
+    res = await client.post("/knowledge-bases/import-new", files=files)
+    assert res.status_code == 200
+    res_json = res.json()
+    assert res_json["name"] == f"New Base Import {kbid}"
+    assert len(res_json["items"]) == 1
+    assert res_json["items"][0]["question"] == "New KB Q1"
+

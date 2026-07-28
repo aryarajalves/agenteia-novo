@@ -167,7 +167,11 @@ async def process_message(
         system_prompt = re.sub(r'(?m)^[ \t]*#+[ \t]*', '', system_prompt)
     system_prompt += "\n\n⚠️ **REGRA DE OURO:** Não use 'IA', 'Robô', 'Suporte Humano'. Use 'especialista', 'equipe'."
     system_prompt += "\n\n🚨 **PRIORIDADE DE RESPOSTA (SEGUIR À RISCA):**"
-    system_prompt += "\n1. Se o usuário fizer uma pergunta sobre algo que NÃO esteja no seu PROMPT DE SISTEMA (as diretrizes/conhecimento descritos acima), no seu conhecimento (RAG) ou nas 'INSTRUÇÕES ADICIONAIS' (Inbox), use OBRIGATORIAMENTE a ferramenta 'registrar_duvida_sem_resposta' e diga que vai verificar com a equipe. No entanto, se houver informações intimamente correlacionadas no prompt (por exemplo, se o usuário perguntar sobre o preço/compra de um equipamento, mas o prompt descrever apenas o aluguel/locação do mesmo), você DEVE responder com confiança de forma contextual e informativa explicando o funcionamento do modelo de negócio disponível (ex: esclarecer que trabalhamos com locação/aluguel e informar as condições de aluguel descritas). Apenas chame a ferramenta 'registrar_duvida_sem_resposta' se o usuário insistir em detalhes que realmente não constam no prompt ou se o assunto for inteiramente desconhecido."
+    system_prompt += "\n1. Se o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre algo que NÃO esteja no seu PROMPT DE SISTEMA, no seu conhecimento (RAG) ou nas 'INSTRUÇÕES ADICIONAIS' (Inbox) — por exemplo, um endereço físico específico não informado, horário de evento não cadastrado, ou preço exato ausente —, use a ferramenta 'registrar_duvida_sem_resposta' e diga que vai verificar com a equipe."
+    system_prompt += "\n   ⚠️ **RESTRIÇÃO ABSOLUTA DA FERRAMENTA 'registrar_duvida_sem_resposta':**"
+    system_prompt += "\n   - É TERMINANTEMENTE PROIBIDO chamar 'registrar_duvida_sem_resposta' para objeções comerciais, medos, inseguranças do cliente (ex: 'tenho medo de não funcionar pra mim', 'já fiz 2 cursos e tenho dificuldade', 'está caro'), relatos de experiências anteriores ou perguntas gerais."
+    system_prompt += "\n   - Nesses casos de objeções, medos ou relatos, responda diretamente com empatia e com os argumentos do produto/serviço, SEM chamar a ferramenta e SEM prometer que vai verificar com a equipe."
+    system_prompt += "\n   - ⛔ **PROIBIDO INFERIR OU MENCIONAR 'GARANTIA':** É estritamente proibido entender relatos de dificuldades anteriores ou medos de alunos como um pedido de 'garantia de resultado', e é TERMINANTEMENTE PROIBIDO responder frases como 'vou verificar se existe garantia' ou 'vou verificar com a equipe sobre garantia'. Responda diretamente explicando como a metodologia ajuda na prática, acolhendo a dúvida do aluno com total empatia."
     system_prompt += "\n2. Use 'transferir_suporte_humano' APENAS se o usuário pedir EXPLICITAMENTE ('quero falar com atendente', 'me passa pra um humano', 'quero suporte humano')."
     system_prompt += "\n3. NUNCA use 'transferir_suporte_humano' apenas porque você não sabe a resposta. Para isso existe a regra 1."
     system_prompt += "\n4. NUNCA invente nomes de membros da equipe ou clientes. Se a pessoa citada não estiver no seu PROMPT DE SISTEMA, conhecimento (RAG ou Inbox), trate como dúvida (Regra 1)."
@@ -196,15 +200,17 @@ async def process_message(
     strict_rules = (
         "\n\n### REGRA DE OURO (COMPORTAMENTO OBRIGATÓRIO):\n"
         "1. Seu 'CONHECIMENTO OFICIAL' é composto por: (a) SEU PRÓPRIO PROMPT DE SISTEMA (instruções/informações de produtos descritas acima neste prompt), (b) CONTEXTO RAG e (c) INSTRUÇÕES ADICIONAIS (Inbox). Se a informação estiver em QUALQUER um desses lugares, ou se houver informação correlacionada no prompt (como explicar sobre o aluguel quando questionado sobre compra do equipamento), você DEVE responder com confiança de forma contextual e informativa.\n"
-        "2. Se a informação necessária NÃO estiver em nenhum desses locais e não for possível fornecer uma resposta contextual baseada nas regras de negócio existentes (assuntos totalmente desconhecidos ou fora de escopo), você DEVE chamar a ferramenta 'registrar_duvida_sem_resposta' antes de responder.\n"
+        "2. A ferramenta 'registrar_duvida_sem_resposta' DEVE ser chamada APENAS quando o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre dados ausentes e desconhecidos (ex: preços específicos ausentes, endereços não cadastrados, regras de negócio totalmente omissas). É PROIBIDO chamá-la para lidar com objeções, medos, inseguranças ou relatos do usuário — nesses casos, responda com empatia e com o conhecimento disponível.\n"
         "3. É PROIBIDO inventar nomes, prazos ou políticas que não constem no seu PROMPT DE SISTEMA, RAG ou Inbox.\n"
-        "4. **PROTOCOLO DE RESPOSTA DA FERRAMENTA 'registrar_duvida_sem_resposta' (OBRIGATÓRIO):**\n"
-        "   - **Primeiro Turno (Acionamento da Ferramenta):** Ao chamar a ferramenta, você DEVE responder de forma contextual e informativa usando qualquer informação relacionada disponível no prompt (por exemplo, se perguntarem sobre comprar o equipamento, esclareça que o curso foca em aluguel e que o usuário não precisa comprar a máquina). Para a informação específica e faltante (como preços ou detalhes que de fato não constam no prompt), inclua de forma integrada na mesma mensagem o padrão: 'Sobre [detalhe específico sem resposta], vou verificar com a equipe e já te retorno certinho sobre: [pergunta reformulada de forma clara e direta].' E no final da mensagem, faça sempre alguma pergunta para o usuário como: 'Posso lhe ajudar com mais alguma dúvida?' ou similar ou dê prosseguimento ao fluxo natural.\n"
+        "4. **PROTOCOLO DE RESPOSTA DA FERRAMENTA 'registrar_duvida_sem_resposta' (OBRIGATÓRIO QUANDO ACIONADA):**\n"
+        "   - **Primeiro Turno (Acionamento da Ferramenta):** Ao chamar a ferramenta para uma dúvida fática ausente, você DEVE responder de forma contextual e informativa usando qualquer informação relacionada disponível no prompt. Para a informação específica e faltante, inclua de forma integrada na mesma mensagem o padrão: 'Sobre [detalhe específico sem resposta], vou verificar com a equipe e já te retorno certinho sobre: [pergunta reformulada de forma clara e direta].'\n"
         "   - **Segundo Turno (Resposta do Usuário após registrar dúvida):**\n"
-        "     - Se o usuário responder negativamente ou indicando que não precisa de mais ajuda (ex: 'não', 'não obrigado', 'não preciso de mais nada', 'nada mais', 'no', 'nada') OU responder apenas com concordâncias/confirmações curtas (ex: 'ok', 'blz', 'tudo bem', 'beleza', 'certo', 'combinado', 'obrigado', 'ta otimo', 'tá ótimo', 'perfeito') após você ter dito que iria verificar com a equipe, você **DEVE** confirmar que a dúvida foi salva para a equipe e encerrar a conversa de forma extremamente educada e conclusiva (ex: 'Perfeito! Já salvei sua pergunta aqui para a equipe e eles vão te retornar. Se precisar de mais alguma coisa no futuro, estarei por aqui. Tenha um excelente dia!'), **SEM** perguntar se pode ajudar com outro assunto ou fazer novas perguntas. **É TERMINANTEMENTE PROIBIDO** perguntar se ele quer que você passe as informações que você tem agora, oferecer passar o que você sabe, perguntar se ele quer aguardar, ou fazer qualquer outra pergunta/questionamento sobre novos assuntos, pois a conversa deve ser encerrada ali.\n"
+        "     - Se o usuário responder negativamente ou indicando que não precisa de mais ajuda (ex: 'não', 'não obrigado', 'não preciso de mais nada', 'nada mais', 'no', 'nada') OU responder apenas com concordâncias/confirmações curtas (ex: 'ok', 'blz', 'tudo bem', 'beleza', 'certo', 'combinado', 'obrigado', 'ta otimo', 'tá ótimo', 'perfeito') após você ter dito que iria verificar com a equipe, você **DEVE** confirmar que a dúvida foi salva para a equipe e encerrar a conversa de forma extremamente educada e conclusiva, **SEM** fazer novas perguntas.\n"
         "5. **RESPOSTA A CONCORDÂNCIAS E CONFIRMAÇÕES (OBRIGATÓRIO):**\n"
-        "   - Se a mensagem do usuário for apenas uma concordância, confirmação ou reação curta (ex: 'ok', 'entendi', 'perfeito', 'combinado', 'certo', 'tudo bem', ou emojis como 👍, 👌) e não contiver nenhuma nova pergunta ou solicitação, você **DEVE** responder de forma extremamente curta, simpática e neutra (ex: 'Perfeito! Qualquer dúvida estou aqui.', 'Combinado!', 'Show! Se precisar de algo, só chamar.').\n"
-        "   - **É TERMINANTEMENTE PROIBIDO** alucinar ou trazer novos detalhes comerciais de produtos, preços, formas de pagamento, políticas ou qualquer informação que o usuário não tenha perguntado ativamente nesse turno. Responda apenas com a confirmação simpática."
+        "   - Se a mensagem do usuário for apenas uma concordância, confirmação ou reação curta e não contiver nenhuma nova pergunta ou solicitação, você **DEVE** responder de forma extremamente curta, simpática e neutra (ex: 'Perfeito! Qualquer dúvida estou aqui.', 'Combinado!', 'Show! Se precisar de algo, só chamar.').\n"
+        "   - **É TERMINANTEMENTE PROIBIDO** alucinar ou trazer novos detalhes comerciais não solicitados. Responda apenas com a confirmação simpática.\n"
+        "6. **PROIBIÇÃO DE FAZER PERGUNTAS NÃO SOLICITADAS NO FINAL DAS RESPOSTAS:**\n"
+        "   - É TERMINANTEMENTE PROIBIDO inventar ou acrescentar perguntas no final das suas respostas (ex: 'Se você quiser me diga qual aparelho usa', 'Posso te ajudar com mais alguma dúvida?', 'Qual marca você atende?'), A MENOS que o próprio Prompt de Sistema do Agente tenha ordenado explicitamente para fazer perguntas ou se for um fluxo de qualificação de lead ativo. Responda o que foi solicitado e encerre a resposta de forma limpa e direta."
     )
     system_prompt += strict_rules
 
@@ -291,26 +297,52 @@ async def process_message(
     main_prompt_tokens = 0
     main_completion_tokens = 0
     
+    # Resolução robusta dos IDs das Bases de Conhecimento vinculadas ao Agente
+    async def _resolve_agent_kb_ids(cfg, database):
+        raw_kbs = getattr(cfg, 'knowledge_bases', []) or []
+        ids = []
+        for kb in raw_kbs:
+            if hasattr(kb, 'id') and kb.id:
+                ids.append(kb.id)
+            elif isinstance(kb, dict) and kb.get('id'):
+                ids.append(kb['id'])
+            elif isinstance(kb, int):
+                ids.append(kb)
+        if not ids and getattr(cfg, 'knowledge_base_ids', None):
+            ids = [k for k in cfg.knowledge_base_ids if k]
+        if not ids and getattr(cfg, 'knowledge_base_id', None):
+            ids = [cfg.knowledge_base_id]
+            
+        # Fallback de integridade: consultar banco de dados caso config não traga os IDs na memória
+        if not ids and database and getattr(cfg, 'id', None):
+            try:
+                stmt = select(AgentConfigModel).where(AgentConfigModel.id == cfg.id).options(selectinload(AgentConfigModel.knowledge_bases))
+                res = await database.execute(stmt)
+                db_ag = res.scalars().first()
+                if db_ag:
+                    ids = [k.id for k in db_ag.knowledge_bases] or ([db_ag.knowledge_base_id] if db_ag.knowledge_base_id else [])
+            except Exception as e:
+                logger.error(f"Erro ao recuperar kb_ids do banco em core.py: {e}")
+        return ids
+
+    kb_ids = await _resolve_agent_kb_ids(config, db)
+
     # Decisão do Pre-Router sobre RAG (se pre-router rodou, respeitamos sua decisão)
     is_rag_bypassed = False
     if pre_router_result and "precisa_rag" in pre_router_result:
         is_rag_bypassed = not pre_router_result.get("precisa_rag")
-    elif not pre_executed_rag_context:
-        # Se não há bases ou RAG pré-executado, tratamos como bypassado por default
-        kb_ids = [kb.id for kb in getattr(config, 'knowledge_bases', [])] or ([config.knowledge_base_id] if getattr(config, 'knowledge_base_id', None) else [])
-        if not kb_ids:
-            is_rag_bypassed = True
+    elif not pre_executed_rag_context and not kb_ids:
+        is_rag_bypassed = True
     
     if pre_executed_rag_context:
         rag_context = pre_executed_rag_context
         messages[0]["content"] += rag_context
         if on_step:
             on_step("📚 Consulta à Base de Conhecimento (RAG)", f"RAG pré-executado pelo Pre-Router integrado ao prompt principal.")
-    elif is_rag_bypassed:
+    elif is_rag_bypassed or not kb_ids:
         if on_step:
             on_step("📚 Consulta à Base de Conhecimento (RAG)", "Busca pulada pelo Pre-Router ou sem bases vinculadas ao agente.")
     else:
-        kb_ids = [kb.id for kb in getattr(config, 'knowledge_bases', [])] or ([config.knowledge_base_id] if getattr(config, 'knowledge_base_id', None) else [])
         if db and kb_ids:
             perguntas_list = pre_router_result.get("lista_perguntas_extraidas") if pre_router_result else None
             if not perguntas_list or not isinstance(perguntas_list, list):
@@ -778,7 +810,7 @@ async def process_message(
         "error": False,
         "debug": {
             "iterations": iteration,
-            "rag_items": [i['id'] for i in relevant_items] if relevant_items else [],
+            "rag_items": all_relevant if 'all_relevant' in locals() and all_relevant else (relevant_items if 'relevant_items' in locals() and relevant_items else []),
             "resolved_prompt": messages[0]["content"], # Inclui RAG e Regras
             "tool_calls": tool_calls_log,
             "pre_router": pre_router_result if 'pre_router_result' in locals() else None,

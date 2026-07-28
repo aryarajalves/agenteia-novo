@@ -17,9 +17,11 @@ const PromptTextarea = () => {
     const syncScroll = (e) => {
         if (backdropRef.current) {
             backdropRef.current.scrollTop = e.target.scrollTop;
+            backdropRef.current.scrollLeft = e.target.scrollLeft;
         }
         if (overlayRef.current) {
             overlayRef.current.scrollTop = e.target.scrollTop;
+            overlayRef.current.scrollLeft = e.target.scrollLeft;
         }
         checkVisibility();
     };
