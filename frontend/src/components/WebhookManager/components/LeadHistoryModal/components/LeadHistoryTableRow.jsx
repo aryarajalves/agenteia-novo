@@ -88,7 +88,7 @@ const LeadHistoryTableRow = ({
     handleRetryEvent,
     isRetrying
 }) => {
-    const isAgent = event.dono === 'agente' || event.dono === 'bot';
+    const isAgent = event.dono === 'agente' || event.dono === 'bot' || event.dono === 'Agente' || event.dono === 'Agente de IA';
     const isGrouped = event.status === 'grouped';
     const message = event.mensagem || event.conteudo || event.agent_response || '—';
     const isStuck = event.status === 'processing' && (new Date() - new Date(event.updated_at || event.created_at) > 120000);
@@ -149,7 +149,7 @@ const LeadHistoryTableRow = ({
             {/* Origem e Tipo */}
             <td style={{ padding: '1rem', textAlign: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                    {event.event_type === 'memory' ? (
+                    {event.event_type === 'memory' && !isAgent ? (
                         <span style={{ 
                             fontSize: '0.6rem', fontWeight: 900, 
                             background: 'rgba(245, 158, 11, 0.15)', 

@@ -39,24 +39,33 @@ const AutomationPipelineModal = ({
         }
     };
 
-    // Polling e WebSocket para atualizações em tempo real (Padrão Premium)
-    const pollEvent = React.useCallback(async () => {
-        if (!event || !webhookConfigId || ['completed', 'error', 'canceled', 'grouped', 'ignored'].includes(event.status)) return;
+    // Busca os detalhes completos do evento (incluindo os passos reais processing_steps)
+    const fetchEventDetail = React.useCallback(async () => {
+        if (!event?.id) return;
 
         try {
             const baseUrl = API_URL.replace(/\/$/, '');
-            const res = await fetch(`${baseUrl}/webhooks/${webhookConfigId}/events/${event.id}`);
+            const url = webhookConfigId 
+                ? `${baseUrl}/webhooks/${webhookConfigId}/events/${event.id}`
+                : `${baseUrl}/webhooks/events/${event.id}`;
+            const res = await fetch(url);
             if (!res.ok) return;
             const data = await res.json();
             setEvent(prev => ({ ...prev, ...data }));
         } catch (e) {
-            console.error('Erro no polling do pipeline:', e);
+            console.error('Erro ao buscar detalhes do pipeline:', e);
         }
-    }, [event.id, event.status, webhookConfigId]);
+    }, [event?.id, webhookConfigId]);
+
+    // Polling periódico apenas se o evento ainda estiver em processamento
+    const pollEvent = React.useCallback(async () => {
+        if (!event?.id || ['completed', 'error', 'canceled', 'grouped', 'ignored'].includes(event?.status)) return;
+        await fetchEventDetail();
+    }, [event?.id, event?.status, fetchEventDetail]);
 
     useEffect(() => {
-        // Busca imediata ao abrir o modal, sem esperar o primeiro intervalo
-        pollEvent();
+        // Busca imediata ao abrir o modal, garantindo carregamento dos passos mesmo para eventos já concluídos
+        fetchEventDetail();
 
         // WebSocket para atualizações instantâneas
         const wsUrl = API_URL.replace('http', 'ws') + '/ws/events';
@@ -67,7 +76,7 @@ const AutomationPipelineModal = ({
                 try {
                     const data = JSON.parse(msg.data);
                     if (data.type === 'status_update' && data.event_id === event.id) {
-                        pollEvent(); // Força um refresh dos dados completos
+                        fetchEventDetail(); // Força um refresh dos dados completos
                     }
                 } catch (e) { console.error('Erro WS Pipeline:', e); }
             };
@@ -78,7 +87,7 @@ const AutomationPipelineModal = ({
             clearInterval(timer);
             if (ws) ws.close();
         };
-    }, [event.id, pollEvent]);
+    }, [event.id, fetchEventDetail, pollEvent]);
 
     // Detectar timeout de processamento longo no frontend
     useEffect(() => {
@@ -189,20 +198,15 @@ const AutomationPipelineModal = ({
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <button
                             onClick={async () => {
-                                if (loading) return;
-                                if (!webhookConfigId) {
-                                    console.error('Não foi possível atualizar o pipeline: webhook_config_id/webhookId ausente.', { event, webhookId });
-                                    return;
-                                }
+                                if (loading || !event?.id) return;
                                 setLoading(true);
-                                // Duração mínima artificial do spinner: quando a resposta do backend é muito
-                                // rápida (rede local, cache, etc.), o giro de 0.8s do ícone mal chega a
-                                // renderizar um frame antes de "loading" voltar a false, dando a impressão
-                                // de que a animação nunca aconteceu. Forçamos pelo menos 550ms visíveis.
                                 const minSpinDelay = new Promise(resolve => setTimeout(resolve, 550));
                                 try {
                                     const baseUrl = API_URL.replace(/\/$/, '');
-                                    const fetchPromise = fetch(`${baseUrl}/webhooks/${webhookConfigId}/events/${event.id}`);
+                                    const url = webhookConfigId 
+                                        ? `${baseUrl}/webhooks/${webhookConfigId}/events/${event.id}`
+                                        : `${baseUrl}/webhooks/events/${event.id}`;
+                                    const fetchPromise = fetch(url);
                                     const [res] = await Promise.all([fetchPromise, minSpinDelay]);
                                     if (res.ok) {
                                         const data = await res.json();

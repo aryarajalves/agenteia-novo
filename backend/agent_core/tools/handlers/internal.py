@@ -53,6 +53,26 @@ async def handle_unanswered_question(db, context_variables, func_args_str, histo
         if db:
             db.add(new_q)
             await db.commit()
+
+            # Verificar se é a 2ª vez (ou mais) que esta ferramenta é acionada nesta mesma sessão/telefone
+            from sqlalchemy import select, func
+            count_stmt = select(func.count()).select_from(UnansweredQuestionModel).where(
+                UnansweredQuestionModel.agent_id == agent_id,
+                UnansweredQuestionModel.session_id == session_id
+            )
+            count_res = await db.execute(count_stmt)
+            total_unanswered = count_res.scalar() or 0
+
+            if total_unanswered > 1:
+                from agent_core.tools.handlers.chatwoot import handle_chatwoot_handoff
+                handoff_args = {"motivo": f"Dúvida sem resposta registrada {total_unanswered} vezes na mesma conversa: {question}"}
+                await handle_chatwoot_handoff(db, context_variables, None, True, handoff_args, history, agent_id)
+                return (
+                    "ATENÇÃO: Esta é a segunda dúvida sem resposta registrada nesta conversa. "
+                    "O atendimento foi AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO. "
+                    "Informe ao usuário de forma educada que o atendimento foi direcionado para um especialista humano que irá ajudá-lo."
+                )
+
             return "Dúvida registrada para nossa equipe."
         return "Erro: Sem conexão com banco."
     except Exception as e: return f"Erro ao registrar dúvida: {str(e)}"

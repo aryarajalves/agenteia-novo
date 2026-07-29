@@ -45,21 +45,18 @@ describe('Reproduzir bug do botao atualizar pipeline', () => {
         await waitFor(() => expect(global.fetch.mock.calls.length).toBeGreaterThan(callsBefore));
     });
 
-    it('SEM webhook_config_id (undefined): clique NAO deve chamar fetch nem girar', async () => {
+    it('SEM webhook_config_id (undefined): deve usar fallback para endpoint /webhooks/events/{id}', async () => {
         const mockEvent = {
             id: 1,
             // webhook_config_id ausente de propósito
             status: 'processing',
-            created_at: '2026-05-18T10:07:22Z',
+            created_at: new Date().toISOString(),
             processing_steps: JSON.stringify([])
         };
         render(<AutomationPipelineModal event={mockEvent} onClose={mockOnClose} />);
-        const callsBefore = global.fetch.mock.calls.length;
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/webhooks/events/1')));
         const btn = screen.getByTitle('Atualizar pipeline');
-        const svg = btn.querySelector('svg');
         fireEvent.click(btn);
-        await new Promise(r => setTimeout(r, 100));
-        expect(global.fetch.mock.calls.length).toBe(callsBefore);
-        expect(svg.style.animation).toBe('none');
+        await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/webhooks/events/1')));
     });
 });

@@ -804,7 +804,21 @@ async def receive_memory_webhook(token: str, request: Request, db: AsyncSession 
     if not phone: raise HTTPException(status_code=400, detail="Telefone não encontrado. O JSON deve conter 'phone', 'telefone' ou 'sender.phone'")
 
     mensagem_text = get_value_by_path(body, "template_content") or get_value_by_path(body, "content") or ""
-    dono = get_value_by_path(body, "Dono") or get_value_by_path(body, "dono") or "cliente"
+    dono_raw = (
+        get_value_by_path(body, "Dono") or 
+        get_value_by_path(body, "dono") or 
+        get_value_by_path(body, "sender_type") or 
+        get_value_by_path(body, "sender.type")
+    )
+    if not dono_raw:
+        direction = get_value_by_path(body, "direction") or get_value_by_path(body, "type") or ""
+        from_me = get_value_by_path(body, "from_me") or get_value_by_path(body, "fromMe")
+        if str(direction).lower() in ("outgoing", "outbound", "sent") or from_me is True or str(from_me).lower() == "true":
+            dono = "agente"
+        else:
+            dono = "cliente"
+    else:
+        dono = str(dono_raw).lower()
 
     name_raw = None
     if getattr(config, 'memory_name_path', None):
@@ -1009,8 +1023,14 @@ async def list_webhook_events(
     total_res = await db.execute(text(f"SELECT COUNT(*) FROM webhook_events WHERE {where_str}"), params)
     total = total_res.scalar()
 
-    # Itens
-    query = text(f"SELECT * FROM webhook_events WHERE {where_str} ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
+    # Itens - seleciona apenas colunas necessárias (evita carregar raw_payload e processing_steps que são pesados)
+    query = text(f"""
+        SELECT id, webhook_config_id, event_type, message_type, conta_id, inbox_id, inbox_nome,
+               conversa_id, mensagem_id, contato_id, telefone, labels, contato_nome, mensagem,
+               link, status, task_id, agent_response, legenda, dono, scheduled_at, created_at,
+               updated_at, is_automatic
+        FROM webhook_events WHERE {where_str} ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+    """)
     res = await db.execute(query, params)
     columns = res.keys()
     items = [dict(zip(columns, row)) for row in res.fetchall()]
@@ -1501,6 +1521,25 @@ async def get_webhook_event_detail(webhook_id: int, event_id: int, db: AsyncSess
     
     return {
         "id": event.id,
+        "webhook_config_id": event.webhook_config_id,
+        "status": event.status,
+        "processing_steps": event.processing_steps,
+        "agent_response": event.agent_response,
+        "updated_at": event.updated_at,
+        "scheduled_at": event.scheduled_at,
+        "created_at": event.created_at,
+        "server_now": get_now_br()
+    }
+
+@router.get("/events/{event_id}")
+async def get_webhook_event_detail_by_id(event_id: int, db: AsyncSession = Depends(get_db)):
+    event = await db.get(WebhookEventModel, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    
+    return {
+        "id": event.id,
+        "webhook_config_id": event.webhook_config_id,
         "status": event.status,
         "processing_steps": event.processing_steps,
         "agent_response": event.agent_response,

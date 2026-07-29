@@ -19,9 +19,9 @@ describe('AutomationPipelineModal Component', () => {
             id: 1,
             webhook_config_id: 10,
             status: 'processing',
-            created_at: '2026-05-18T10:07:22Z',
+            created_at: new Date().toISOString(),
             processing_steps: JSON.stringify([
-                { step: 'Memória de Contexto', detail: 'Injetadas 1 interações', timestamp: '2026-05-18T10:07:35Z' }
+                { step: 'Memória de Contexto', detail: 'Injetadas 1 interações', timestamp: new Date().toISOString() }
             ])
         };
 

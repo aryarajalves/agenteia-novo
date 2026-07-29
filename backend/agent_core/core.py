@@ -344,8 +344,26 @@ async def process_message(
             on_step("📚 Consulta à Base de Conhecimento (RAG)", "Busca pulada pelo Pre-Router ou sem bases vinculadas ao agente.")
     else:
         if db and kb_ids:
+            import re as _re
+            def _clean_rag_query(q: str) -> str:
+                """Remove ruídos comuns das queries antes de enviar ao banco vetorial."""
+                q = _re.sub(r'\.{2,}', ' ', q)
+                q = _re.sub(r'\betc\.?\b', '', q, flags=_re.IGNORECASE)
+                q = _re.sub(r'[,;:\s]+$', '', q.strip())
+                q = _re.sub(r'\s{2,}', ' ', q)
+                return q.strip()
+
             perguntas_list = pre_router_result.get("lista_perguntas_extraidas") if pre_router_result else None
-            if not perguntas_list or not isinstance(perguntas_list, list):
+            if not perguntas_list or not isinstance(perguntas_list, list) or not any(p.strip() for p in perguntas_list):
+                pergunta_limpa = (pre_router_result or {}).get("perguntas_extraidas") or (pre_router_result or {}).get("mensagem_melhorada")
+                if pergunta_limpa and str(pergunta_limpa).strip():
+                    perguntas_list = [str(pergunta_limpa).strip()]
+                else:
+                    perguntas_list = [message]
+            
+            # Limpar ruídos de cada query antes de enviar ao RAG
+            perguntas_list = [_clean_rag_query(q) for q in perguntas_list if q and q.strip()]
+            if not perguntas_list:
                 perguntas_list = [message]
                 
             all_relevant = []
@@ -355,7 +373,19 @@ async def process_message(
                 if on_step:
                     on_step("📚 Consulta à Base de Conhecimento (RAG)", f"Pergunta {q_idx}: Iniciando busca semântica para: \"{query_item}\"")
                 
-                rag_res = await search_knowledge_base(db=db, query=query_item, kb_ids=kb_ids, limit=getattr(config, 'rag_retrieval_count', 3), similarity_threshold=getattr(config, 'rag_relevance_threshold', 0.0) or 0.0)
+                rag_res = await search_knowledge_base(
+                    db=db,
+                    query=query_item,
+                    kb_ids=kb_ids,
+                    limit=getattr(config, 'rag_retrieval_count', 3),
+                    similarity_threshold=getattr(config, 'rag_relevance_threshold', 0.0) or 0.0,
+                    # Passa as configs do agente explicitamente — sem agent_id a função usaria os defaults (multi_query=False, etc.)
+                    force_translation=getattr(config, 'rag_translation_enabled', False),
+                    force_multi_query=getattr(config, 'rag_multi_query_enabled', False),
+                    force_rerank=getattr(config, 'rag_rerank_enabled', True),
+                    force_agentic_eval=getattr(config, 'rag_agentic_eval_enabled', True),
+                    force_parent_expansion=getattr(config, 'rag_parent_expansion_enabled', True),
+                )
                 
                 relevant_items = []
                 discarded_items = []
@@ -686,6 +716,9 @@ async def process_message(
                         tool_result = await handle_date_calculator(json.dumps(tool_args))
                     elif tool_name == "registrar_duvida_sem_resposta":
                         tool_result = await handle_unanswered_question(db, context_variables, json.dumps(tool_args), history, config.id)
+                        if "AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO" in str(tool_result):
+                            handoff_data = {"handoff": True, "destino": "humano", "motivo": f"Dúvida sem resposta acionada > 1 vez: {tool_args.get('pergunta')}"}
+                            is_handoff_terminal = True
                     elif tool_name == "google_calendar_manager":
                         tool_result = await handle_google_calendar(db, context_variables, tool_args)
                     elif tool_name == "lead_qualificado":
