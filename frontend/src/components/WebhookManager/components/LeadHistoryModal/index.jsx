@@ -229,6 +229,34 @@ const LeadHistoryModal = ({
         }
     };
 
+    // Filtrar mensagens duplicadas resultantes da sincronização de memória de respostas já exibidas
+    const displayEvents = React.useMemo(() => {
+        if (!events || events.length === 0) return [];
+
+        const agentResponsesSet = new Set(
+            events
+                .map(e => (e.agent_response || '').trim())
+                .filter(Boolean)
+        );
+
+        return events.filter(evt => {
+            const isAgentDono = evt.dono === 'agente' || evt.dono === 'bot' || evt.dono === 'Agente' || evt.dono === 'Agente de IA';
+            if (evt.event_type === 'memory' || isAgentDono) {
+                const msgText = (evt.mensagem || evt.conteudo || '').trim();
+                if (msgText && agentResponsesSet.has(msgText)) {
+                    const hasTriggerEvent = events.some(other => 
+                        other.id !== evt.id && 
+                        (other.agent_response || '').trim() === msgText
+                    );
+                    if (hasTriggerEvent) {
+                        return false; // Remove duplicata de sincronização de memória da resposta da IA
+                    }
+                }
+            }
+            return true;
+        });
+    }, [events]);
+
     return (
         <div className="premium-modal-overlay" style={{ zIndex: 1050 }}>
             <style dangerouslySetInnerHTML={{ __html: `
@@ -310,11 +338,11 @@ const LeadHistoryModal = ({
                                 <tr>
                                     <td colSpan="6" style={{ padding: '5rem', textAlign: 'center', color: '#64748b' }}>Buscando disparos...</td>
                                 </tr>
-                            ) : events.length === 0 ? (
+                            ) : displayEvents.length === 0 ? (
                                 <tr>
                                     <td colSpan="6" style={{ padding: '5rem', textAlign: 'center', color: '#64748b' }}>Nenhum disparo encontrado.</td>
                                 </tr>
-                            ) : events.map(event => (
+                            ) : displayEvents.map(event => (
                                 <LeadHistoryTableRow
                                     key={event.id}
                                     event={event}
