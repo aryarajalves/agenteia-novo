@@ -1040,16 +1040,16 @@ async def list_webhook_events(
                     telefone LIKE :plus_search OR
                     RIGHT(telefone, 7) = :suffix7 OR 
                     RIGHT(telefone, 8) = :suffix8 OR 
-                    contato_nome ILIKE :search OR 
-                    mensagem ILIKE :search
+                    contato_nome LIKE :search OR 
+                    mensagem LIKE :search
                 )""")
             else:
                 where_clauses.append("""(
-                    telefone LIKE :search OR 
-                    telefone LIKE :clean_search OR 
-                    telefone LIKE :plus_search OR
-                    RIGHT(REGEXP_REPLACE(telefone, '\\D', '', 'g'), 7) = :suffix7 OR 
-                    RIGHT(REGEXP_REPLACE(telefone, '\\D', '', 'g'), 8) = :suffix8 OR 
+                    telefone ILIKE :search OR 
+                    telefone ILIKE :clean_search OR 
+                    telefone ILIKE :plus_search OR
+                    RIGHT(REGEXP_REPLACE(telefone, '[^0-9]', '', 'g'), 7) = :suffix7 OR 
+                    RIGHT(REGEXP_REPLACE(telefone, '[^0-9]', '', 'g'), 8) = :suffix8 OR 
                     contato_nome ILIKE :search OR 
                     mensagem ILIKE :search
                 )""")
@@ -1085,6 +1085,8 @@ async def list_webhook_events(
                updated_at, is_automatic
         FROM webhook_events WHERE {where_str} ORDER BY created_at DESC LIMIT :limit OFFSET :offset
     """)
+    res = await db.execute(query, params)
+    columns = res.keys()
     items = [dict(zip(columns, row)) for row in res.fetchall()]
 
     # Inferência inteligente de dono para eventos de memória que correspondem a respostas do agente
