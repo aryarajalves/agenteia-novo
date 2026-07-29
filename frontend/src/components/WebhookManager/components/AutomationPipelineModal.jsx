@@ -13,6 +13,7 @@ const AutomationPipelineModal = ({
     const [event, setEvent] = useState(initialEvent);
     const [maximizedStep, setMaximizedStep] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(!initialEvent?.processing_steps);
     const [isTimeout, setIsTimeout] = useState(false);
 
     // Fallback defensivo: alguns fluxos (telas de leads/histórico) montam este modal com um
@@ -64,8 +65,16 @@ const AutomationPipelineModal = ({
     }, [event?.id, event?.status, fetchEventDetail]);
 
     useEffect(() => {
-        // Busca imediata ao abrir o modal, garantindo carregamento dos passos mesmo para eventos já concluídos
-        fetchEventDetail();
+        let isMounted = true;
+
+        const initLoad = async () => {
+            try {
+                await fetchEventDetail();
+            } finally {
+                if (isMounted) setInitialLoading(false);
+            }
+        };
+        initLoad();
 
         // WebSocket para atualizações instantâneas
         const wsUrl = API_URL.replace('http', 'ws') + '/ws/events';
@@ -84,6 +93,7 @@ const AutomationPipelineModal = ({
 
         const timer = setInterval(pollEvent, 3000);
         return () => {
+            isMounted = false;
             clearInterval(timer);
             if (ws) ws.close();
         };
@@ -254,14 +264,23 @@ const AutomationPipelineModal = ({
                 </div>
 
                 {/* Timeline Scrollable Area */}
-                <div style={{ 
-                    flex: 1, 
-                    overflowY: 'auto', 
-                    paddingRight: '1rem',
-                    marginRight: '-1rem',
-                    paddingBottom: '2rem'
-                }} className="custom-scrollbar">
-                    <div style={{ position: 'relative', paddingLeft: '3rem', display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+                {initialLoading ? (
+                    <div style={{ flex: 1, height: '100%', minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem' }}>
+                        <div className="pipeline-spinner" style={{ width: '42px', height: '42px', borderWidth: '4px' }}></div>
+                        <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontWeight: 800, color: '#f8fafc', fontSize: '1.05rem', letterSpacing: '-0.01em' }}>Carregando Pipeline de Automação...</div>
+                            <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px', fontWeight: 600 }}>Obtendo todas as etapas de processamento</div>
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ 
+                        flex: 1, 
+                        overflowY: 'auto', 
+                        paddingRight: '1rem',
+                        marginRight: '-1rem',
+                        paddingBottom: '2rem'
+                    }} className="custom-scrollbar">
+                        <div style={{ position: 'relative', paddingLeft: '3rem', display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
                         {/* Linha da Timeline */}
                         <div style={{ 
                             position: 'absolute', left: '14px', top: '10px', bottom: '10px', width: '2px', 
@@ -496,8 +515,9 @@ const AutomationPipelineModal = ({
                                 </div>
                             )
                         )}
+                        </div>
                     </div>
-                </div>
+                )}
 
                 {/* Modal Maximizado (Overlay Secundário) */}
                 {maximizedStep && (

@@ -820,6 +820,22 @@ async def receive_memory_webhook(token: str, request: Request, db: AsyncSession 
     else:
         dono = str(dono_raw).lower()
 
+    if dono not in ("agente", "bot"):
+        from models import WebhookEventModel
+        recent_agent_evt = await db.execute(
+            select(WebhookEventModel).where(
+                WebhookEventModel.webhook_config_id == config.id,
+                WebhookEventModel.telefone == phone,
+                WebhookEventModel.agent_response.isnot(None),
+                WebhookEventModel.agent_response != ""
+            ).order_by(WebhookEventModel.created_at.desc()).limit(5)
+        )
+        recent_evts = recent_agent_evt.scalars().all()
+        for revt in recent_evts:
+            if revt.agent_response and mensagem_text and (mensagem_text.strip() in revt.agent_response or revt.agent_response.strip() in mensagem_text):
+                dono = "agente"
+                break
+
     name_raw = None
     if getattr(config, 'memory_name_path', None):
         name_raw = get_value_by_path(body, config.memory_name_path)
@@ -1031,9 +1047,15 @@ async def list_webhook_events(
                updated_at, is_automatic
         FROM webhook_events WHERE {where_str} ORDER BY created_at DESC LIMIT :limit OFFSET :offset
     """)
-    res = await db.execute(query, params)
-    columns = res.keys()
     items = [dict(zip(columns, row)) for row in res.fetchall()]
+
+    # Inferência inteligente de dono para eventos de memória que correspondem a respostas do agente
+    agent_responses_in_batch = {item['agent_response'].strip() for item in items if item.get('agent_response')}
+    for item in items:
+        if item.get('event_type') == 'memory' and item.get('dono') not in ('agente', 'bot'):
+            msg = (item.get('mensagem') or '').strip()
+            if msg and any(msg in resp or resp in msg for resp in agent_responses_in_batch if resp):
+                item['dono'] = 'agente'
 
     return {"total": total, "items": items}
 
