@@ -1023,12 +1023,40 @@ async def list_webhook_events(
         where_clauses.append("event_type = :event_type")
         params["event_type"] = event_type
         
+    is_sqlite = db.bind.dialect.name == "sqlite"
+
     if search:
         digits_only = re.sub(r"\D", "", search)
-        if len(digits_only) >= 8:
-            suffix = digits_only[-8:]
-            where_clauses.append("(telefone LIKE :search OR RIGHT(telefone, 8) = :suffix OR contato_nome ILIKE :search OR mensagem ILIKE :search)")
-            params["suffix"] = suffix
+        if len(digits_only) >= 7:
+            suffix7 = digits_only[-7:]
+            suffix8 = digits_only[-8:] if len(digits_only) >= 8 else digits_only
+            clean_search = f"%{digits_only}%"
+            plus_search = f"%+{digits_only}%"
+
+            if is_sqlite:
+                where_clauses.append("""(
+                    telefone LIKE :search OR 
+                    telefone LIKE :clean_search OR 
+                    telefone LIKE :plus_search OR
+                    RIGHT(telefone, 7) = :suffix7 OR 
+                    RIGHT(telefone, 8) = :suffix8 OR 
+                    contato_nome ILIKE :search OR 
+                    mensagem ILIKE :search
+                )""")
+            else:
+                where_clauses.append("""(
+                    telefone LIKE :search OR 
+                    telefone LIKE :clean_search OR 
+                    telefone LIKE :plus_search OR
+                    RIGHT(REGEXP_REPLACE(telefone, '\\D', '', 'g'), 7) = :suffix7 OR 
+                    RIGHT(REGEXP_REPLACE(telefone, '\\D', '', 'g'), 8) = :suffix8 OR 
+                    contato_nome ILIKE :search OR 
+                    mensagem ILIKE :search
+                )""")
+            params["clean_search"] = clean_search
+            params["plus_search"] = plus_search
+            params["suffix7"] = suffix7
+            params["suffix8"] = suffix8
         else:
             where_clauses.append("(telefone LIKE :search OR contato_nome ILIKE :search OR mensagem ILIKE :search)")
         params["search"] = f"%{search}%"
@@ -1037,7 +1065,17 @@ async def list_webhook_events(
     
     # Total
     total_res = await db.execute(text(f"SELECT COUNT(*) FROM webhook_events WHERE {where_str}"), params)
-    total = total_res.scalar()
+    total = total_res.scalar() or 0
+
+    # Fallback: Se for busca por telefone específico e retornar 0 sob a wid atual, tenta buscar sem restringir por wid
+    if total == 0 and search and len(re.sub(r"\D", "", search)) >= 7:
+        fallback_clauses = [c for c in where_clauses if not c.startswith("webhook_config_id")]
+        fallback_where_str = " AND ".join(fallback_clauses)
+        fb_total_res = await db.execute(text(f"SELECT COUNT(*) FROM webhook_events WHERE {fallback_where_str}"), params)
+        fb_total = fb_total_res.scalar() or 0
+        if fb_total > 0:
+            where_str = fallback_where_str
+            total = fb_total
 
     # Itens - seleciona apenas colunas necessárias (evita carregar raw_payload e processing_steps que são pesados)
     query = text(f"""

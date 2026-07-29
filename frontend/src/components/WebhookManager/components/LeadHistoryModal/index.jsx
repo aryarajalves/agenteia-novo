@@ -36,20 +36,13 @@ const LeadHistoryModal = ({
     const fetchLeadHistory = async () => {
         if (!webhook || !webhook.id) return;
         setLoading(true);
-        // Duração mínima artificial do giro do botão: quando a API responde muito rápido
-        // (rede local, cache, etc.), o loading vira true/false rápido demais para o CSS
-        // de rotação chegar a ser percebido, dando a impressão de que "atualiza de uma
-        // vez" sem nenhuma animação. Garantimos pelo menos 550ms de giro visível.
-        const minSpinDelay = new Promise(resolve => setTimeout(resolve, 550));
         try {
-            const cleanPhone = (lead.telefone || '').replace('+', '');
-            const fetchPromise = api.get(`/webhooks/${webhook.id}/events?search=${cleanPhone}&page=${page}&limit=${limit}&event_type=all`);
-            const [res] = await Promise.all([fetchPromise, minSpinDelay]);
+            const cleanPhone = (lead.telefone || '').replace(/\D/g, '');
+            const res = await api.get(`/webhooks/${webhook.id}/events?search=${cleanPhone}&page=${page}&limit=${limit}&event_type=all`);
             const data = await res.json();
             setEvents(data.items || data.events || []);
             setTotal(data.total || 0);
         } catch (e) {
-            await minSpinDelay;
             console.error('Erro ao buscar histórico do lead:', e);
         } finally {
             setLoading(false);
