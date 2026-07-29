@@ -229,32 +229,72 @@ const LeadHistoryModal = ({
         }
     };
 
-    // Filtrar mensagens duplicadas resultantes da sincronização de memória de respostas já exibidas
+    // Consolida e filtra eventos para que as respostas do agente apareçam APENAS na linha do disparo do usuário
     const displayEvents = React.useMemo(() => {
         if (!events || events.length === 0) return [];
 
-        const agentResponsesSet = new Set(
-            events
-                .map(e => (e.agent_response || '').trim())
-                .filter(Boolean)
-        );
+        const isAgentEvent = (e) => e.dono === 'agente' || e.dono === 'bot' || e.dono === 'Agente' || e.dono === 'Agente de IA' || e.dono === 'agent';
 
-        return events.filter(evt => {
-            const isAgentDono = evt.dono === 'agente' || evt.dono === 'bot' || evt.dono === 'Agente' || evt.dono === 'Agente de IA';
-            if (evt.event_type === 'memory' || isAgentDono) {
-                const msgText = (evt.mensagem || evt.conteudo || '').trim();
-                if (msgText && agentResponsesSet.has(msgText)) {
-                    const hasTriggerEvent = events.some(other => 
-                        other.id !== evt.id && 
-                        (other.agent_response || '').trim() === msgText
-                    );
-                    if (hasTriggerEvent) {
-                        return false; // Remove duplicata de sincronização de memória da resposta da IA
+        const hiddenIds = new Set();
+        const responseAdditions = new Map();
+
+        for (let i = 0; i < events.length; i++) {
+            const current = events[i];
+            const isAgentCurrent = isAgentEvent(current);
+
+            if (!isAgentCurrent && (current.mensagem || current.conteudo)) {
+                let additions = '';
+
+                for (let j = i - 1; j >= 0; j--) {
+                    const prev = events[j];
+                    const isPrevUser = !isAgentEvent(prev) && (prev.dono === 'usuario' || prev.dono === 'cliente' || (!prev.dono && prev.event_type !== 'memory'));
+                    
+                    if (isPrevUser) break;
+
+                    if (isAgentEvent(prev)) {
+                        const prevText = (prev.mensagem || prev.agent_response || prev.conteudo || '').trim();
+                        if (prevText) {
+                            const curResp = (current.agent_response || '').trim();
+                            if (!curResp.includes(prevText) && !additions.includes(prevText)) {
+                                additions += (additions ? '\n\n' : '') + prevText;
+                            }
+                            hiddenIds.add(prev.id);
+                        }
                     }
                 }
+
+                if (additions) {
+                    responseAdditions.set(current.id, additions);
+                }
             }
-            return true;
-        });
+        }
+
+        return events
+            .filter(evt => {
+                if (hiddenIds.has(evt.id)) return false;
+                const isAgent = isAgentEvent(evt);
+                if (isAgent) {
+                    const text = (evt.mensagem || evt.agent_response || '').trim();
+                    const isPartOfSomeResponse = events.some(other => 
+                        other.id !== evt.id && 
+                        other.agent_response && 
+                        other.agent_response.includes(text)
+                    );
+                    if (isPartOfSomeResponse) return false;
+                }
+                return true;
+            })
+            .map(evt => {
+                const add = responseAdditions.get(evt.id);
+                if (add) {
+                    const base = (evt.agent_response || '').trim();
+                    return {
+                        ...evt,
+                        agent_response: base ? `${base}\n\n${add}` : add
+                    };
+                }
+                return evt;
+            });
     }, [events]);
 
     return (
