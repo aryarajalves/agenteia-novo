@@ -192,6 +192,8 @@ async def execute_agent(
         cached_tokens=getattr(usage, 'cached_tokens', 0) if usage else 0,
         model_used=model_used,
         response_time_ms=response_time_ms,
+        error=result.get("error", False),
+        system_error=result.get("system_error"),
         debug=result.get("debug"),
         tool_calls=result.get("tool_calls")
     )

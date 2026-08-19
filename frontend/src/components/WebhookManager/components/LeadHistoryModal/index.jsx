@@ -229,11 +229,11 @@ const LeadHistoryModal = ({
         }
     };
 
-    // Consolida e filtra eventos para que as respostas do agente apareçam APENAS na linha do disparo do usuário
+    // Consolida e filtra eventos para que as respostas do agente apareçam APENAS na linha do disparo do usuário, mas NUNCA esconde disparos de Follow-Up
     const displayEvents = React.useMemo(() => {
         if (!events || events.length === 0) return [];
 
-        const isAgentEvent = (e) => e.dono === 'agente' || e.dono === 'bot' || e.dono === 'Agente' || e.dono === 'Agente de IA' || e.dono === 'agent';
+        const isAgentEvent = (e) => e.event_type !== 'followup' && (e.dono === 'agente' || e.dono === 'bot' || e.dono === 'Agente' || e.dono === 'Agente de IA' || e.dono === 'agent');
 
         const hiddenIds = new Set();
         const responseAdditions = new Map();
@@ -242,11 +242,12 @@ const LeadHistoryModal = ({
             const current = events[i];
             const isAgentCurrent = isAgentEvent(current);
 
-            if (!isAgentCurrent && (current.mensagem || current.conteudo)) {
+            if (!isAgentCurrent && current.event_type !== 'followup' && (current.mensagem || current.conteudo)) {
                 let additions = '';
 
                 for (let j = i - 1; j >= 0; j--) {
                     const prev = events[j];
+                    if (prev.event_type === 'followup') continue;
                     const isPrevUser = !isAgentEvent(prev) && (prev.dono === 'usuario' || prev.dono === 'cliente' || (!prev.dono && prev.event_type !== 'memory'));
                     
                     if (isPrevUser) break;
@@ -271,6 +272,7 @@ const LeadHistoryModal = ({
 
         return events
             .filter(evt => {
+                if (evt.event_type === 'followup') return true;
                 if (hiddenIds.has(evt.id)) return false;
                 const isAgent = isAgentEvent(evt);
                 if (isAgent) {

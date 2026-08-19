@@ -193,7 +193,7 @@ async def test_bot_defense_message_limit(mock_agent_config):
     config_mock.chatwoot_api_token = "token"
     
     with patch("webhook_tasks._add_step") as mock_add_step, \
-         patch("chatwoot_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync:
+         patch("zapvoice_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync:
         
         is_blocked = await verify_bot_defense(
             db=db_mock,
@@ -237,7 +237,7 @@ async def test_bot_defense_loop_detection_semantic(mock_agent_config):
         
     with patch("agent_core.bot_defense.get_embedding", side_effect=dummy_get_embedding), \
          patch("webhook_tasks._add_step") as mock_add_step, \
-         patch("chatwoot_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync:
+         patch("zapvoice_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync:
         
         is_blocked = await verify_bot_defense(
             db=db_mock,

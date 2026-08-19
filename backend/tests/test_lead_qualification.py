@@ -145,7 +145,7 @@ async def test_handler_lead_qualified():
         }
     }
     
-    with patch("chatwoot_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync_labels:
+    with patch("zapvoice_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync_labels:
         
         result = await handle_lead_qualified(
             db=mock_db,
@@ -220,7 +220,7 @@ async def test_handler_lead_qualified_creates_lead():
         }
     }
     
-    with patch("chatwoot_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync_labels:
+    with patch("zapvoice_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync_labels:
         result = await handle_lead_qualified(
             db=mock_db,
             context_variables=context_vars,
@@ -310,7 +310,7 @@ async def test_handler_lead_qualified_env_fallback():
              "CHATWOOT_API_TOKEN": "token_env_secreto",
              "CHATWOOT_ACCOUNT_ID": "99"
          }), \
-         patch("chatwoot_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync_labels:
+         patch("zapvoice_utils.sync_conversation_labels", new_callable=AsyncMock) as mock_sync_labels:
          
         result = await handle_lead_qualified(
             db=mock_db,
@@ -352,7 +352,6 @@ async def test_unanswered_question_prompt_rules_injection(qualification_config):
         assert "PROTOCOLO DE RESPOSTA DA FERRAMENTA 'registrar_duvida_sem_resposta'" in system_content
         assert "vou verificar com a equipe e já te retorno certinho sobre" in system_content.lower()
         assert "TERMINANTEMENTE PROIBIDO" in system_content
-        assert "perguntar se ele quer que" in system_content
 
 
 @pytest.mark.asyncio

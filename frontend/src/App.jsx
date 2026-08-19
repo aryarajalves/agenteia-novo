@@ -50,8 +50,8 @@ function App() {
   };
 
   const userRole = localStorage.getItem('user_role') || 'Usuário';
-  const isSuperAdmin = userRole === 'Super Admin';
-  const isAdmin = userRole === 'Admin';
+  const isSuperAdmin = userRole === 'Super Admin' || userRole === 'SUPER_ADMIN';
+  const isAdmin = userRole === 'Admin' || userRole === 'ADMIN' || isSuperAdmin;
   const isUser = userRole === 'Usuário';
 
   return (
@@ -87,6 +87,7 @@ function App() {
                         <Route path="/tools" element={<ToolsManager standalone={true} />} />
                         <Route path="/financeiro" element={<Financeiro />} />
                         <Route path="/integrations" element={<IntegrationsPanel />} />
+                        <Route path="/webhooks" element={<WebhookManager />} />
                         <Route path="/lead-scoring" element={<LeadScoring />} />
                       </>
                     )}

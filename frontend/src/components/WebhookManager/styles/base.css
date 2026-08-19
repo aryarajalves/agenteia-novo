@@ -42,6 +42,11 @@
   100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
 }
 
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .webhook-manager-container {
   padding: 2rem 2.5rem;
   max-width: 1400px;

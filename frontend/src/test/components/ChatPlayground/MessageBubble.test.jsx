@@ -65,6 +65,23 @@ describe('MessageBubble - Timestamp', () => {
         expect(timestampEl.textContent).toContain(datePart);
         expect(timestampEl.textContent).toContain(timePart);
     });
+
+    it('deve exibir o badge privado de Erro Técnico (Admin) quando isError e systemError estão presentes', () => {
+        const msgWithError = {
+            role: 'assistant',
+            content: 'Desculpe, estou enfrentando uma instabilidade temporária agora.',
+            isError: true,
+            systemError: 'Erro na OpenAI: Saldo de créditos esgotado (insufficient_quota)',
+            metrics: { tokens: 10 },
+            created_at: '2026-06-19T12:05:00.000Z'
+        };
+
+        render(<MessageBubble msg={msgWithError} {...defaultProps} />);
+
+        const adminBadge = screen.getByText(/⚠️ Erro Técnico \(Admin\)/i);
+        expect(adminBadge).toBeInTheDocument();
+        expect(adminBadge.getAttribute('title')).toContain('Erro na OpenAI: Saldo de créditos esgotado');
+    });
 });
 
 describe('MessageBubble - Por que essa resposta? (Raio-X)', () => {

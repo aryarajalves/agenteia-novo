@@ -108,9 +108,13 @@ const LeadHistoryTableRow = ({
             {/* ID Interno */}
             <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>{event.id}</td>
             
-            {/* Mensagem do Usuário */}
-            <td style={{ padding: '1rem', fontSize: '0.85rem', color: isAgent ? 'rgba(255,255,255,0.2)' : '#e2e8f0', maxWidth: '250px' }}>
-                {!isAgent && (
+            {/* Mensagem do Usuário / Trigger */}
+            <td style={{ padding: '1rem', fontSize: '0.85rem', color: isAgent && event.event_type !== 'followup' ? 'rgba(255,255,255,0.2)' : '#e2e8f0', maxWidth: '250px' }}>
+                {event.event_type === 'followup' ? (
+                    <span style={{ fontSize: '0.78rem', color: '#c084fc', fontWeight: 700 }}>
+                        {event.mensagem || '🔄 Follow-Up Disparado'}
+                    </span>
+                ) : !isAgent && (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ maxHeight: '60px', overflowY: 'auto', lineHeight: '1.4', fontStyle: isGrouped ? 'italic' : 'normal', paddingRight: message.length > 50 ? '24px' : '0' }}>
                             {isGrouped && <span style={{ fontSize: '0.65rem', marginRight: '4px', opacity: 0.8 }}>📦</span>}
@@ -149,7 +153,17 @@ const LeadHistoryTableRow = ({
             {/* Origem e Tipo */}
             <td style={{ padding: '1rem', textAlign: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                    {event.event_type === 'memory' && !isAgent ? (
+                    {event.event_type === 'followup' ? (
+                        <span style={{ 
+                            fontSize: '0.6rem', fontWeight: 900, 
+                            background: 'rgba(168, 85, 247, 0.2)', 
+                            color: '#c084fc',
+                            padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase',
+                            border: '1px solid rgba(168, 85, 247, 0.4)'
+                        }}>
+                            🔄 FOLLOW-UP
+                        </span>
+                    ) : event.event_type === 'memory' && !isAgent ? (
                         <span style={{ 
                             fontSize: '0.6rem', fontWeight: 900, 
                             background: 'rgba(245, 158, 11, 0.15)', 
@@ -181,7 +195,39 @@ const LeadHistoryTableRow = ({
             
             {/* Resposta IA */}
             <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#818cf8', maxWidth: '250px' }}>
-                {(isAgent || event.agent_response) && !isGrouped ? (
+                {event.event_type === 'followup' ? (
+                    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ maxHeight: '60px', overflowY: 'auto', lineHeight: '1.4', paddingRight: (event.agent_response || '').length > 50 ? '24px' : '0' }}>
+                            {event.agent_response || '—'}
+                        </div>
+                        {(event.agent_response || '').length > 50 && (
+                            <button
+                                onClick={() => setMaximizedText(event.agent_response)}
+                                title="Maximizar"
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    right: 0,
+                                    background: 'rgba(255, 255, 255, 0.05)',
+                                    border: 'none',
+                                    color: '#818cf8',
+                                    borderRadius: '4px',
+                                    width: '18px',
+                                    height: '18px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '0.65rem',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                    zIndex: 10
+                                }}
+                                onMouseOver={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'}
+                                onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
+                            >⛶</button>
+                        )}
+                    </div>
+                ) : (isAgent || event.agent_response) && !isGrouped ? (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
                         <div style={{ maxHeight: '60px', overflowY: 'auto', lineHeight: '1.4', paddingRight: (isAgent ? message : event.agent_response).length > 50 ? '24px' : '0' }}>
                             {isAgent ? message : event.agent_response}

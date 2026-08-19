@@ -15,7 +15,7 @@ def test_process_webhook_automation_ad_simple():
          patch('webhook_tasks._build_agent_config') as mock_build_agent_config, \
          patch('webhook_tasks.retrieve_context_history') as mock_retrieve_history, \
          patch('webhook_tasks.run_pre_router_ai', new_callable=AsyncMock) as mock_run_pre_router, \
-         patch('webhook_tasks._send_chatwoot_message') as mock_send_message, \
+         patch('webhook_tasks._send_zapvoice_message') as mock_send_message, \
          patch('webhook_tasks.is_conversation_paused', new_callable=AsyncMock, return_value=False), \
          patch('webhook_tasks.sync_conversation_labels', new_callable=AsyncMock, return_value=(True, [])), \
          patch('redis.from_url') as mock_redis_from_url:
@@ -61,13 +61,24 @@ def test_process_webhook_automation_ad_simple():
         mock_agent.tools = []
         mock_agent.security_bot_protection = False
         mock_agent.context_window = 1000
+        mock_agent.max_messages_per_conversation = 1000
+        mock_agent.security_max_messages = 1000
+        mock_agent.security_max_messages_per_session = 20
+        mock_agent.security_loop_count = 3
+        mock_agent.security_semantic_threshold = 0.85
         
-        # Configurar retorno do banco de dados para query.filter.first
-        mock_db.query.return_value.filter.return_value.first.side_effect = [
-            mock_event,  # Primeiro query: event
-            mock_config, # Segundo query: config
-            mock_agent   # Terceiro query: db_agent
-        ]
+        def mock_query_filter(model):
+            m_q = MagicMock()
+            if model == mock_event.__class__ or 'WebhookEvent' in str(model):
+                m_q.filter.return_value.first.return_value = mock_event
+            elif model == mock_config.__class__ or 'WebhookConfig' in str(model):
+                m_q.filter.return_value.first.return_value = mock_config
+            else:
+                m_q.filter.return_value.first.return_value = mock_agent
+                m_q.filter.return_value.count.return_value = 0
+                m_q.filter.return_value.order_by.return_value.limit.return_value.all.return_value = []
+            return m_q
+        mock_db.query.side_effect = mock_query_filter
         
         # Simular retorno do history
         mock_retrieve_history.return_value = []
@@ -126,7 +137,7 @@ def test_process_webhook_automation_ad_mixed():
          patch('webhook_tasks.retrieve_context_history') as mock_retrieve_history, \
          patch('webhook_tasks.run_pre_router_ai', new_callable=AsyncMock) as mock_run_pre_router, \
          patch('webhook_tasks.process_message', new_callable=AsyncMock) as mock_process_message, \
-         patch('webhook_tasks._send_chatwoot_message') as mock_send_message, \
+         patch('webhook_tasks._send_zapvoice_message') as mock_send_message, \
          patch('webhook_tasks.is_conversation_paused', new_callable=AsyncMock, return_value=False), \
          patch('webhook_tasks.sync_conversation_labels', new_callable=AsyncMock, return_value=(True, [])), \
          patch('redis.from_url') as mock_redis_from_url:
@@ -172,13 +183,24 @@ def test_process_webhook_automation_ad_mixed():
         mock_agent.tools = []
         mock_agent.security_bot_protection = False
         mock_agent.context_window = 1000
+        mock_agent.max_messages_per_conversation = 1000
+        mock_agent.security_max_messages = 1000
+        mock_agent.security_max_messages_per_session = 20
+        mock_agent.security_loop_count = 3
+        mock_agent.security_semantic_threshold = 0.85
         
-        # Configurar retorno do banco de dados para query.filter.first
-        mock_db.query.return_value.filter.return_value.first.side_effect = [
-            mock_event,  # Primeiro query: event
-            mock_config, # Segundo query: config
-            mock_agent   # Terceiro query: db_agent
-        ]
+        def mock_query_filter_2(model):
+            m_q = MagicMock()
+            if model == mock_event.__class__ or 'WebhookEvent' in str(model):
+                m_q.filter.return_value.first.return_value = mock_event
+            elif model == mock_config.__class__ or 'WebhookConfig' in str(model):
+                m_q.filter.return_value.first.return_value = mock_config
+            else:
+                m_q.filter.return_value.first.return_value = mock_agent
+                m_q.filter.return_value.count.return_value = 0
+                m_q.filter.return_value.order_by.return_value.limit.return_value.all.return_value = []
+            return m_q
+        mock_db.query.side_effect = mock_query_filter_2
         
         # Simular retorno do history
         mock_retrieve_history.return_value = []

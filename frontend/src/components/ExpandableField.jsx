@@ -23,27 +23,25 @@ const ExpandableField = ({ label, value, onChange, type = 'text', placeholder, s
             left: 0,
             width: '100vw',
             height: '100vh',
-            backgroundColor: 'rgba(2, 6, 23, 0.95)',
+            backgroundColor: '#070a13',
             zIndex: 10000001,
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            padding: '2rem',
-            backdropFilter: 'blur(10px)',
+            padding: 0,
             boxSizing: 'border-box',
         }}>
             <div style={{
-                width: '100%',
-                maxWidth: '1000px',
-                height: '80vh',
+                width: '100vw',
+                height: '100vh',
                 backgroundColor: '#0b1120',
                 padding: '2rem',
-                borderRadius: '1.5rem',
+                borderRadius: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                border: '1px solid rgba(255,255,255,0.1)',
-                boxShadow: '0 25px 50px rgba(0,0,0,0.5)',
-                position: 'relative'
+                border: 'none',
+                position: 'relative',
+                boxSizing: 'border-box'
             }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                     <div>

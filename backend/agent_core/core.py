@@ -6,6 +6,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from models import AgentConfigModel
+
 from .clients import get_openai_client, get_anthropic_client
 from .models.usage import UsageLog
 from .utils import INTERNAL_CTX_KEYS, sanitize_phone_number
@@ -20,6 +24,27 @@ from .tools.handlers.internal import handle_date_calculator, handle_unanswered_q
 from .tools.handlers.google import handle_google_calendar
 
 logger = logging.getLogger(__name__)
+
+def format_ai_error_message(e: Exception, provider: str = "OpenAI") -> str:
+    """Transforma exceções do provedor de IA em mensagens explícitas em português."""
+    err_str = str(e)
+    err_lower = err_str.lower()
+    
+    if "insufficient_quota" in err_lower or "credit_balance_exhausted" in err_lower or "429" in err_str and "credit" in err_lower:
+        return f"❌ Erro na {provider}: Saldo de créditos esgotado (insufficient_quota / credit_balance_exhausted). Adicione créditos no painel da {provider}."
+    elif "rate_limit_exceeded" in err_lower or "429" in err_str:
+        return f"❌ Erro na {provider}: Limite de requisições excedido (Rate Limit Exceeded / 429). Aguarde alguns instantes."
+    elif "invalid_api_key" in err_lower or "incorrect api key" in err_lower or "401" in err_str:
+        return f"❌ Erro na {provider}: Chave de API inválida ou não configurada (401 Unauthorized)."
+    elif "model_not_found" in err_lower or "does not exist" in err_lower or "404" in err_str:
+        return f"❌ Erro na {provider}: O modelo de IA solicitado não existe ou não está disponível para esta conta."
+    elif "context_length_exceeded" in err_lower or "maximum context length" in err_lower:
+        return f"❌ Erro na {provider}: O tamanho do contexto da conversa excedeu o limite do modelo."
+    else:
+        # Extrair mensagem se for dict ou string limpa
+        clean_msg = err_str[:250]
+        return f"❌ Erro na {provider}: {clean_msg}"
+
 
 async def process_message(
     message: str, history: list, config, tools: list = None, 
@@ -99,6 +124,22 @@ async def process_message(
             # Por enquanto, focamos em Saudações e Datas
             pre_router_result = await run_pre_router_ai(message, history, config, context_variables=context_variables, db=db)
             
+            if pre_router_result.get("eh_agradecimento_recorrente") or (pre_router_result.get("eh_agradecimento") and pre_router_result.get("resposta_direta") is None and not pre_router_result.get("perguntas_extraidas")):
+                usage = pre_router_result.get("_usage", {})
+                if on_step:
+                    on_step("🤫 Automação Silenciada (Agradecimento Recorrente)", "2º agradecimento/encerramento consecutivo do usuário detectado. Nenhuma mensagem será enviada para evitar loop.")
+                return {
+                    "content": None,
+                    "model": pre_router_result.get("_model_used", "pre-router"),
+                    "usage": UsageLog(
+                        mp=usage.get("prompt_tokens", 0),
+                        mc=usage.get("completion_tokens", 0)
+                    ),
+                    "error": False,
+                    "ignored_recurrent_thanks": True,
+                    "debug": {"pre_router": pre_router_result}
+                }
+
             # Se for saudação, encerramos aqui com a resposta configurada (exceto se on_step for fornecido para pipeline logs)
             if pre_router_result.get("eh_saudacao") and pre_router_result.get("resposta_direta") and not on_step:
                 usage = pre_router_result.get("_usage", {})
@@ -170,10 +211,11 @@ async def process_message(
     system_prompt += "\n1. Se o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre algo que NÃO esteja no seu PROMPT DE SISTEMA, no seu conhecimento (RAG) ou nas 'INSTRUÇÕES ADICIONAIS' (Inbox) — por exemplo, um endereço físico específico não informado, horário de evento não cadastrado, ou preço exato ausente —, use a ferramenta 'registrar_duvida_sem_resposta' e diga que vai verificar com a equipe."
     system_prompt += "\n   ⚠️ **RESTRIÇÃO ABSOLUTA DA FERRAMENTA 'registrar_duvida_sem_resposta':**"
     system_prompt += "\n   - É TERMINANTEMENTE PROIBIDO chamar 'registrar_duvida_sem_resposta' para objeções comerciais, medos, inseguranças do cliente (ex: 'tenho medo de não funcionar pra mim', 'já fiz 2 cursos e tenho dificuldade', 'está caro'), relatos de experiências anteriores ou perguntas gerais."
-    system_prompt += "\n   - Nesses casos de objeções, medos ou relatos, responda diretamente com empatia e com os argumentos do produto/serviço, SEM chamar a ferramenta e SEM prometer que vai verificar com a equipe."
+    system_prompt += "\n   - **DÚVIDAS GERAIS / ESTRATÉGICAS DE VENDAS E MARKETING:** Se o cliente fizer perguntas gerais ou pedir conselhos/estratégias sobre negócios, marketing, captação de clientes, poucos seguidores, engajamento ou dificuldades gerais, você DEVE utilizar seu conhecimento geral de treinamento para responder diretamente de forma acolhedora, prática e motivadora. É PROIBIDO chamar 'registrar_duvida_sem_resposta' para essas perguntas gerais."
+    system_prompt += "\n   - Nesses casos de objeções, medos, relatos ou dúvidas gerais de estratégia, responda diretamente com empatia e com os argumentos do produto/serviço, SEM chamar a ferramenta e SEM prometer que vai verificar com a equipe."
     system_prompt += "\n   - ⛔ **PROIBIDO INFERIR OU MENCIONAR 'GARANTIA':** É estritamente proibido entender relatos de dificuldades anteriores ou medos de alunos como um pedido de 'garantia de resultado', e é TERMINANTEMENTE PROIBIDO responder frases como 'vou verificar se existe garantia' ou 'vou verificar com a equipe sobre garantia'. Responda diretamente explicando como a metodologia ajuda na prática, acolhendo a dúvida do aluno com total empatia."
-    system_prompt += "\n2. Use 'transferir_suporte_humano' APENAS se o usuário pedir EXPLICITAMENTE ('quero falar com atendente', 'me passa pra um humano', 'quero suporte humano')."
-    system_prompt += "\n3. NUNCA use 'transferir_suporte_humano' apenas porque você não sabe a resposta. Para isso existe a regra 1."
+    system_prompt += "\n2. Use 'transferir_suporte_humano' se o usuário pedir EXPLICITAMENTE ('quero falar com atendente', 'me passa pra um humano', 'quero suporte humano') OU se o usuário solicitar cancelamento, devolução ou reembolso de compras/cursos."
+    system_prompt += "\n3. NUNCA mencione em texto que vai transferir, encaminhar para outro setor ou chamar a equipe sem efetivamente acionar a ferramenta 'transferir_suporte_humano'. NUNCA use 'transferir_suporte_humano' apenas porque você não sabe a resposta (para isso existe a regra 1)."
     system_prompt += "\n4. NUNCA invente nomes de membros da equipe ou clientes. Se a pessoa citada não estiver no seu PROMPT DE SISTEMA, conhecimento (RAG ou Inbox), trate como dúvida (Regra 1)."
     system_prompt = resolve_conditional_blocks(system_prompt, context_variables)
     for k, v in context_variables.items():
@@ -203,6 +245,7 @@ async def process_message(
         "2. A ferramenta 'registrar_duvida_sem_resposta' DEVE ser chamada APENAS quando o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre dados ausentes e desconhecidos (ex: preços específicos ausentes, endereços não cadastrados, regras de negócio totalmente omissas). É PROIBIDO chamá-la para lidar com objeções, medos, inseguranças ou relatos do usuário — nesses casos, responda com empatia e com o conhecimento disponível.\n"
         "3. É PROIBIDO inventar nomes, prazos ou políticas que não constem no seu PROMPT DE SISTEMA, RAG ou Inbox.\n"
         "4. **PROTOCOLO DE RESPOSTA DA FERRAMENTA 'registrar_duvida_sem_resposta' (OBRIGATÓRIO QUANDO ACIONADA):**\n"
+        "   - **Dúvidas Múltiplas:** Se o usuário fez mais de uma pergunta na mesma mensagem e a Base de Conhecimento RAG ou o Prompt possui a resposta para uma delas, você DEVE OBRIGATORIAMENTE RESPONDER a essa dúvida no seu texto. É TERMINANTEMENTE PROIBIDO apagar, omitir ou ignorar a resposta existente só porque chamou a ferramenta para a outra dúvida!\n"
         "   - **Primeiro Turno (Acionamento da Ferramenta):** Ao chamar a ferramenta para uma dúvida fática ausente, você DEVE responder de forma contextual e informativa usando qualquer informação relacionada disponível no prompt. Para a informação específica e faltante, inclua de forma integrada na mesma mensagem o padrão: 'Sobre [detalhe específico sem resposta], vou verificar com a equipe e já te retorno certinho sobre: [pergunta reformulada de forma clara e direta].'\n"
         "   - **Segundo Turno (Resposta do Usuário após registrar dúvida):**\n"
         "     - Se o usuário responder negativamente ou indicando que não precisa de mais ajuda (ex: 'não', 'não obrigado', 'não preciso de mais nada', 'nada mais', 'no', 'nada') OU responder apenas com concordâncias/confirmações curtas (ex: 'ok', 'blz', 'tudo bem', 'beleza', 'certo', 'combinado', 'obrigado', 'ta otimo', 'tá ótimo', 'perfeito') após você ter dito que iria verificar com a equipe, você **DEVE** confirmar que a dúvida foi salva para a equipe e encerrar a conversa de forma extremamente educada e conclusiva, **SEM** fazer novas perguntas.\n"
@@ -210,7 +253,16 @@ async def process_message(
         "   - Se a mensagem do usuário for apenas uma concordância, confirmação ou reação curta e não contiver nenhuma nova pergunta ou solicitação, você **DEVE** responder de forma extremamente curta, simpática e neutra (ex: 'Perfeito! Qualquer dúvida estou aqui.', 'Combinado!', 'Show! Se precisar de algo, só chamar.').\n"
         "   - **É TERMINANTEMENTE PROIBIDO** alucinar ou trazer novos detalhes comerciais não solicitados. Responda apenas com a confirmação simpática.\n"
         "6. **PROIBIÇÃO DE FAZER PERGUNTAS NÃO SOLICITADAS NO FINAL DAS RESPOSTAS:**\n"
-        "   - É TERMINANTEMENTE PROIBIDO inventar ou acrescentar perguntas no final das suas respostas (ex: 'Se você quiser me diga qual aparelho usa', 'Posso te ajudar com mais alguma dúvida?', 'Qual marca você atende?'), A MENOS que o próprio Prompt de Sistema do Agente tenha ordenado explicitamente para fazer perguntas ou se for um fluxo de qualificação de lead ativo. Responda o que foi solicitado e encerre a resposta de forma limpa e direta."
+        "   - É TERMINANTEMENTE PROIBIDO inventar ou acrescentar perguntas no final das suas respostas (ex: 'Se você quiser me diga qual aparelho usa', 'Posso te ajudar com mais alguma dúvida?', 'Qual marca você atende?'), A MENOS QUE o próprio Prompt de Sistema do Agente tenha ordenado explicitamente para fazer perguntas ou se for um fluxo de qualificação de lead ativo. Responda o que foi solicitado e encerre a resposta de forma limpa e direta.\n"
+        "7. ⛔ **PROIBIDO ENVIAR LISTAS DE FAQ NÃO SOLICITADAS OU ADVINHAR DÚVIDAS:**\n"
+        "   - Se o usuário declarar apenas que tem dúvidas, que não finalizou por ter dúvidas, ou citar apenas um assunto genérico (ex: \"não finalizei tive umas duvida\", \"sobre a máquina\", \"tenho dúvidas\", \"estou com dúvida\") sem fazer uma pergunta direta e específica, você **NUNCA DEVE** enviar uma lista de dúvidas mais comuns nem responder a perguntas que o usuário não fez.\n"
+        "   - Nesses casos, pergunte diretamente qual é a dúvida específica do usuário (ex: \"Quais são as suas dúvidas sobre a máquina? Me conte o que você gostaria de saber para que eu possa te ajudar!\").\n"
+        "8. ⛔ **PROIBIDO INFERIR ERRO DE ACESSO OU OFERECER TRANSFERÊNCIA NÃO SOLICITADA:**\n"
+        "   - Se o usuário disser que comprou/pagou mas \"ainda não acessou as aulas\", \"não assisti ainda\", \"não entrei ainda\" ou frases similares, **NUNCA** presuma que ele está com erro de login/acesso e **NUNCA** ofereça ou declare em texto que vai transferir para outro setor.\n"
+        "   - O usuário pode simplesmente não ter tido tempo de tentar acessar ainda. Responda apenas de forma acolhedora parabenizando a compra/aviso (ex: \"Perfeito! Obrigado por avisar. Quando puder acessar, as aulas já estarão te esperando. Qualquer dúvida, estou à disposição! 😊\").\n"
+        "   - A transferência para suporte humano só deve ocorrer se o usuário relatar um erro técnico explícito (ex: \"dá erro na senha\", \"link quebrado\", \"não recebi o e-mail\") OU se pedir explicitamente por atendente humano.\n"
+        "9. 🚨 **TRANSFERÊNCIA AUTOMÁTICA POR DIFICULDADE RECORRENTE DE PAGAMENTO (TENTATIVAS >= 3):**\n"
+        "   - Se a mensagem atual ou o histórico do usuário indicar que ele já relatou 3 ou mais vezes que está enfrentando problemas para pagar ou comprar (ex: \"não consigo pagar\", \"erro no cartão\", \"consigo pagar por outro link?\", \"estou tentando pagar\", \"recusou o cartão\"), você DEVE OBRIGATORIAMENTE acionar a ferramenta `transferir_suporte_humano` com o motivo \"Dificuldade de pagamento\" para que o suporte humano o ajude a finalizar."
     )
     system_prompt += strict_rules
 
@@ -595,6 +647,10 @@ async def process_message(
                 last_response = "Entendi perfeitamente. Estou transferindo seu atendimento para nossa equipe especializada para que você receba o suporte adequado. Um momento, por favor! ✨"
                 if on_step:
                     on_step("🚑 Suporte Humano solicitado (Pré-executado)", f"Motivo: {motivo}")
+            elif tc["name"] == "registrar_duvida_sem_resposta":
+                if "AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO" in str(tc.get("output", "")):
+                    motivo = f"Dúvida sem resposta acionada > 1 vez: {tc.get('args', {}).get('pergunta', 'Dúvida do usuário')}"
+                    handoff_data = {"handoff": True, "destino": "humano", "motivo": motivo}
     
     while iteration < 5:
         if is_handoff_terminal:
@@ -607,6 +663,7 @@ async def process_message(
                 models_to_try.append(config.fallback_model)
             
             response_message = None
+            last_error = None
             for m in models_to_try:
                 try:
                     curr_client = get_openai_client(m)
@@ -640,10 +697,19 @@ async def process_message(
                         total_usage.cached_tokens += cached_toks
                     break
                 except Exception as e:
-                    print(f"⚠️ Erro no modelo {m}: {str(e)}")
+                    last_error = e
+                    logger.error(f"⚠️ Erro no modelo {m}: {str(e)}")
                     continue
             if not response_message:
-                return {"content": "❌ Desculpe, estou enfrentando uma instabilidade técnica agora. Por favor, tente novamente em instantes.", "error": True, "usage": total_usage, "model": getattr(config, 'model', 'gpt-4o-mini')}
+                tech_error_msg = format_ai_error_message(last_error, "OpenAI") if last_error else "❌ Erro na integração de IA: Falha ao comunicar com os modelos configurados."
+                user_friendly_msg = "Desculpe, estou enfrentando uma instabilidade temporária agora. Por favor, tente novamente em instantes."
+                return {
+                    "content": user_friendly_msg, 
+                    "system_error": tech_error_msg,
+                    "error": True, 
+                    "usage": total_usage, 
+                    "model": getattr(config, 'model', 'gpt-4o-mini')
+                }
 
             messages.append(response_message)
             
@@ -718,7 +784,8 @@ async def process_message(
                         tool_result = await handle_unanswered_question(db, context_variables, json.dumps(tool_args), history, config.id)
                         if "AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO" in str(tool_result):
                             handoff_data = {"handoff": True, "destino": "humano", "motivo": f"Dúvida sem resposta acionada > 1 vez: {tool_args.get('pergunta')}"}
-                            is_handoff_terminal = True
+                            # NÃO marcamos is_handoff_terminal = True para permitir que o agente continue o loop (próxima iteração)
+                            # e gere a resposta personalizada com base nas instruções e no contexto RAG/Prompt.
                     elif tool_name == "google_calendar_manager":
                         tool_result = await handle_google_calendar(db, context_variables, tool_args)
                     elif tool_name == "lead_qualificado":
@@ -780,6 +847,10 @@ async def process_message(
     # Garantir que last_response seja string (importante para testes com mocks)
     last_response = str(last_response) if last_response is not None else ""
     
+    # Se last_response estiver vazio e houve handoff (ex: falha do modelo na 2ª iteração ou tool terminal direta), usar fallback amigável
+    if not last_response.strip() and handoff_data.get("handoff"):
+        last_response = "Entendi perfeitamente. Registrei sua dúvida e transferi seu atendimento para nossa equipe especializada para que você receba o suporte adequado. Um momento, por favor! ✨"
+
     # Remove tags residuais que a IA possa ter 'vazado' (Ex: {ferramenta}{...})
     last_response = re.sub(r'\{[a-zA-Z0-9_-]+\}\s*\{.*?\}', '', last_response).strip()
     last_response = re.sub(r'\{[a-zA-Z0-9_-]+\}', '', last_response).strip()

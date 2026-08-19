@@ -56,6 +56,17 @@ No ambiente de testes `ChatPlayground`, o usuário pode utilizar o microfone par
 - **Editor Expandido (`⤢`):** Expansão in-place da caixa de mensagem no chat com visual Neon Indigo, suporte a parágrafos e contagem em tempo real de caracteres.
 - **Painel Ocultável (`◀ Ocultar Painel`):** Barra lateral limpa sem fundo cinza transparente, com botão de ocultar/exibir para expandir o chat para 100% da largura.
 
+### 7. Gestão de Encerramentos Passivos e Confirmações (Pre-Router)
+- **Detecção de Expressões de Conclusão:** O sistema reconhece expressões de encerramento como `"Ta bom"`, `"Tá bom"`, `"Ta bem"`, `"Tudo bem"`, `"Ok"`, `"Entendi"`, `"Beleza"`, `"Ótimo"`, `"Maravilha"` e responde de forma empática e amigável (ex: *"Combinado! Se precisar de qualquer ajuda, estou por aqui. 😊"*).
+- **Proteção Anti-Reenvio de Links:** O Pre-Router e o módulo de Query Enrichment são terminantemente bloqueados de reescrever encerramentos como se fossem novos pedidos de compra, evitando envios duplicados de links de checkout da Kiwify ou listagens repetidas de formas de pagamento.
+
+### 8. Transbordo Resiliente de Suporte Humano e Fallback de Resposta
+- **Continuidade do 2º Turno:** Na 2ª ocorrência de dúvida ausente (`registrar_duvida_sem_resposta`), a IA registra o transbordo para o suporte humano e prossegue para formular a resposta amigável ao cliente, respondendo perguntas conhecidas e avisando sobre o especialista humano.
+- **Salvaguarda contra Respostas em Branco:** Caso o modelo de linguagem retorne conteúdo vazio durante o handoff, o sistema aciona automaticamente uma mensagem de fallback acolhedora em vez de enviar balões vazios.
+
+### 9. Consulta de Pipeline em Produção
+- Consulte o guia completo em [`COMO_CONSULTAR_PIPELINE_PRODUCAO.md`](COMO_CONSULTAR_PIPELINE_PRODUCAO.md) para inspecionar passo a passo via API REST (`GET /webhooks/{webhook_id}/events/{event_id}`) cada etapa de execução do agente (Debounce, Bot Defense, Pre-Router, RAG, Tool Calls e Resposta Final).
+
 ---
 
 ---

@@ -1,71 +1,54 @@
+import pytest
 from datetime import datetime, timedelta
-import zoneinfo
-from tasks import calculate_elapsed_business_minutes
+from tasks import _is_within_business_hours, calculate_elapsed_business_minutes
 
-def test_no_business_hours():
-    # If no BH, should return normal elapsed distance
-    t1 = datetime(2025, 1, 1, 10, 0, 0)
-    t2 = datetime(2025, 1, 1, 12, 0, 0)
-    assert calculate_elapsed_business_minutes(t1, t2, None) == 120.0
-    assert calculate_elapsed_business_minutes(t1, t2, {}) == 120.0
-    assert calculate_elapsed_business_minutes(t1, t2, {"enabled": False}) == 120.0
+def test_is_within_business_hours_disabled():
+    # Quando desativado ou None, deve retornar True sempre
+    assert _is_within_business_hours(None) is True
+    assert _is_within_business_hours({}) is True
+    assert _is_within_business_hours({"enabled": False}) is True
 
-def test_within_business_hours():
-    # Same day, entirely inside 08:00 - 18:00
+def test_is_within_business_hours_json_string():
+    # Deve aceitar JSON serializado em string (como salvo no banco de dados)
+    bh_str = '{"enabled": true, "start": "08:00", "end": "20:00", "weekdays": true, "saturday": false, "sunday": false}'
+    # Testando parsing sem estourar exceção
+    res = _is_within_business_hours(bh_str)
+    assert isinstance(res, bool)
+
+def test_calculate_elapsed_business_minutes_overnight_pause():
+    # Config de horário comercial: 08:00 às 20:00 (12h ativas por dia = 720 min/dia)
     bh = {
         "enabled": True,
         "start": "08:00",
-        "end": "18:00",
+        "end": "20:00",
         "weekdays": True,
-        "saturday": False,
-        "sunday": False
+        "saturday": True,
+        "sunday": True
     }
-    # Important: the function expects UTC datetimes representing DB times.
-    # Sao Paulo is UTC-3. 14:00 UTC is 11:00 SP.
-    t1 = datetime(2025, 1, 1, 14, 0, 0) # 11:00 SP
-    t2 = datetime(2025, 1, 1, 15, 0, 0) # 12:00 SP
-    # 2025-01-01 was a Wednesday.
-    assert calculate_elapsed_business_minutes(t1, t2, bh) == 60.0
+    
+    # 2026-08-10 é uma segunda-feira
+    # Mensagem enviada às 19:00 SP (22:00 UTC)
+    start_utc = datetime(2026, 8, 10, 22, 0, 0) 
+    
+    # 1 hora depois (20:00 SP / 23:00 UTC) -> deve ter contado 60 minutos úteis
+    end_20h_utc = datetime(2026, 8, 10, 23, 0, 0)
+    elapsed_1h = calculate_elapsed_business_minutes(start_utc, end_20h_utc, bh)
+    assert elapsed_1h == 60.0
 
-def test_cross_day_boundary():
-    bh = {
-        "enabled": True,
-        "start": "08:00",
-        "end": "18:00",
-        "weekdays": True,
-        "saturday": False,
-        "sunday": False
-    }
-    # 2025-01-01 20:00 UTC = 17:00 SP (1 hour before close)
-    t1 = datetime(2025, 1, 1, 20, 0, 0)
-    # 2025-01-02 12:00 UTC = 09:00 SP (1 hour after open)
-    t2 = datetime(2025, 1, 2, 12, 0, 0)
-    
-    # Total business time elapsed:
-    # Day 1: 17:00 to 18:00 = 60 mins
-    # Day 2: 08:00 to 09:00 = 60 mins
-    # Total = 120 mins
-    assert calculate_elapsed_business_minutes(t1, t2, bh) == 120.0
+    # Na madrugada (03:00 SP do dia seguinte / 06:00 UTC do dia 11) -> continua tendo apenas 60 min úteis!
+    end_3am_utc = datetime(2026, 8, 11, 6, 0, 0)
+    elapsed_night = calculate_elapsed_business_minutes(start_utc, end_3am_utc, bh)
+    assert elapsed_night == 60.0  # As 7 horas da madrugada não contaram
 
-def test_over_weekend():
-    bh = {
-        "enabled": True,
-        "start": "08:00",
-        "end": "18:00",
-        "weekdays": True,
-        "saturday": False,
-        "sunday": False
-    }
-    # 2025-01-03 is Friday.
-    # 20:00 UTC = 17:00 SP
-    t1 = datetime(2025, 1, 3, 20, 0, 0)
+    # Às 09:00 SP do dia 11 (12:00 UTC do dia 11) -> 60 min (das 19h às 20h do dia anterior) + 60 min (das 08h às 09h de hoje) = 120 min
+    end_9am_utc = datetime(2026, 8, 11, 12, 0, 0)
+    elapsed_9am = calculate_elapsed_business_minutes(start_utc, end_9am_utc, bh)
+    assert elapsed_9am == 120.0
+
+def test_calculate_elapsed_business_minutes_disabled():
+    # Quando o horário comercial está desativado, o tempo flui 24h normalmente
+    start_utc = datetime(2026, 8, 10, 0, 0, 0)
+    end_utc = datetime(2026, 8, 10, 3, 0, 0) # 3 horas = 180 min
     
-    # 2025-01-06 is Monday.
-    # 12:00 UTC = 09:00 SP
-    t2 = datetime(2025, 1, 6, 12, 0, 0)
-    
-    # Friday: 17:00 to 18:00 = 60 mins
-    # Sat, Sun: 0 mins
-    # Monday: 08:00 to 09:00 = 60 mins
-    # Total = 120 mins
-    assert calculate_elapsed_business_minutes(t1, t2, bh) == 120.0
+    elapsed = calculate_elapsed_business_minutes(start_utc, end_utc, None)
+    assert elapsed == 180.0

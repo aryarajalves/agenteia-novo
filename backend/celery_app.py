@@ -25,9 +25,9 @@ app.conf.update(
             'task': 'tasks.check_window_expiry',
             'schedule': 300.0,
         },
-        'check-followup-due-5min': {
+        'check-followup-due-1min': {
             'task': 'tasks.check_followup_due',
-            'schedule': 300.0,
+            'schedule': 60.0,
         },
         'check-backup-schedule-5min': {
             'task': 'tasks.check_backup_schedule',

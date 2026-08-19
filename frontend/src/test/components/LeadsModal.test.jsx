@@ -84,6 +84,7 @@ describe('LeadsModal Component', () => {
         onBulkDelete: vi.fn(),
         onDeleteLead: vi.fn(),
         onSyncAll: vi.fn(),
+        isSyncing: false,
         onViewHistory: vi.fn(),
     };
 
@@ -181,5 +182,70 @@ describe('LeadsModal Component', () => {
 
         fireEvent.click(btnBulkDelete);
         expect(defaultProps.onBulkDelete).toHaveBeenCalledTimes(1);
+    });
+
+    it('deve exibir "Sincronizando..." e desabilitar o botão quando isSyncing=true', () => {
+        render(<LeadsModal {...defaultProps} isSyncing={true} />);
+
+        const btn = screen.getByText('Sincronizando...');
+        expect(btn.closest('button')).toBeDisabled();
+    });
+
+    it('deve exibir "Sincronizar Tudo" e habilitar o botão quando isSyncing=false', () => {
+        render(<LeadsModal {...defaultProps} isSyncing={false} />);
+
+        const btn = screen.getByText('🔄 Sincronizar Tudo');
+        expect(btn.closest('button')).not.toBeDisabled();
+    });
+
+    it('deve exibir botão para selecionar todos os contatos quando total for maior que a página atual e chamar onSelectAllTotal ao clicar', () => {
+        const onSelectAllTotal = vi.fn();
+        const propsComMaisContatos = {
+            ...defaultProps,
+            leadsModal: {
+                ...defaultProps.leadsModal,
+                total: 111,
+                leads: mockLeads // 2 leads na página
+            },
+            onSelectAllTotal
+        };
+        render(<LeadsModal {...propsComMaisContatos} />);
+
+        const btnSelectTotal = screen.getByText(/Selecionar todos os 111 contatos/i);
+        expect(btnSelectTotal).toBeInTheDocument();
+
+        fireEvent.click(btnSelectTotal);
+        expect(onSelectAllTotal).toHaveBeenCalledTimes(1);
+    });
+
+    it('deve exibir aviso de todos selecionados e chamar onClearSelection ao clicar em Desmarcar todos', () => {
+        const onClearSelection = vi.fn();
+        const fakeIds = Array.from({ length: 111 }, (_, i) => i + 1);
+        const propsTodosSelecionados = {
+            ...defaultProps,
+            leadsModal: {
+                ...defaultProps.leadsModal,
+                total: 111,
+                leads: mockLeads
+            },
+            selectedLeads: new Set(fakeIds),
+            onClearSelection
+        };
+        render(<LeadsModal {...propsTodosSelecionados} />);
+
+        expect(screen.getByText(/Todos os 111 contatos selecionados/i)).toBeInTheDocument();
+        const btnClear = screen.getByText('Desmarcar todos');
+        expect(btnClear).toBeInTheDocument();
+
+        fireEvent.click(btnClear);
+        expect(onClearSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('deve chamar onSyncAll ao clicar no botão Sincronizar Tudo (quando não estiver sincronizando)', () => {
+        const onSyncAll = vi.fn();
+        render(<LeadsModal {...defaultProps} onSyncAll={onSyncAll} isSyncing={false} />);
+
+        fireEvent.click(screen.getByText('🔄 Sincronizar Tudo'));
+        expect(onSyncAll).toHaveBeenCalledTimes(1);
     });
 });

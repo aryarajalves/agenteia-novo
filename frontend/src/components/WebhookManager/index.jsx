@@ -89,7 +89,11 @@ const WebhookManager = () => {
         setSelectedLeads,
         toggleSelectLead,
         toggleSelectAllLeads,
+        handleSelectAllTotalLeads,
+        handleClearAllSelectedLeads,
+        isSelectingAllTotal,
         handleSyncAll,
+        isSyncing,
         handleDeleteSelectedLeads,
         handleDeleteAllLeads,
         deletingLeads
@@ -232,7 +236,7 @@ const WebhookManager = () => {
                     copiedToken={copiedToken}
                     onViewErrors={(wh) => { setSelectedWebhook(wh); setHistoryTab('pipeline'); setHistoryFilters(f => ({ ...f, status: 'error' })); fetchEvents(wh, { ...historyFilters, status: 'error' }); }}
                     onViewHistory={(wh) => { setSelectedWebhook(wh); setHistoryTab('pipeline'); fetchEvents(wh); }}
-                    onViewLeads={(wh) => fetchLeads(wh)}
+                    onViewLeads={(wh) => { setSelectedLeads(new Set()); fetchLeads(wh); }}
                     onSimulateLoad={(wh) => setLoadSimulatorWebhook(wh)}
                     onEdit={handleOpenEdit}
                     onDelete={(wh) => setConfirmModal({ isOpen: true, webhookId: wh.id, webhookName: wh.name })}
@@ -270,19 +274,23 @@ const WebhookManager = () => {
                     <LeadsModal
                         leadsModal={leadsModal}
                         setLeadsModal={setLeadsModal}
-                        onClose={() => setLeadsModal(null)}
+                        onClose={() => { setSelectedLeads(new Set()); setLeadsModal(null); }}
                         selectedLeads={selectedLeads}
                         setSelectedLeads={setSelectedLeads}
                         toggleSelectLead={toggleSelectLead}
                         toggleSelectAllLeads={toggleSelectAllLeads}
+                        onSelectAllTotal={handleSelectAllTotalLeads}
+                        onClearSelection={handleClearAllSelectedLeads}
+                        isSelectingAllTotal={isSelectingAllTotal}
                         onBulkDelete={() => setConfirmLeadDelete({ isOpen: true, lead: null, isBulk: true })}
                         onDeleteLead={(lead) => setConfirmLeadDelete({ isOpen: true, lead, isBulk: false })}
                         onSyncAll={() => handleSyncAll(leadsModal.webhook)}
+                        isSyncing={isSyncing}
                         onSearch={(q) => fetchLeads(leadsModal.webhook, 1, leadsModal.pageSize, q, leadsModal.podeEnviar, leadsModal.dateStart, leadsModal.dateEnd, leadsModal.janelaAberta, leadsModal.semMensagens)}
                         onFilterChange={(f) => fetchLeads(leadsModal.webhook, 1, f.pageSize ?? leadsModal.pageSize, f.search ?? leadsModal.search, f.podeEnviar ?? leadsModal.podeEnviar, f.dateStart ?? leadsModal.dateStart, f.dateEnd ?? leadsModal.dateEnd, f.janelaAberta ?? leadsModal.janelaAberta, f.semMensagens ?? leadsModal.semMensagens)}
                         onPageChange={(p) => fetchLeads(leadsModal.webhook, p, leadsModal.pageSize, leadsModal.search, leadsModal.podeEnviar, leadsModal.dateStart, leadsModal.dateEnd, leadsModal.janelaAberta, leadsModal.semMensagens)}
                         onViewHistory={(lead) => {
-                            setLeadHistoryModal({ lead, webhook: leadsModal.webhook });
+                            setLeadHistoryModal({ lead, webhook: leadsModal.webhook, savedLeadsModalState: leadsModal });
                             setLeadsModal(null); 
                         }}
                         deletingLeads={deletingLeads}
@@ -295,8 +303,25 @@ const WebhookManager = () => {
                         webhook={leadHistoryModal.webhook}
                         onClose={() => {
                             const wh = leadHistoryModal.webhook;
+                            const savedState = leadHistoryModal.savedLeadsModalState;
                             setLeadHistoryModal(null);
-                            if (wh) fetchLeads(wh);
+                            if (wh) {
+                                if (savedState) {
+                                    fetchLeads(
+                                        wh,
+                                        savedState.page || 1,
+                                        savedState.pageSize || 20,
+                                        savedState.search || '',
+                                        savedState.podeEnviar || 'all',
+                                        savedState.dateStart || '',
+                                        savedState.dateEnd || '',
+                                        savedState.janelaAberta || 'all',
+                                        savedState.semMensagens || 'all'
+                                    );
+                                } else {
+                                    fetchLeads(wh);
+                                }
+                            }
                         }}
                     />
                 )}

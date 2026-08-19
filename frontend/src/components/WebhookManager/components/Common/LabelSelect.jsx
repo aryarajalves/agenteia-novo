@@ -41,6 +41,17 @@ export const LabelMultiSelect = ({ selected = [], options = [], onChange, accent
                             type="text"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter' && search.trim()) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const clean = search.trim();
+                                    if (!(selected || []).includes(clean)) {
+                                        onChange([...(selected || []), clean]);
+                                    }
+                                    setSearch('');
+                                }
+                            }}
                             placeholder={placeholder}
                             onClick={e => e.stopPropagation()}
                             style={{ width: '100%', boxSizing: 'border-box', background: '#1e293b', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '0.45rem 0.7rem', color: '#fff', fontSize: '0.82rem', outline: 'none' }}
@@ -48,22 +59,51 @@ export const LabelMultiSelect = ({ selected = [], options = [], onChange, accent
                     </div>
                     <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
                         {filtered.length === 0 ? (
-                            <div style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: '#475569' }}>Nenhuma etiqueta encontrada</div>
-                        ) : filtered.map(opt => {
-                            const isSelected = (selected || []).includes(opt);
-                            return (
-                                <div
-                                    key={opt}
-                                    onClick={e => { e.stopPropagation(); onChange(isSelected ? (selected || []).filter(x => x !== opt) : [...(selected || []), opt]); }}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.75rem', cursor: 'pointer', background: isSelected ? accentColor + '18' : 'transparent', transition: 'background 0.1s' }}
-                                >
-                                    <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: `2px solid ${isSelected ? accentColor : '#334155'}`, background: isSelected ? accentColor : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.1s' }}>
-                                        {isSelected && <span style={{ color: '#0f172a', fontSize: '0.65rem', fontWeight: 900 }}>✓</span>}
+                            <div 
+                                onClick={e => {
+                                    e.stopPropagation();
+                                    if (search.trim()) {
+                                        const clean = search.trim();
+                                        if (!(selected || []).includes(clean)) onChange([...(selected || []), clean]);
+                                        setSearch('');
+                                    }
+                                }}
+                                style={{ padding: '0.75rem 1rem', fontSize: '0.8rem', color: search.trim() ? accentColor : '#475569', cursor: search.trim() ? 'pointer' : 'default' }}
+                            >
+                                {search.trim() ? `+ Adicionar "${search.trim()}"` : 'Nenhuma etiqueta encontrada'}
+                            </div>
+                        ) : (
+                            <>
+                                {filtered.map(opt => {
+                                    const isSelected = (selected || []).includes(opt);
+                                    return (
+                                        <div
+                                            key={opt}
+                                            onClick={e => { e.stopPropagation(); onChange(isSelected ? (selected || []).filter(x => x !== opt) : [...(selected || []), opt]); }}
+                                            style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0.75rem', cursor: 'pointer', background: isSelected ? accentColor + '18' : 'transparent', transition: 'background 0.1s' }}
+                                        >
+                                            <div style={{ width: '16px', height: '16px', borderRadius: '4px', border: `2px solid ${isSelected ? accentColor : '#334155'}`, background: isSelected ? accentColor : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.1s' }}>
+                                                {isSelected && <span style={{ color: '#0f172a', fontSize: '0.65rem', fontWeight: 900 }}>✓</span>}
+                                            </div>
+                                            <span style={{ fontSize: '0.82rem', color: isSelected ? '#fff' : '#94a3b8' }}>{opt}</span>
+                                        </div>
+                                    );
+                                })}
+                                {search.trim() && !filtered.includes(search.trim()) && (
+                                    <div 
+                                        onClick={e => {
+                                            e.stopPropagation();
+                                            const clean = search.trim();
+                                            if (!(selected || []).includes(clean)) onChange([...(selected || []), clean]);
+                                            setSearch('');
+                                        }}
+                                        style={{ padding: '0.45rem 0.75rem', fontSize: '0.8rem', color: accentColor, cursor: 'pointer', borderTop: '1px solid rgba(255,255,255,0.05)', fontWeight: 600 }}
+                                    >
+                                        + Adicionar "{search.trim()}"
                                     </div>
-                                    <span style={{ fontSize: '0.82rem', color: isSelected ? '#fff' : '#94a3b8' }}>{opt}</span>
-                                </div>
-                            );
-                        })}
+                                )}
+                            </>
+                        )}
                     </div>
                     {(selected || []).length > 0 && (
                         <div style={{ padding: '0.4rem 0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

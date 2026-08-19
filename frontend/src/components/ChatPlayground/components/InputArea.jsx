@@ -181,7 +181,10 @@ const InputArea = ({
                                     handleSendMessage(e);
                                 }
                             }}
-                            rows={1}
+                            rows={Math.min(5, Math.max(1, input.split('\n').length))}
+                            style={{
+                                height: input.includes('\n') ? 'auto' : undefined
+                            }}
                         />
 
                         <button

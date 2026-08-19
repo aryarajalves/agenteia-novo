@@ -151,9 +151,11 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                 two_min_ago = now_utc - timedelta(seconds=120)
                 await conn.execute(text(f"""
                     UPDATE {table_name} SET
-                        telefone = :telefone, conta_id = :conta_id,
-                        inbox_id = :inbox_id, inbox_nome = :inbox_nome,
-                        conversa_id = :conversa_id,
+                        telefone = :telefone,
+                        conta_id = CASE WHEN CAST(:conta_id AS VARCHAR) IS NOT NULL AND CAST(:conta_id AS VARCHAR) != '' AND CAST(:conta_id AS VARCHAR) != 'None' THEN CAST(:conta_id AS VARCHAR) ELSE conta_id END,
+                        inbox_id = CASE WHEN CAST(:inbox_id AS VARCHAR) IS NOT NULL AND CAST(:inbox_id AS VARCHAR) != '' AND CAST(:inbox_id AS VARCHAR) != 'None' THEN CAST(:inbox_id AS VARCHAR) ELSE inbox_id END,
+                        inbox_nome = COALESCE(:inbox_nome, inbox_nome),
+                        conversa_id = CASE WHEN CAST(:conversa_id AS VARCHAR) IS NOT NULL AND CAST(:conversa_id AS VARCHAR) != '' AND CAST(:conversa_id AS VARCHAR) != 'None' THEN CAST(:conversa_id AS VARCHAR) ELSE conversa_id END,
                         mensagem_id = :mensagem_id, contato_id = :contato_id,
                         labels = CASE 
                             WHEN CAST(:labels AS VARCHAR) IS NOT NULL AND CAST(:labels AS VARCHAR) != '' AND CAST(:labels AS VARCHAR) != '[]' THEN CAST(:labels AS VARCHAR)
@@ -182,9 +184,11 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
             else:
                 await conn.execute(text(f"""
                     UPDATE {table_name} SET
-                        telefone = :telefone, conta_id = :conta_id,
-                        inbox_id = :inbox_id, inbox_nome = :inbox_nome,
-                        conversa_id = :conversa_id,
+                        telefone = :telefone,
+                        conta_id = CASE WHEN CAST(:conta_id AS VARCHAR) IS NOT NULL AND CAST(:conta_id AS VARCHAR) != '' AND CAST(:conta_id AS VARCHAR) != 'None' THEN CAST(:conta_id AS VARCHAR) ELSE conta_id END,
+                        inbox_id = CASE WHEN CAST(:inbox_id AS VARCHAR) IS NOT NULL AND CAST(:inbox_id AS VARCHAR) != '' AND CAST(:inbox_id AS VARCHAR) != 'None' THEN CAST(:inbox_id AS VARCHAR) ELSE inbox_id END,
+                        inbox_nome = COALESCE(:inbox_nome, inbox_nome),
+                        conversa_id = CASE WHEN CAST(:conversa_id AS VARCHAR) IS NOT NULL AND CAST(:conversa_id AS VARCHAR) != '' AND CAST(:conversa_id AS VARCHAR) != 'None' THEN CAST(:conversa_id AS VARCHAR) ELSE conversa_id END,
                         mensagem_id = :mensagem_id, contato_id = :contato_id,
                         labels = CASE 
                             WHEN CAST(:labels AS VARCHAR) IS NOT NULL AND CAST(:labels AS VARCHAR) != '' AND CAST(:labels AS VARCHAR) != '[]' THEN CAST(:labels AS VARCHAR)
@@ -201,9 +205,16 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                             ELSE CAST(:now_utc AS TIMESTAMP)
                         END,
                         window_close_processed = FALSE,
-                        followup_step = 0, updated_at = :now_utc
+                        followup_step = CASE 
+                            WHEN COALESCE((SELECT followup_on_reply FROM webhook_configs WHERE id = :webhook_config_id), 'stop') = 'stop' AND followup_step > 0 THEN -1
+                            WHEN (SELECT followup_on_reply FROM webhook_configs WHERE id = :webhook_config_id) = 'continue_next' AND followup_step > 0 THEN followup_step
+                            WHEN (SELECT followup_on_reply FROM webhook_configs WHERE id = :webhook_config_id) = 'restart' THEN 0
+                            WHEN followup_step = -1 THEN -1
+                            ELSE 0
+                        END,
+                        updated_at = :now_utc
                     WHERE id = :id
-                """), {**data_to_pass, "id": row[0], "now_utc": now_utc})
+                """), {**data_to_pass, "webhook_config_id": webhook_config_id, "id": row[0], "now_utc": now_utc})
         else:
             logger.info(f"🆕 Inserindo NOVO lead na tabela {table_name}: {phone_raw} (is_agent={is_agent}, is_memory={is_memory}, nome={valid_name or fallback_name})")
             insert_data = {**data_to_pass, "contato_nome": valid_name or fallback_name}

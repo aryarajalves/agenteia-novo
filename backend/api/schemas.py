@@ -193,6 +193,7 @@ class MessageResponse(BaseModel):
     response_time_ms: Optional[int] = None
     model_used: Optional[str] = None
     error: bool = False
+    system_error: Optional[str] = None
 
 class ToolCreate(BaseModel):
     name: str

@@ -16,11 +16,12 @@ const Login = ({ onLogin }) => {
         try {
             const res = await api.post('/login', { email, password });
             const data = await res.json();
-            if (res.ok && data.token) {
-                localStorage.setItem('admin_token', data.token);
+            const token = data.token || data.access_token;
+            if (res.ok && token) {
+                localStorage.setItem('admin_token', token);
                 if (data.user) {
-                    localStorage.setItem('user_name', data.user.name);
-                    localStorage.setItem('user_role', data.user.role);
+                    localStorage.setItem('user_name', data.user.name || data.user.nome || 'Admin');
+                    localStorage.setItem('user_role', data.user.role || data.user.cargo || 'SUPER_ADMIN');
                 }
                 onLogin();
             } else {

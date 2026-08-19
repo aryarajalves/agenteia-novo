@@ -3,6 +3,63 @@ import { api } from '../../../api/client';
 import { showToast, generateToken } from '../utils/helpers';
 import { INITIAL_FORM_STATE } from '../constants';
 
+const parseListSafe = (val) => {
+    if (!val) return [];
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') {
+        try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) return parsed;
+        } catch (_) {}
+        return val.trim() ? [val.trim()] : [];
+    }
+    return [];
+};
+
+const extractErrorMessage = (errData, fallbackMsg) => {
+    if (!errData) return fallbackMsg;
+    if (typeof errData === 'string') return errData;
+    if (typeof errData.detail === 'string') return errData.detail;
+    if (Array.isArray(errData.detail)) {
+        return errData.detail.map(d => (d.msg || d.message || JSON.stringify(d))).join(' | ');
+    }
+    if (errData.message && typeof errData.message === 'string') return errData.message;
+    return fallbackMsg;
+};
+
+const sanitizeWebhookPayload = (form) => {
+    const payload = { ...form };
+    delete payload.created_at;
+    delete payload.updated_at;
+    delete payload.cw_webhooks;
+    delete payload.stats;
+
+    payload.delay_seconds = Number(form.delay_seconds) || 0;
+    payload.response_delay_seconds = Number(form.response_delay_seconds) || 0;
+    payload.agent_id = form.agent_id ? Number(form.agent_id) : null;
+    
+    if (form.secondary_agent_ids) {
+        payload.secondary_agent_ids = parseListSafe(form.secondary_agent_ids)
+            .map(id => Number(id))
+            .filter(id => !isNaN(id) && id > 0);
+    }
+    
+    payload.allowed_contacts = parseListSafe(form.allowed_contacts);
+    payload.blocked_messages = parseListSafe(form.blocked_messages);
+    payload.delete_keywords = parseListSafe(form.delete_keywords);
+    payload.delete_labels = parseListSafe(form.delete_labels);
+    payload.labels_on_message = parseListSafe(form.labels_on_message);
+    payload.window_close_label = parseListSafe(form.window_close_label);
+    payload.handoff_labels_to_add = parseListSafe(form.handoff_labels_to_add);
+    payload.handoff_labels_to_remove = parseListSafe(form.handoff_labels_to_remove);
+    payload.ai_handoff_labels_to_add = parseListSafe(form.ai_handoff_labels_to_add);
+    payload.ai_handoff_labels_to_remove = parseListSafe(form.ai_handoff_labels_to_remove);
+    payload.memory_mappings = parseListSafe(form.memory_mappings);
+    payload.followup_steps = parseListSafe(form.followup_steps);
+
+    return payload;
+};
+
 export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchChatwootLabels) => {
     const [isCreating, setIsCreating] = useState(false);
     const [createForm, setCreateForm] = useState(INITIAL_FORM_STATE);
@@ -46,26 +103,23 @@ export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchCha
                 return;
             }
 
-            const res = await api.post('/webhooks', { 
-                ...editForm, 
-                delay_seconds: Number(editForm.delay_seconds) || 30,
-                response_delay_seconds: Number(editForm.response_delay_seconds) || 0,
-                agent_id: editForm.agent_id ? Number(editForm.agent_id) : null
-            });
+            const payload = sanitizeWebhookPayload(editForm);
+            const res = await api.post('/webhooks', payload);
             if (!res.ok) {
-                let errMsg = 'Erro ao criar.';
-                try { const err = await res.json(); errMsg = err.detail || errMsg; } catch {}
+                let errData = {};
+                try { errData = await res.json(); } catch (_) {}
+                const errMsg = extractErrorMessage(errData, 'Erro ao criar integração.');
                 setEditError(errMsg);
                 showToast(errMsg, 'error');
                 return;
             }
             setEditingWebhook(null);
             setEditForm(INITIAL_FORM_STATE);
-            await fetchWebhooks();
-            if (fetchChatwootLabels) {
-                await fetchChatwootLabels();
-            }
             showToast('Integração criada com sucesso!');
+            if (fetchWebhooks) fetchWebhooks();
+            if (fetchChatwootLabels) {
+                fetchChatwootLabels().catch(err => console.warn('Erro ao atualizar labels:', err));
+            }
         } catch (e) {
             const msg = `Erro de conexão: ${e.message}`;
             setEditError(msg);
@@ -85,25 +139,22 @@ export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchCha
         setEditSaving(true);
         setEditError('');
         try {
-            const res = await api.put(`/webhooks/${editingWebhook.id}`, { 
-                ...editForm, 
-                delay_seconds: Number(editForm.delay_seconds) || 30, 
-                response_delay_seconds: Number(editForm.response_delay_seconds) || 0, 
-                agent_id: editForm.agent_id ? Number(editForm.agent_id) : null
-            });
+            const payload = sanitizeWebhookPayload(editForm);
+            const res = await api.put(`/webhooks/${editingWebhook.id}`, payload);
             if (!res.ok) {
-                let errMsg = 'Erro ao salvar.';
-                try { const err = await res.json(); errMsg = err.detail || errMsg; } catch {}
+                let errData = {};
+                try { errData = await res.json(); } catch (_) {}
+                const errMsg = extractErrorMessage(errData, 'Erro ao salvar alterações.');
                 setEditError(errMsg);
                 showToast(errMsg, 'error');
                 return;
             }
             setEditingWebhook(null);
-            await fetchWebhooks();
-            if (fetchChatwootLabels) {
-                await fetchChatwootLabels();
-            }
             showToast('Alterações salvas com sucesso!');
+            if (fetchWebhooks) fetchWebhooks();
+            if (fetchChatwootLabels) {
+                fetchChatwootLabels().catch(err => console.warn('Erro ao atualizar labels:', err));
+            }
         } catch (e) {
             const msg = `Erro de conexão: ${e.message}`;
             setEditError(msg);
@@ -161,6 +212,9 @@ export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchCha
             followup_enabled: webhook.followup_enabled || false,
             followup_steps: webhook.followup_steps || [],
             followup_business_hours: webhook.followup_business_hours || { enabled: false, start: '08:00', end: '18:00', weekdays: true, saturday: false, sunday: false },
+            followup_cancel_label: webhook.followup_cancel_label || '',
+            followup_required_label: webhook.followup_required_label || '',
+            followup_add_label: webhook.followup_add_label || '',
             split_response_enabled: webhook.split_response_enabled !== undefined ? webhook.split_response_enabled : true,
         });
         setEditTab('geral');

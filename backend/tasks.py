@@ -212,10 +212,18 @@ def check_window_expiry():
         db.close()
 
 
-def _is_within_business_hours(bh: dict | None) -> bool:
+def _is_within_business_hours(bh: dict | str | None) -> bool:
     """Returns True if current time is within configured business hours (or if no restriction set)."""
-    if not bh or not bh.get("enabled"):
+    if not bh:
         return True
+    if isinstance(bh, str):
+        try:
+            bh = json.loads(bh)
+        except Exception:
+            return True
+    if not isinstance(bh, dict) or not bh.get("enabled"):
+        return True
+
     now = datetime.now(zoneinfo.ZoneInfo("America/Sao_Paulo"))
     weekday = now.weekday()  # 0=Mon … 6=Sun
     allowed_day = (
@@ -226,15 +234,27 @@ def _is_within_business_hours(bh: dict | None) -> bool:
     if not allowed_day:
         return False
     current = now.strftime("%H:%M")
-    return bh.get("start", "08:00") <= current <= bh.get("end", "18:00")
+    start = bh.get("start", "08:00")
+    end = bh.get("end", "20:00")
+    return start <= current <= end
 
-def calculate_elapsed_business_minutes(start_time: datetime, end_time: datetime, bh: dict | None) -> float:
+def calculate_elapsed_business_minutes(start_time: datetime, end_time: datetime, bh: dict | str | None) -> float:
     """
     Calculates the exact number of minutes elapsed between start_time and end_time,
     counting ONLY the minutes that fall within the configured business hours.
     start_time and end_time MUST be naive UTC datetimes from the DB (representing UTC).
     """
-    if not bh or not bh.get("enabled"):
+    if not bh:
+        diff = end_time - start_time
+        return diff.total_seconds() / 60.0
+
+    if isinstance(bh, str):
+        try:
+            bh = json.loads(bh)
+        except Exception:
+            bh = None
+
+    if not isinstance(bh, dict) or not bh.get("enabled"):
         diff = end_time - start_time
         return diff.total_seconds() / 60.0
 
@@ -252,10 +272,14 @@ def calculate_elapsed_business_minutes(start_time: datetime, end_time: datetime,
     
     # Parse BH start and end
     bh_start_str = bh.get("start", "08:00")
-    bh_end_str = bh.get("end", "18:00")
+    bh_end_str = bh.get("end", "20:00")
     
-    h_start, m_start = map(int, bh_start_str.split(":"))
-    h_end, m_end = map(int, bh_end_str.split(":"))
+    try:
+        h_start, m_start = map(int, bh_start_str.split(":"))
+        h_end, m_end = map(int, bh_end_str.split(":"))
+    except Exception:
+        h_start, m_start = 8, 0
+        h_end, m_end = 20, 0
 
     current = start_dt
 
@@ -288,72 +312,119 @@ def calculate_elapsed_business_minutes(start_time: datetime, end_time: datetime,
     return total_minutes
 
 
-def _generate_followup_message(cw_url: str, cw_token: str, conta_id: int, conversa_id: int, delay_hours: float, nome: str) -> str | None:
-    """Busca as últimas 5 mensagens do Chatwoot e usa Claude para gerar um follow-up contextual."""
+def _format_delay_text(delay_minutes: float) -> str:
+    mins = int(delay_minutes)
+    if mins < 60:
+        return f"{mins} minutos"
+    elif mins >= 1440 and mins % 1440 == 0:
+        d = mins // 1440
+        return f"{d} dia" if d == 1 else f"{d} dias"
+    else:
+        h = round(delay_minutes / 60.0, 1)
+        if h == int(h):
+            h = int(h)
+        return f"{h} hora" if h == 1 else f"{h} horas"
+
+
+def _generate_followup_message(cw_url: str, cw_token: str, conta_id: str, conversa_id: str, delay_minutes: float, nome: str, custom_prompt: str | None = None, lead_msg: str | None = None, agent_resp: str | None = None) -> tuple[str | None, any]:
+    """Busca as últimas 5 mensagens do Chatwoot/ZapVoice ou usa fallback do banco de dados para gerar follow-up contextual."""
+    history = ""
     try:
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(
-                f"{cw_url}/api/v1/accounts/{conta_id}/conversations/{conversa_id}/messages",
-                headers={"api_access_token": cw_token}
-            )
-        if resp.status_code != 200:
-            return None
-
-        all_msgs = resp.json().get("payload", {})
-        if isinstance(all_msgs, dict):
-            all_msgs = all_msgs.get("messages", [])
-
-        # Filtrar apenas mensagens de texto com conteúdo, ordenar por criação
-        text_msgs = [m for m in all_msgs if m.get("content") and m.get("message_type") in (0, 1)]
-        text_msgs.sort(key=lambda m: m.get("created_at", 0))
-        last_5 = text_msgs[-5:]
-
-        if not last_5:
-            return None
-
-        history_lines = []
-        for m in last_5:
-            role = "Usuário" if m.get("message_type") == 0 else "Agente"
-            history_lines.append(f"{role}: {m['content'].strip()}")
-        history = "\n".join(history_lines)
-
-        ai_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-        result = ai_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Você é um assistente de atendimento. O contato '{nome}' não respondeu há {delay_hours} horas.\n\n"
-                    f"Histórico recente da conversa:\n{history}\n\n"
-                    "Crie uma mensagem de follow-up curta, natural e amigável que retome o assunto da última pergunta "
-                    "feita pelo Agente. Não mencione o tempo decorrido. Responda APENAS com a mensagem, sem explicações."
+        if cw_url and cw_token and conta_id and conversa_id and str(conversa_id).strip() != "None":
+            with httpx.Client(timeout=10) as client:
+                resp = client.get(
+                    f"{cw_url}/api/v1/accounts/{conta_id}/conversations/{conversa_id}/messages",
+                    headers={"api_access_token": cw_token}
                 )
-            }]
-        )
-        return result.content[0].text.strip(), result.usage
+            if resp.status_code == 200:
+                all_msgs = resp.json().get("payload", {})
+                if isinstance(all_msgs, dict):
+                    all_msgs = all_msgs.get("messages", [])
+
+                text_msgs = [m for m in all_msgs if m.get("content") and m.get("message_type") in (0, 1)]
+                text_msgs.sort(key=lambda m: m.get("created_at", 0))
+                last_5 = text_msgs[-5:]
+
+                if last_5 and last_5[-1].get("message_type") == 0:
+                    logger.info(f"[FollowUp] Lead enviou a última mensagem na conversa {conversa_id}. Cancelando envio do follow-up.")
+                    return "LEAD_RESPONDED", None
+
+                if last_5:
+                    history_lines = []
+                    for m in last_5:
+                        role = "Usuário" if m.get("message_type") == 0 else "Agente"
+                        history_lines.append(f"{role}: {m['content'].strip()}")
+                    history = "\n".join(history_lines)
     except Exception as e:
-        logger.warning(f"[FollowUp] Erro ao gerar mensagem com IA: {e}")
-        return None, None
+        logger.warning(f"[FollowUp] Aviso/Erro ao buscar histórico da API: {e}")
 
+    if not history:
+        h_parts = []
+        if lead_msg and str(lead_msg).strip():
+            h_parts.append(f"Usuário: {str(lead_msg).strip()}")
+        if agent_resp and str(agent_resp).strip():
+            h_parts.append(f"Agente: {str(agent_resp).strip()}")
+        history = "\n".join(h_parts) if h_parts else "Agente: Olá! Como posso te ajudar?"
 
-def _save_followup_event(db, config_id, conta_id, conversa_id, telefone, nome, message, steps, status):
-    """Auxiliar param salvar o pipeline e histórico."""
-    event = WebhookEventModel(
-        webhook_config_id=config_id,
-        event_type="followup",
-        conta_id=str(conta_id),
-        conversa_id=str(conversa_id),
-        telefone=telefone,
-        contato_nome=nome or telefone,
-        mensagem="Acionamento de Follow-Up Automático" if not message else message,
-        status=status,
-        agent_response=message,
-        processing_steps=json.dumps(steps),
-        dono="agente"
+    delay_str = _format_delay_text(delay_minutes)
+
+    if custom_prompt and custom_prompt.strip():
+        instruction_text = (
+            f"Diretriz/Instrução específica para este disparo de follow-up: {custom_prompt.strip()}\n\n"
+            "Crie uma mensagem de follow-up curta, natural e amigável seguindo a instrução específica acima. "
+            "Não mencione o tempo decorrido. Responda APENAS com a mensagem, sem explicações."
+        )
+    else:
+        instruction_text = (
+            "Crie uma mensagem de follow-up curta, natural e amigável que retome o assunto da última pergunta "
+            "feita pelo Agente. Não mencione o tempo decorrido. Responda APENAS com a mensagem, sem explicações."
+        )
+
+    ai_client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    result = ai_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Você é um assistente de atendimento. O contato '{nome}' não respondeu há {delay_str}.\n\n"
+                f"Histórico recente da conversa:\n{history}\n\n"
+                f"{instruction_text}"
+            )
+        }]
     )
-    db.add(event)
-    db.commit()
+    return result.content[0].text.strip(), result.usage
+
+
+def _save_followup_event(db, config_id, conta_id, conversa_id, telefone, nome, message, steps, status, step_index: int = 0):
+    """Registra evento de log em webhook_events para que apareça no histórico do lead no frontend e conste como memória."""
+    try:
+        if status == "processed" and message:
+            db.execute(_text("""
+                INSERT INTO webhook_events (
+                    webhook_config_id, conta_id, conversa_id, telefone, contato_nome,
+                    mensagem, agent_response, dono, status, event_type, message_type,
+                    processing_steps, created_at
+                ) VALUES (
+                    :wid, :conta, :conv, :tel, :nome,
+                    :msg, :resp, 'Agente', 'processed', 'followup', 'text',
+                    :steps, :created_at
+                )
+            """), {
+                "wid": config_id,
+                "conta": str(conta_id),
+                "conv": str(conversa_id),
+                "tel": telefone,
+                "nome": nome or telefone,
+                "msg": f"🔄 [Follow-Up Passo #{step_index + 1}]",
+                "resp": message,
+                "steps": json.dumps(steps, ensure_ascii=False),
+                "created_at": datetime.utcnow()
+            })
+            db.commit()
+    except Exception as e:
+        logger.error(f"[FollowUp] Erro ao salvar evento no webhook_events: {e}")
+
 
 @app.task(name="tasks.check_followup_due")
 def check_followup_due():
@@ -364,14 +435,14 @@ def check_followup_due():
     db = SessionLocal()
     try:
         configs = db.execute(_text(
-            "SELECT id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_business_hours, agent_id, ignore_by_label "
+            "SELECT id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_business_hours, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zapvoice_url, zapvoice_api_token, zapvoice_client_id, followup_add_label "
             "FROM webhook_configs "
             "WHERE followup_enabled = TRUE AND followup_steps IS NOT NULL AND followup_steps != '' AND followup_steps != '[]'"
         )).fetchall()
 
-        for config_id, leads_table, cw_url_cfg, cw_token_cfg, followup_steps_raw, followup_bh_raw, agent_id, ignore_by_label in configs:
-            cw_url = (cw_url_cfg or cw_url_global or "").rstrip("/")
-            cw_token = cw_token_cfg or cw_token_global
+        for config_id, leads_table, cw_url_cfg, cw_token_cfg, followup_steps_raw, followup_bh_raw, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zv_url_cfg, zv_token_cfg, zv_client_cfg, followup_add_label in configs:
+            cw_url = (cw_url_cfg or zv_url_cfg or cw_url_global or os.getenv("ZAPVOICE_URL") or "").rstrip("/")
+            cw_token = cw_token_cfg or zv_token_cfg or cw_token_global or os.getenv("ZAPVOICE_API_TOKEN") or ""
 
             try:
                 steps = json.loads(followup_steps_raw)
@@ -390,6 +461,15 @@ def check_followup_due():
                 logger.info(f"[FollowUp] Config {config_id} fora do horário comercial, pulando.")
                 continue
 
+            # Montar lista de etiquetas de cancelamento 100%
+            cancel_labels_list = []
+            if ignore_by_label:
+                cancel_labels_list.extend([l.strip() for l in ignore_by_label.split(",") if l.strip()])
+            if followup_cancel_label:
+                cancel_labels_list.extend([l.strip() for l in followup_cancel_label.split(",") if l.strip()])
+            if not cancel_labels_list:
+                cancel_labels_list = ["humano"]
+
             for step_index, step in enumerate(steps):
                 delay_hours = float(step.get("delay_hours", 0))
                 # Suporta novo formato (minutos) ou fallback pro legado
@@ -398,16 +478,14 @@ def check_followup_due():
                     continue
 
                 try:
-                    # Traz todos os leads que estão no step_index e DENTRO DA JANELA DE 24 HORAS
-                    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+                    # Busca leads no step_index inativos há até 30 dias (suporta passos de minutos, horas ou dias)
+                    cutoff_30d = datetime.utcnow() - timedelta(days=30)
                     due = db.execute(_text(f"""
-                        SELECT id, conta_id, conversa_id, telefone, contato_nome, ultima_mensagem_em
+                        SELECT id, conta_id, conversa_id, telefone, contato_nome, ultima_mensagem_em, mensagem, ultima_resposta_agente, labels
                         FROM {leads_table}
                         WHERE followup_step = :step_index
-                          AND ultima_mensagem_em >= :cutoff_24h
-                          AND conversa_id IS NOT NULL
-                          AND conta_id IS NOT NULL
-                    """), {"step_index": step_index, "cutoff_24h": cutoff_24h}).fetchall()
+                          AND ultima_mensagem_em >= :cutoff_30d
+                    """), {"step_index": step_index, "cutoff_30d": cutoff_30d}).fetchall()
 
                     if not due:
                         continue
@@ -415,7 +493,7 @@ def check_followup_due():
                     # Tempo atual (UTC naive, vindo do datetime.utcnow equivalente no PostgreSQL)
                     now_utc = datetime.utcnow()
 
-                    for lead_id, conta_id, conversa_id, telefone, nome, ultima_msg_em in due:
+                    for lead_id, conta_id, conversa_id, telefone, nome, ultima_msg_em, lead_msg, agent_resp, lead_labels_raw in due:
                         if not ultima_msg_em:
                             continue
 
@@ -423,25 +501,53 @@ def check_followup_due():
                         elapsed_minutes = calculate_elapsed_business_minutes(ultima_msg_em, now_utc, business_hours)
                         
                         if elapsed_minutes >= delay_minutes:
-                            # --- VALIDAÇÃO DE SEGURANÇA POR ETIQUETA (Chatwoot) ---
-                            # Antes de disparar o follow-up, garantimos que o robô não foi pausado manualmente no Chatwoot
+                            eff_conta_id = str(conta_id or zv_client_cfg or "1")
+                            eff_conversa_id = str(conversa_id or "1")
+
+                            # --- VALIDAÇÃO DE SEGURANÇA POR ETIQUETA (Smart Triggers) ---
                             try:
-                                # Verificação dinâmica de etiquetas
-                                is_paused = asyncio.run(is_conversation_paused(
-                                    cw_url, 
-                                    int(conta_id), 
-                                    int(conversa_id), 
-                                    cw_token, 
-                                    ignore_by_label or "humano"
-                                ))
+                                # Parse etiquetas locais do banco de dados
+                                local_labels = []
+                                if lead_labels_raw:
+                                    try:
+                                        local_labels = json.loads(lead_labels_raw) if isinstance(lead_labels_raw, str) else lead_labels_raw
+                                        if not isinstance(local_labels, list): local_labels = []
+                                    except Exception:
+                                        local_labels = [x.strip() for x in str(lead_labels_raw).split(",") if x.strip()]
+                                local_labels_lower = [str(x).lower().strip() for x in local_labels]
+
+                                # 1. Checar etiquetas de cancelamento 100%
+                                is_cancelled = False
+                                for cancel_lbl in cancel_labels_list:
+                                    c_lbl_lower = cancel_lbl.lower().strip()
+                                    if c_lbl_lower in local_labels_lower:
+                                        is_cancelled = True
+                                    elif cw_url and cw_token and conta_id and conversa_id and str(conversa_id).strip() != "None":
+                                        if asyncio.run(is_conversation_paused(cw_url, str(conta_id), str(conversa_id), cw_token, cancel_lbl)):
+                                            is_cancelled = True
+
+                                    if is_cancelled:
+                                        logger.info(f"[FollowUp] Pulando e desativando 100% {telefone} devido à etiqueta '{cancel_lbl}'.")
+                                        db.execute(_text(f"UPDATE {leads_table} SET followup_step = -1 WHERE id = :id"), {"id": lead_id})
+                                        db.commit()
+                                        break
                                 
-                                if is_paused:
-                                    logger.info(f"[FollowUp] Pulando {telefone} (conversa {conversa_id}) devido à etiqueta de pausa.")
+                                if is_cancelled:
                                     continue
+
+                                # 2. Checar etiqueta obrigatória se configurada
+                                if followup_required_label and followup_required_label.strip():
+                                    req_lbl = followup_required_label.strip().lower()
+                                    has_req = req_lbl in local_labels_lower
+                                    if not has_req and cw_url and cw_token and conta_id and conversa_id and str(conversa_id).strip() != "None":
+                                        has_req = asyncio.run(is_conversation_paused(cw_url, str(conta_id), str(conversa_id), cw_token, followup_required_label.strip()))
+                                    if not has_req:
+                                        logger.info(f"[FollowUp] Pulando {telefone}: não possui a etiqueta obrigatória '{followup_required_label.strip()}'.")
+                                        continue
+
                             except Exception as e_lbl:
-                                logger.warning(f"[FollowUp] Erro ao validar etiqueta para {telefone}: {e_lbl}")
-                                # Por segurança, se der erro na API do Chatwoot, seguimos para não travar o pipeline, 
-                                # mas o ideal é registrar.
+                                logger.warning(f"[FollowUp] Erro ao validar etiquetas para {telefone}: {e_lbl}")
+
                             pipeline_steps = [
                                 {
                                     "step": f"Avaliando Disparo: Follow-Up {step_index+1}", 
@@ -450,13 +556,105 @@ def check_followup_due():
                                 }
                             ]
                             try:
-                                pipeline_steps.append({"step": "Gerando mensagem do Agente com IA", "detail": "Consultando histórico das últimas 5 mensagens da conversa para dar continuidade.", "timestamp": datetime.utcnow().isoformat()})
+                                step_type = step.get("type", "ai")
+                                custom_prompt = step.get("custom_prompt", "")
+                                fixed_message = step.get("fixed_message", "")
+
+                                if step_type == "fixed" and fixed_message and fixed_message.strip():
+                                    primeiro_nome = (nome or "").strip().split()[0] if nome else "Cliente"
+                                    message = fixed_message.replace("{nome}", nome or "Cliente") \
+                                                           .replace("{primeiro_nome}", primeiro_nome) \
+                                                           .replace("{telefone}", telefone or "")
+                                    ai_usage = None
+                                    pipeline_steps.append({
+                                        "step": "Usando Template de Mensagem Fixa", 
+                                        "detail": f"Mensagem de template personalizada formatada para {nome or telefone}.", 
+                                        "timestamp": datetime.utcnow().isoformat()
+                                    })
+                                elif step_type == "whatsapp_template":
+                                    template_name = step.get("template_name") or ""
+                                    template_language = step.get("language", "pt_BR")
+                                    template_variables = step.get("template_variables") or {}
+                                    template_header_media = step.get("template_header_media") or ""
+                                    template_header_type = step.get("template_header_type") or "IMAGE"
+                                    
+                                    primeiro_nome = (nome or "").strip().split()[0] if nome else "Cliente"
+                                    
+                                    def resolve_val(raw_v):
+                                        if not raw_v: return ""
+                                        return str(raw_v).replace("{nome}", nome or "Cliente") \
+                                                         .replace("{primeiro_nome}", primeiro_nome) \
+                                                         .replace("{telefone}", telefone or "")
+                                    
+                                    components_payload = []
+                                    
+                                    # 1. Header Media (IMAGE, VIDEO, DOCUMENT)
+                                    if template_header_media and template_header_media.strip():
+                                        media_link = resolve_val(template_header_media.strip())
+                                        media_type_key = template_header_type.lower()
+                                        components_payload.append({
+                                            "type": "header",
+                                            "parameters": [
+                                                {
+                                                    "type": media_type_key,
+                                                    media_type_key: {
+                                                        "link": media_link
+                                                    }
+                                                }
+                                            ]
+                                        })
+                                    
+                                    # 2. Header Text Variables
+                                    header_var_keys = sorted([k for k in template_variables.keys() if k.startswith("header_")])
+                                    if header_var_keys:
+                                        header_params = []
+                                        for hk in header_var_keys:
+                                            val = resolve_val(template_variables.get(hk, ""))
+                                            header_params.append({"type": "text", "text": val})
+                                        components_payload.append({
+                                            "type": "header",
+                                            "parameters": header_params
+                                        })
+                                        
+                                    # 3. Body Text Variables
+                                    body_var_keys = sorted([k for k in template_variables.keys() if k.startswith("body_")], key=lambda x: int(x.split("_")[1]) if x.split("_")[1].isdigit() else 0)
+                                    if body_var_keys:
+                                        body_params = []
+                                        for bk in body_var_keys:
+                                            val = resolve_val(template_variables.get(bk, ""))
+                                            body_params.append({"type": "text", "text": val})
+                                        components_payload.append({
+                                            "type": "body",
+                                            "parameters": body_params
+                                        })
+
+                                    processed_components = components_payload if components_payload else (step.get("template_components") or [])
+
+                                    message = f"[Template Oficial]: {template_name}"
+                                    ai_usage = None
+                                    pipeline_steps.append({
+                                        "step": "📱 Disparando Template WhatsApp Oficial", 
+                                        "detail": f"Template: '{template_name}' ({template_language}) com {len(processed_components)} componente(s) dinâmicos via API Oficial ZapVoice.", 
+                                        "timestamp": datetime.utcnow().isoformat()
+                                    })
+                                else:
+                                    pipeline_steps.append({
+                                        "step": "Gerando mensagem do Agente com IA", 
+                                        "detail": f"Consultando histórico recente. Diretriz do Passo: '{custom_prompt or 'Padrão'}'", 
+                                        "timestamp": datetime.utcnow().isoformat()
+                                    })
+                                    message, ai_usage = _generate_followup_message(cw_url, cw_token, eff_conta_id, eff_conversa_id, delay_minutes, nome or telefone, custom_prompt=custom_prompt, lead_msg=lead_msg, agent_resp=agent_resp)
                                 
-                                message, ai_usage = _generate_followup_message(cw_url, cw_token, conta_id, conversa_id, delay_minutes / 60.0, nome or telefone)
+                                if message == "LEAD_RESPONDED":
+                                    logger.info(f"[FollowUp] Lead {telefone} respondeu a conversa recentemente. Interrompendo disparo.")
+                                    pipeline_steps.append({"step": "Interrompido", "detail": "O cliente enviou uma mensagem na conversa. Ciclo de follow-up interrompido automaticamente.", "timestamp": datetime.utcnow().isoformat()})
+                                    _save_followup_event(db, config_id, eff_conta_id, eff_conversa_id, telefone, nome, None, pipeline_steps, "lead_responded")
+                                    continue
+
                                 if not message:
                                     logger.warning(f"[FollowUp] Não foi possível gerar mensagem para lead {lead_id}, pulando.")
                                     pipeline_steps.append({"step": "Erro", "detail": "Não foi possível gerar a mensagem de follow-up com a IA.", "timestamp": datetime.utcnow().isoformat()})
-                                    _save_followup_event(db, config_id, conta_id, conversa_id, telefone, nome, None, pipeline_steps, "error")
+                                    _save_followup_event(db, config_id, eff_conta_id, eff_conversa_id, telefone, nome, None, pipeline_steps, "error")
                                     continue
                                 
                                 usage_meta = {}
@@ -475,23 +673,113 @@ def check_followup_due():
                                     "metadata": usage_meta if usage_meta else None
                                 })
 
-                                msg_url = f"{cw_url}/api/v1/accounts/{conta_id}/conversations/{conversa_id}/messages"
-                                headers = {"api_access_token": cw_token, "Content-Type": "application/json"}
-                                with httpx.Client(timeout=10) as client:
-                                    resp = client.post(msg_url, json={"content": message, "message_type": "outgoing"}, headers=headers)
-                                
-                                if resp.status_code in (200, 201):
+                                media_url = step.get("media_url", "")
+                                media_type = step.get("media_type", "audio")
+
+                                msg_payload = {"content": message or "", "message_type": "outgoing"}
+                                if media_url and media_url.strip():
+                                    msg_payload["attachments"] = [{
+                                        "file_type": media_type or "audio",
+                                        "data_url": media_url.strip()
+                                    }]
+                                    pipeline_steps.append({
+                                        "step": "🎙️ Anexando Mídia / Áudio Humanizado", 
+                                        "detail": f"Tipo: {(media_type or 'audio').upper()} | URL: {media_url.strip()}", 
+                                        "timestamp": datetime.utcnow().isoformat()
+                                    })
+
+                                sent_ok = False
+                                status_code_res = 500
+
+                                # Caso seja Template Oficial do WhatsApp
+                                if step_type == "whatsapp_template":
+                                    zv_url = cw_url or "http://zapvoice_app:8000"
+                                    zv_token = cw_token
+                                    zv_client_id = eff_conta_id
+                                    
+                                    from zapvoice_utils import send_zapvoice_whatsapp_template
+                                    import asyncio
+                                    try:
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        sent_ok, zv_res = loop.run_until_complete(
+                                            send_zapvoice_whatsapp_template(
+                                                zapvoice_url=zv_url,
+                                                token=zv_token,
+                                                client_id=zv_client_id,
+                                                phone=telefone,
+                                                template_name=template_name,
+                                                language=template_language,
+                                                components=processed_components
+                                            )
+                                        )
+                                        loop.close()
+                                        status_code_res = 200 if sent_ok else 500
+                                    except Exception as e_send_tpl:
+                                        logger.error(f"[FollowUp] Erro ao disparar template ZapVoice para {telefone}: {e_send_tpl}")
+                                        sent_ok = False
+                                        status_code_res = 500
+                                else:
+                                    # 1. Tentativa via Chatwoot / ZapVoice padrão
+                                    try:
+                                        msg_url = f"{cw_url}/api/v1/accounts/{eff_conta_id}/conversations/{eff_conversa_id}/messages"
+                                        headers = {"api_access_token": cw_token, "Content-Type": "application/json"}
+                                        with httpx.Client(timeout=10) as client:
+                                            resp = client.post(msg_url, json=msg_payload, headers=headers)
+                                            status_code_res = resp.status_code
+                                            if resp.status_code in (200, 201):
+                                                sent_ok = True
+                                    except Exception as e_post1:
+                                        logger.warning(f"[FollowUp] Tentativa 1 de envio para {telefone} falhou: {e_post1}")
+
+                                    # 2. Tentativa via Rota alternativa do ZapVoice
+                                    if not sent_ok and cw_url:
+                                        try:
+                                            zv_base = cw_url.rstrip("/")
+                                            if not zv_base.endswith("/api"): zv_base = f"{zv_base}/api"
+                                            zv_msg_url = f"{zv_base}/chat/conversations/{eff_conversa_id}/messages"
+                                            zv_headers = {
+                                                "Authorization": f"Bearer {cw_token}",
+                                                "X-Client-ID": str(eff_conta_id),
+                                                "Content-Type": "application/json"
+                                            }
+                                            with httpx.Client(timeout=10) as client:
+                                                resp_zv = client.post(zv_msg_url, json={"content": message, "is_private": False}, headers=zv_headers)
+                                                status_code_res = resp_zv.status_code
+                                                if resp_zv.status_code in (200, 201):
+                                                    sent_ok = True
+                                        except Exception as e_post2:
+                                            logger.warning(f"[FollowUp] Tentativa 2 ZapVoice para {telefone} falhou: {e_post2}")
+
+                                if sent_ok:
                                     db.execute(_text(f"UPDATE {leads_table} SET followup_step = :next_step WHERE id = :id"),
                                                {"next_step": step_index + 1, "id": lead_id})
-                                    pipeline_steps.append({"step": "📩 Mensagem Entregue no Chatwoot", "detail": f"Status de envio: {resp.status_code}. Passo de follow-up marcado como concluído.", "timestamp": datetime.utcnow().isoformat()})
-                                    _save_followup_event(db, config_id, conta_id, conversa_id, telefone, nome, message, pipeline_steps, "processed")
+                                    pipeline_steps.append({"step": "📩 Mensagem Entregue", "detail": f"Status de envio: {status_code_res}. Passo de follow-up marcado como concluído.", "timestamp": datetime.utcnow().isoformat()})
+                                    
+                                    # --- Sincronização de Etiqueta de Follow-Up no ZapVoice ---
+                                    if followup_add_label and followup_add_label.strip() and eff_conversa_id:
+                                        try:
+                                            lbl_to_add = followup_add_label.strip()
+                                            zv_client = zv_client_cfg or str(eff_conta_id or "1")
+                                            asyncio.run(sync_conversation_labels(
+                                                cw_url,
+                                                str(zv_client),
+                                                int(eff_conversa_id),
+                                                cw_token,
+                                                to_add=[lbl_to_add]
+                                            ))
+                                            pipeline_steps.append({"step": "🏷️ Etiqueta de Follow-Up Aplicada", "detail": f"Etiqueta '{lbl_to_add}' adicionada à conversa {eff_conversa_id} no ZapVoice.", "timestamp": datetime.utcnow().isoformat()})
+                                            logger.info(f"[FollowUp] Etiqueta '{lbl_to_add}' aplicada no ZapVoice para conversa {eff_conversa_id}.")
+                                        except Exception as e_add_lbl:
+                                            logger.warning(f"[FollowUp] Falha ao aplicar etiqueta '{followup_add_label}' no ZapVoice: {e_add_lbl}")
+
+                                    _save_followup_event(db, config_id, eff_conta_id, eff_conversa_id, telefone, nome, message, pipeline_steps, "processed", step_index=step_index)
                                     
                                     # --- Registro Financeiro do Follow-Up ---
                                     try:
                                         input_tk = getattr(ai_usage, 'input_tokens', 0) if ai_usage else 0
                                         output_tk = getattr(ai_usage, 'output_tokens', 0) if ai_usage else 0
                                         
-                                        # Busca preços do Haiku (o modelo usado no _generate_followup_message)
                                         haiku_info = MODEL_INFO.get("claude-4.5-haiku", {"input": 0.000001, "output": 0.000005})
                                         cost_usd = (input_tk * haiku_info["input"]) + (output_tk * haiku_info["output"])
                                         cost_brl = cost_usd * USD_TO_BRL
@@ -513,11 +801,11 @@ def check_followup_due():
                                         logger.warning(f"[FollowUp] Erro ao registrar custo financeiro: {log_err}")
 
                                     db.commit()
-                                    logger.info(f"[FollowUp] Step {step_index+1} enviado para {telefone} (conversa {conversa_id})")
+                                    logger.info(f"[FollowUp] Step {step_index+1} enviado para {telefone}")
                                 else:
-                                    logger.warning(f"[FollowUp] Falha ao enviar para {telefone}: {resp.status_code}")
-                                    pipeline_steps.append({"step": "Erro de Envio no Chatwoot", "detail": f"A API retornou o código HTTP {resp.status_code} na tentativa de disparar a mensagem.", "timestamp": datetime.utcnow().isoformat()})
-                                    _save_followup_event(db, config_id, conta_id, conversa_id, telefone, nome, message, pipeline_steps, "error")
+                                    logger.warning(f"[FollowUp] Falha ao enviar para {telefone}: {status_code_res}")
+                                    pipeline_steps.append({"step": "Erro de Envio no Servidor", "detail": f"A API retornou o código HTTP {status_code_res} na tentativa de disparar a mensagem.", "timestamp": datetime.utcnow().isoformat()})
+                                    _save_followup_event(db, config_id, eff_conta_id, eff_conversa_id, telefone, nome, message, pipeline_steps, "error")
                             except Exception as e:
                                 logger.warning(f"[FollowUp] Erro no lead {lead_id}: {e}")
                                 pipeline_steps.append({"step": "Erro", "detail": f"Exceção interna: {str(e)}", "timestamp": datetime.utcnow().isoformat()})

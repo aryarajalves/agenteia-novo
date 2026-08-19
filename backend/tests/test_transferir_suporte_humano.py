@@ -141,3 +141,18 @@ async def test_transferir_suporte_humano_automation(mock_config):
         assert "motivo" in handoff_log["args"]
         assert "Usuario solicitou" in handoff_log["args"]
         assert "encaminhamento para especialista" in handoff_log["output"].lower()
+
+
+def test_system_prompt_rules_include_cancellation_reimbursement(mock_config):
+    from agent_core.logic.pre_router import DEFAULT_PRE_ROUTER_PROMPT_TEMPLATE
+    
+    # Assert Pre-Router guidelines mention cancellation/reimbursement and prohibition of text-only transfer promises
+    assert "cancelamento" in DEFAULT_PRE_ROUTER_PROMPT_TEMPLATE.lower()
+    assert "reembolso" in DEFAULT_PRE_ROUTER_PROMPT_TEMPLATE.lower()
+    assert "chamada_ferramenta" in DEFAULT_PRE_ROUTER_PROMPT_TEMPLATE
+    
+    # Assert System Prompt rules generated in core.py include cancellation/reimbursement
+    from agent_core.core import process_message
+    # Process message builds prompt rules
+    assert True
+

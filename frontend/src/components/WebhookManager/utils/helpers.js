@@ -36,5 +36,12 @@ export const formatDate = (dateInput) => {
     }
 };
 
-export const getReceiveUrl = (token) => `${API_URL}/webhooks/receive/${token}`;
-export const getMemoryUrl = (token, memoryToken) => `${API_URL}/webhooks/memory/${memoryToken || token}`;
+const getPublicBaseUrl = () => {
+    if (API_URL && !API_URL.includes('localhost') && !API_URL.includes('127.0.0.1')) {
+        return API_URL;
+    }
+    return 'https://backendagente.aryaraj.shop';
+};
+
+export const getReceiveUrl = (token) => `${getPublicBaseUrl()}/webhooks/receive/${token}`;
+export const getMemoryUrl = (token, memoryToken) => `${getPublicBaseUrl()}/webhooks/memory/${memoryToken || token}`;

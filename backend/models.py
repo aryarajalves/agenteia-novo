@@ -375,6 +375,10 @@ class WebhookConfigModel(Base):
     followup_enabled = Column(Boolean, default=False)    # Ativar follow-up automático
     followup_steps = Column(Text, nullable=True)         # JSON: [{delay_hours}, ...]
     followup_business_hours = Column(Text, nullable=True) # JSON: {enabled, start, end, weekdays, saturday, sunday}
+    followup_cancel_label = Column(String, nullable=True) # Etiqueta(s) no Chatwoot para desativar 100% o follow-up
+    followup_required_label = Column(String, nullable=True) # Etiqueta(s) no Chatwoot necessárias para ativar o follow-up
+    followup_add_label = Column(String, nullable=True) # Etiqueta no ZapVoice adicionada à conversa ao enviar follow-up
+    followup_on_reply = Column(String, default="stop", nullable=True) # Comportamento ao responder: 'stop' (encerrar), 'continue_next' (avançar), 'restart' (reiniciar)
     ignore_by_label = Column(String, nullable=True)     # Se o contato tiver essa etiqueta, a automação para
     negative_feedback_label = Column(String, nullable=True) # Etiqueta aplicada ao contato no primeiro emoji negativo
     
@@ -609,5 +613,43 @@ class CalendarEventModel(Base):
     titulo = Column(String, nullable=True)
     data_horario = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class TestimonialCategoryModel(Base):
+    __tablename__ = "testimonial_categories"
+    __test__ = False
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    value = Column(String, nullable=True)
+    order_position = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class TestimonialModel(Base):
+    __tablename__ = "testimonials"
+    __test__ = False
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String, nullable=False)
+    s3_key = Column(String, nullable=False)
+    category = Column(String, nullable=False, index=True)
+    media_type = Column(String, nullable=False, index=True)  # 'image' ou 'video'
+    file_size_bytes = Column(Integer, nullable=True)
+    caption = Column(Text, nullable=True)
+    order_position = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class SentTestimonialModel(Base):
+    __tablename__ = "sent_testimonials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String, nullable=False, index=True)
+    testimonial_id = Column(Integer, ForeignKey("testimonials.id", ondelete="CASCADE"), nullable=False)
+    sent_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
 
 

@@ -103,6 +103,9 @@ export const useChat = ({
             const lastIsLink = isUrl(parts[parts.length - 1]);
             const metricsIndex = lastIsLink && parts.length > 1 ? parts.length - 2 : parts.length - 1;
             
+            const isErrorMsg = !!data.error || !!data.system_error;
+            const systemErrorDetail = data.system_error || null;
+            
             const newMsgs = parts.map((part, i) => ({
                 role: 'assistant',
                 content: part,
@@ -111,7 +114,8 @@ export const useChat = ({
                 debug: i === metricsIndex ? baseDebug : undefined,
                 metrics: i === metricsIndex ? baseMetrics : null,
                 violations: i === 0 ? baseViolations : false,
-                isError: false,
+                isError: isErrorMsg,
+                systemError: i === metricsIndex ? systemErrorDetail : null,
                 model_used: i === metricsIndex ? data.model_used : null,
                 tool_calls: i === metricsIndex ? data.tool_calls : null,
                 created_at: data.timestamp || new Date().toISOString()

@@ -23,11 +23,13 @@ from core.websocket import manager
 logger = logging.getLogger(__name__)
 
 
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / Shutdown lifecycle."""
     logger.info("🚀 API Modular iniciando...")
-    # Importar inicializações do banco se necessário
+    janitor_task = None
     try:
         from database import init_db
         await init_db()
@@ -35,9 +37,27 @@ async def lifespan(app: FastAPI):
         
         # Inicializar Redis para WebSocket Pub/Sub
         await manager.init_redis()
+
+        # Inicializar Worker Janitor de Limpeza do Pool em Background
+        async def _db_janitor_loop():
+            from database.connection import run_pool_janitor
+            while True:
+                await asyncio.sleep(45)
+                await run_pool_janitor()
+
+        janitor_task = asyncio.create_task(_db_janitor_loop())
+        logger.info("🧹 [JANITOR DB] Worker de monitoramento do pool ativado (intervalo: 45s).")
     except Exception as e:
-        logger.warning(f"⚠️ Falha na inicialização do banco: {e}")
+        logger.warning(f"⚠️ Falha na inicialização do banco/janitor: {e}")
+    
     yield
+    
+    if janitor_task:
+        janitor_task.cancel()
+        try:
+            await janitor_task
+        except asyncio.CancelledError:
+            pass
     logger.info("🛑 API Modular encerrando...")
 
 

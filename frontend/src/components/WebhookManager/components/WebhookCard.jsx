@@ -83,7 +83,7 @@ const WebhookCard = ({
                     Criado em {formatDate(webhook.created_at)}
                 </span>
                 <div className="actions-group">
-                    <button onClick={onViewLeads} className="btn-action-leads" title="Ver Leads Capturados">
+                    <button onClick={() => onViewLeads && onViewLeads(webhook)} className="btn-action-leads" title="Ver Leads Capturados">
                         <span>👥</span> Contatos
                     </button>
                     <button onClick={onSimulateLoad} className="btn-action-leads" style={{ background: 'rgba(99, 102, 241, 0.15)', borderColor: 'rgba(99, 102, 241, 0.3)', color: '#a5b4fc' }} title="Simular Carga & Escala em MOCK">

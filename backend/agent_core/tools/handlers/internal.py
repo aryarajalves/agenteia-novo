@@ -70,7 +70,7 @@ async def handle_unanswered_question(db, context_variables, func_args_str, histo
                 return (
                     "ATENÇÃO: Esta é a segunda dúvida sem resposta registrada nesta conversa. "
                     "O atendimento foi AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO. "
-                    "Informe ao usuário de forma educada que o atendimento foi direcionado para um especialista humano que irá ajudá-lo."
+                    "INSTRUÇÃO OBRIGATÓRIA DE RESPOSTA: Se o usuário fez mais de uma pergunta e você já possui a resposta para alguma das outras perguntas no contexto RAG/Prompt, VOCÊ DEVE OBRIGATORIAMENTE INCLUIR ESSA RESPOSTA no texto final. Ao final da mensagem, informe de forma educada que a dúvida ausente (ou o atendimento) foi direcionada para um especialista humano."
                 )
 
             return "Dúvida registrada para nossa equipe."
@@ -80,7 +80,7 @@ async def handle_unanswered_question(db, context_variables, func_args_str, histo
 async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
     try:
         from models import AgentConfigModel, WebhookConfigModel
-        from chatwoot_utils import sync_conversation_labels
+        from zapvoice_utils import sync_conversation_labels
         from sqlalchemy import select
         
         func_args = json.loads(func_args_str)

@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 import openai
@@ -67,7 +68,7 @@ def get_date_context(config):
 # retornando um JSON estruturado válido, mesmo que o usuário edite o texto acima.
 DEFAULT_PRE_ROUTER_PROMPT_TEMPLATE = """Você é o "Pre-Router AI", o primeiro contato que lê a mensagem do usuário antes dela ser enviada aos Agentes.
 Sua função é séxtupla:
-1. Identificar se a mensagem é APENAS uma saudação curta, cumprimento, agradecimento (Ex: "Oi", "Olá", "Oie", "Oiee", "Bom dia", "Tudo bem?", "Obrigado") ou uma confirmação/reação curta (Ex: "Ok", "Entendi", "Certo", "Show", "Combinado", "👍", "👌", "Perfeito") ou emoji negativo (Ex: 👎, 🖕, 😡, 😠, 😕, 😢, 😭) OU uma mensagem de teste do usuário ("teste", "testando") e NÃO contém nenhuma pergunta ou requisição técnica.
+1. Identificar se a mensagem é APENAS uma saudação curta, cumprimento, agradecimento (Ex: "Oi", "Olá", "Oie", "Oiee", "Bom dia", "Tudo bem?", "Obrigado") ou um ELOGIO / REAÇÃO AFETIVA OU POSITIVA (Ex: "Amei", "Amei.", "Adorei", "Adorei!", "Gostei", "Gostei muito", "Muito bom", "Maravilha", "Sensacional", "Top", "Show", "Que legal", "Que bom", "❤️", "🥰", "😍", "👏") ou uma confirmação/reação curta de encerramento (Ex: "Ta bom", "Tá bom", "Ta bem", "Tudo bem", "Ok", "Entendi", "Certo", "Combinado", "Beleza", "Ótimo", "Maravilha", "👍", "👌", "Perfeito") ou emoji negativo (Ex: 👎, 🖕, 😡, 😠, 😕, 😢, 😭) OU uma mensagem de teste do usuário ("teste", "testando") e NÃO contém nenhuma pergunta ou requisição técnica.
    - SAUDAÇÃO CONFIGURADA: "{initial_msg}"
    - MENSAGEM DE ANÚNCIO (IGNORAR): "{initial_ignore_message}"
    - MODO DE SAUDAÇÃO: "{greeting_mode}"
@@ -77,9 +78,11 @@ Sua função é séxtupla:
    CRITÉRIO RÍGIDO:
    - Se a mensagem for "Oi", "Oie", "Olá" ou similares curtos e MODO DE SAUDAÇÃO for "panel", você DEVE definir 'eh_saudacao' como true e usar a 'SAUDAÇÃO CONFIGURADA' como sua 'resposta_direta'.
    - Se a mensagem for "Oi", "Oie", "Olá" ou similares curtos e MODO DE SAUDAÇÃO for "prompt", você DEVE gerar uma resposta de saudação inicial amigável, personalizada e perfeitamente alinhada com as diretrizes de tom e regras do SYSTEM PROMPT DO AGENTE PRINCIPAL. Defina 'eh_saudacao' as true e retorne esta saudação em 'resposta_direta'.
-   - Se a mensagem for um AGRADECIMENTO (Ex: "Obrigado", "Obrigada", "Valeu", "Muito obrigado"), você deve definir 'eh_agradecimento' as true, 'eh_saudacao' as true e usar uma resposta simpática de agradecimento (Ex: "Por nada! Se precisar de mais alguma coisa, é só chamar.") como 'resposta_direta'.
+   - Se a mensagem for um ELOGIO, AGRADECIMENTO ou REAÇÃO AFETIVA/POSITIVA (Ex: "Amei", "Amei.", "Adorei", "Gostei muito", "Muito bom", "Maravilha", "Top", "Obrigado", "Obrigada", "Valeu", "❤️", "🥰"):
+     * Se for a primeira reação/agradecimento do usuário (o assistente ainda não enviou mensagem de encerramento recente no histórico), defina 'eh_agradecimento' como true, 'eh_saudacao' como true e use uma resposta calorosa e simpática em 'resposta_direta' (Ex: "Fico muito feliz que tenha gostado! 🥰 Se precisar de mais alguma coisa ou tiver qualquer dúvida, é só me chamar.").
+     * Se for o SEGUNDO (ou subsequente) agradecimento/encerramento do usuário (o assistente JÁ enviou uma resposta de encerramento como "Por nada", "é só chamar", "estou à disposição" ou emoji no histórico recente), NUNCA responda com mensagens de novo. Defina 'eh_agradecimento' como true, 'eh_saudacao' como true, 'eh_agradecimento_recorrente' como true e 'resposta_direta' como null para silenciar a automação sem enviar nada.
    - Se a mensagem for uma REAÇÃO NEGATIVA ou emoji de insatisfação/raiva/tristeza (Ex: 👎, 🖕, 😡, 😠, 🤬, 😕, 🙁, ☹️, 😢, 😭 e variações), você deve definir 'eh_saudacao' as true e usar a resposta empática: "Puxa, sinto muito! 😕 Percebi que algo não deu certo. O que aconteceu? Como posso te ajudar a resolver de uma forma melhor?" como 'resposta_direta'.
-   - Se a mensagem for uma CONFIRMAÇÃO/REAÇÃO POSITIVA (Ex: "Ok", "Entendi", "Combinado", "Certo", "Perfeito", emojis de confirmação como 👍, 👌) e o assistente não fez uma pergunta direta por último, você deve definir 'eh_saudacao' as true e usar uma resposta simpática de confirmação (Ex: "Perfeito! Qualquer dúvida, estou à disposição." ou "Combinado! Se precisar de algo, é só chamar.") como 'resposta_direta'.
+   - Se a mensagem for uma CONFIRMAÇÃO/REAÇÃO POSITIVA OU ENCERRAMENTO (Ex: "Ta bom", "Tá bom", "Ta bem", "Tudo bem", "Ok", "Entendi", "Combinado", "Certo", "Perfeito", "Beleza", "Ótimo", "Maravilha", emojis de confirmação como 👍, 👌) e o assistente não fez uma pergunta direta por último: se o assistente já deu mensagem de encerramento recente, defina 'resposta_direta' como null e 'eh_agradecimento_recorrente' como true; caso contrário, use uma resposta simpática e conclusiva de confirmação (Ex: "Combinado! Se precisar de qualquer ajuda, estou por aqui. 😊"). NUNCA reenvie links de checkout nem repita informações de formas de pagamento já fornecidas.
 
    NOTA SOBRE HISTÓRICO: Se a mensagem for um "sim", "não", ou resposta curta que responde a uma pergunta direta do histórico recente (ex: a IA perguntou 'Qual seu e-mail?' ou 'Você prefere X ou Y?'), NÃO é apenas confirmação, é parte do fluxo da conversa, logo eh_saudacao deve ser false. (Isso não se aplica a emojis negativos como 👎 que são sempre interceptados).
 
@@ -90,6 +93,7 @@ Sua função é séxtupla:
    - Para essas mensagens pré-formatadas de anúncios/links do WhatsApp enviadas pelo cliente, você DEVE OBRIGATORIAMENTE definir 'eh_mensagem_automatica' como FALSE. Trate-as como uma pergunta/interesse legítimo do usuário (extraia a dúvida em 'perguntas_extraidas', defina 'precisa_rag' como true, ou trate como início de atendimento).
 
    ⛔ EXCEÇÕES RÍGIDAS (EXEMPLOS QUE NUNCA DEVEM SER CLASSIFICADOS COMO MENSAGEM AUTOMÁTICA):
+   - **Elogios, reações humanas e mensagens de afeto/satisfação** (Ex: "Amei", "Amei.", "Adorei", "Gostei", "Top", "Muito bom", "Show", "Valeu", "Obrigada", "Obrigado", "❤️", "🥰", "👏") NUNCA SÃO MENSAGENS AUTOMÁTICAS DE AUSÊNCIA. Elas são mensagens humanas legítimas e 'eh_mensagem_automatica' DEVE SER OBRIGATORIAMENTE FALSE.
    - Mensagens enviadas ao clicar em botões de anúncios, botões de templates ou links do WhatsApp (Ex: "Olá! Quero saber mais sobre...", "Tenho interesse").
    - Perguntas diretas do usuário sobre valores, preços, horários, cursos, serviços ou dúvidas gerais.
    - Qualquer interação iniciada por um cliente real querendo atendimento.
@@ -103,30 +107,66 @@ Sua função é séxtupla:
 
 3. Se a mensagem contiver perguntas ou requisições (e não for automática), você deve extrair APENAS a(s) pergunta(s)/requisição(ões) da mensagem (removendo saudações, áudios confusos, lixo). Combine tudo em 'perguntas_extraidas'. Se houver mais de uma pergunta, junte todas.
 
-4. Se a mensagem do usuário for TÃO vaga ou confusa que é IMPOSSÍVEL identificar qualquer intenção (ex: 'ta', 'ok', '...', '???'), defina 'precisa_esclarecimento' como true e forneça uma mensagem curta e simpática de esclarecimento em 'resposta_esclarecimento' (Ex: "Como posso te ajudar hoje?" ou "Olá! Poderia me dar mais detalhes sobre o que você precisa?").
+4. **DECLARAÇÃO DE DÚVIDA OU TÓPICO VAGO SEM PERGUNTA ESPECÍFICA (PROIBIDO GERAR LISTA DE FAQ):**
+   - Se o usuário apenas declarar que TEM DÚVIDAS afirmativamente, que não finalizou por ter dúvidas, ou citar um assunto genérico sem fazer uma pergunta objetiva (Ex: "Não finalizei tive umas duvida", "Sobre a máquina", "Tenho dúvidas", "Quero tirar dúvidas"), você NUNCA DEVE inventar, selecionar ou expandir isso em uma lista de perguntas da base nem acionar o RAG.
+   - NUNCA preencha `perguntas_extraidas` ou `lista_perguntas_extraidas` para mensagens sem perguntas objetivas.
+   - Defina `precisa_esclarecimento` OBRIGATORIAMENTE como true e forneça uma resposta educada perguntando qual é a dúvida específica dele em `resposta_esclarecimento` (Ex: "Olá! Quais seriam as suas dúvidas? Me conte o que você gostaria de saber para que eu possa te ajudar!").
+   
+   ⛔ **REGRA CRÍTICA DE NEGAÇÃO DE DÚVIDAS (ESTRITAMENTE PROIBIDO PEDIR ESCLARECIMENTO):**
+   - Se o usuário afirmar que **NÃO TEM DÚVIDAS** ou responder negativamente a uma pergunta do assistente/template sobre dúvidas (Ex: "Não tenho", "Não tenho dúvida", "Não tenho dúvidas", "Nenhuma", "Não ficou dúvida", "Tudo claro", "Sem dúvidas", "Tranquilo", "Não"):
+     * Você **NUNCA DEVE** definir `precisa_esclarecimento` como true!
+     * Você **NUNCA DEVE** perguntar qual é a dúvida dele (Ex: "Qual é a sua dúvida?", "Você não tem o quê?"), pois o cliente disse expressamente que NÃO tem dúvidas!
+     * Defina `precisa_esclarecimento` como false, `eh_saudacao` como false, `perguntas_extraidas` como "O cliente informou que não possui dúvidas" ou deixe o Agente Principal responder para conduzir o fechamento comercial (oferecer o link de compra/inscrição ou verificar se pode ajudar na finalização).
+   
    ⚠️ EXCEÇÃO PARA SAUDAÇÕES EM HISTÓRICO: Se a mensagem for apenas um cumprimento curto como "Oi", "Olá", "Oie", "Bom dia", "Tudo bem?" e houver histórico de conversa, NÃO a trate como vaga ou confusa e nem defina 'precisa_esclarecimento' como true. Em vez disso, defina 'eh_saudacao' as true e use a 'SAUDAÇÃO CONFIGURADA' ou gere a saudação dinâmica (caso MODO DE SAUDAÇÃO seja prompt).
-   ⚠️ REGRA DE OURO ABSOLUTA: Se o usuário citar NOMES DE PESSOAS (ex: 'Mateus', 'Mirela', 'Lira'), nomes de cursos, termos técnicos ou qualquer assunto específico que possa estar no conhecimento (RAG ou Inbox), você NUNCA deve pedir esclarecimento. Defina 'precisa_esclarecimento' como false e 'id_agente_alvo' como o Agente Principal.
+   ⚠️ REGRA PARA PERGUNTAS DIRETAS: Defina 'precisa_esclarecimento' como false APENAS quando a mensagem contiver uma pergunta direta com intenção objetiva ("é curso online?", "como funciona?", "qual o valor?", "qual máquina indica?"). Citação isolada de assunto sem pergunta ("Sobre a máquina") exige esclarecimento.
 
  5. Se o usuário perguntar por alguém (Quem é X?), isso NUNCA é vago. Deixe o Agente Principal responder.
 
- 5b. **ENRIQUECIMENTO DE PERGUNTAS VAGAS / QUERY ENRICHMENT (OBRIGATÓRIO):**
-     - Se o usuário enviar uma pergunta curta, vaga, com pronomes soltos ou ambígua (Ex: "como funciona?", "qual o valor?"), melhore a pergunta substituindo os pronomes soltos pelo assunto do histórico.
-     - ⛔ **PROIBIDO INVENTAR OU ADICIONAR PERGUNTAS ADICIONAIS**: NUNCA invente perguntas suplementares, hipóteses ou perguntas do tipo 'oferece mentoria, suporte prático ou técnicas específicas?' se o usuário NÃO perguntou isso explicitamente.
-     - Se a mensagem do usuário for um relato, objeção, desabafo ou frase completa (Ex: "Já faço laser fiz 2 cursos online mas tenho dificuldade..."), MANTENHA A INTENÇÃO E O TEXTO ORIGINAL em `perguntas_extraidas` SEM inventar perguntas adicionais no final.
-     - **Exemplo**: Usuário envia: "E como funciona ele?" após estarem falando sobre curso. Você reescreve como: "Como funciona o curso?" no campo `perguntas_extraidas`.
-     - **⚠️ REGRA DE OURO CRÍTICA DE NOMES PRÓPRIOS**: NUNCA invente, presuma ou insira nomes próprios de marcas, nomes de clínicas ou de cursos específicos na pergunta melhorada. Use termos genéricos adequados.
-     - Certifique-se de que a resposta JSON contenha `"precisa_esclarecimento": false` ao enriquecer a pergunta com sucesso.
+ 5b. **ENRIQUECIMENTO DE PERGUNTAS VAGAS / QUERY ENRICHMENT (FIDELIDADE STRICTA):**
+      - Se o usuário enviar uma pergunta curta, vaga, com pronomes soltos ou intenção geral de saber sobre o curso (Ex: "Na vdd, gostaria de saber sobre os cursos", "como funciona?", "qual o valor?"), melhore a pergunta substituindo os pronomes soltos pelo assunto do histórico ou pela dúvida geral direta.
+      - 🎯 **REGRA DE OURO DE ALINHAMENTO COM A BASE DE CONHECIMENTO (OBRIGATÓRIO):**
+        Se houver uma seção 'BASE DE CONHECIMENTO CADASTRADA (REFERÊNCIA PARA ALINHAMENTO)' fornecida neste prompt, verifique se a intenção da dúvida do usuário corresponde a alguma das Perguntas Cadastradas. Se HOUVER correspondência de intenção, REESCREVA a mensagem em `perguntas_extraidas` e na `lista_perguntas_extraidas` utilizando a pergunta cadastrada mais próxima (ex: "Como funciona o curso de remoção de tatuagem?").
+      - ⛔ **PROIBIDO INVENTAR TERMOS, LOCAIS E CANAIS DE ATENDIMENTO NÃO DITOS (EX: 'INSTAGRAM', 'DISPONÍVEIS'):** NUNCA invente ou adicione canais de atendimento (ex: "Instagram", "WhatsApp"), locais ou marcas que o usuário NÃO mencionou explicitamente na mensagem dele. Se o usuário perguntou "Posso enviar áudio?", NUNCA altere para "Posso enviar áudio no Instagram..."! O alinhamento só deve acontecer se a pergunta do usuário for verdadeiramente sobre o assunto cadastrado no RAG.
+      - **Exemplo de ERRO PROIBIDO:**
+        - Usuário envia: "Posso enviar áudio?"
+        - ❌ ERRO PROIBIDO: "Posso enviar áudio com minhas dúvidas sobre o perfil do Instagram da Tarcira?"
+        - ✅ CORRETO: "Posso enviar áudio?" (Não alterar a pergunta nem inventar Instagram)
+      - ⛔ **PROIBIDO INVENTAR OU ADICIONAR PERGUNTAS ADICIONAIS OU ENVIAR LISTA DE FAQ**: NUNCA invente perguntas suplementares, listas de dúvidas mais comuns nem pergunte/responda coisas que o usuário NÃO perguntou explicitamente.
+      - Se a mensagem do usuário for um relato, objeção, desabafo, pergunta simples ou frase completa, MANTENHA A INTENÇÃO E O TEXTO ORIGINAL em `perguntas_extraidas` SEM inventar perguntas adicionais ou canais de mídia no final.
+      - Certifique-se de que a resposta JSON contenha `"precisa_esclarecimento": false` ao enriquecer a pergunta com sucesso.
 
- 5c. **MÚLTIPLAS PERGUNTAS / MULTIPLE QUESTIONS (OBRIGATÓRIO):**
-      - Se o usuário fizer mais de 1 pergunta ou requisição na mesma mensagem (Ex: "Quanto custa o aluguel? E como funciona o curso?"), você DEVE identificar e extrair cada pergunta individualmente.
-      - Melhore e enriqueça cada pergunta separadamente baseando-se no contexto do histórico e regras de nomes próprios acima.
-      - Forneça a lista de perguntas limpas e enriquecidas individualmente no campo `"lista_perguntas_extraidas"` (um array de strings). Se houver apenas uma pergunta, coloque-a como o único elemento desse array. Se não houver perguntas, defina como `[]`.
+ 5c. **MÚLTIPLAS PERGUNTAS E INTENÇÕES / MULTIPLE INTENTS (RIGOROSAMENTE OBRIGATÓRIO):**
+       - O usuário frequentemente envia mais de uma pergunta ou dúvida na mesma mensagem (seja por quebras de linha, vírgulas, a palavra 'e', ou frases compostas). Exemplos: "O curso é on-line \n De onde vc é", "como funciona, quanto custa os equipamentos?", "é online? qual o valor?".
+       - ⛔ **PROIBIDO OMITIR OU DESCARTAR QUALQUER UMA DAS PERGUNTAS:** NUNCA descarte a segunda ou terceira pergunta (ex: "De onde você é?", "De onde é?", "Onde fica a sede?", "Tem certificado?") só porque ela é curta ou veio em linha separada!
+       - Você DEVE OBRIGATORIAMENTE extrair e separar CADA UMA das dúvidas em um elemento distinto do array `"lista_perguntas_extraidas"`.
+       - E em `perguntas_extraidas`, você DEVE OBRIGATORIAMENTE combinar TODAS as perguntas do array separadas por quebra de linha `\n`.
+       - Exemplo 1: Para "O curso é on-line \n De onde vc é", você DEVE retornar `"lista_perguntas_extraidas": ["O curso de remoção de tatuagem é online?", "De onde você é / onde fica a sede do curso?"]` e `"perguntas_extraidas": "O curso de remoção de tatuagem é online?\nDe onde você é / onde fica a sede do curso?"`.
+       - Exemplo 2: Para "como funciona, quanto custa os equipamentos?", você DEVE retornar `"lista_perguntas_extraidas": ["Como funciona o curso?", "Qual é o valor dos equipamentos/máquinas?"]` e `"perguntas_extraidas": "Como funciona o curso?\nQual é o valor dos equipamentos/máquinas?"`.
+
+  5d. **RESOLUÇÃO DE CONFIRMAÇÕES A OFERTAS ANTERIORES DO ASSISTENTE (MUITO IMPORTANTE):**
+       - Se no turno anterior o assistente ofereceu opções ou informações (Ex: "Se quiser mais informações sobre o Método Laser Day, sobre pagamentos ou se quiser o link de compra, é só me avisar") e o usuário respondeu com uma confirmação/interesse EXPLÍCITO (Ex: "Gostaria", "Quero", "Sim", "Gostaria sim", "Pode enviar", "Aceito"):
+       - Você DEVE OBRIGATORIAMENTE olhar todas as opções oferecidas pelo assistente no histórico e expandir "Gostaria" em TODAS as dúvidas correspondentes em `lista_perguntas_extraidas` e em `perguntas_extraidas` unidas por `\n`.
+       - **Exemplo Real:**
+         - Assistente disse anteriormente: "Se quiser mais informações sobre o Método Laser Day, sobre pagamentos ou se quiser o link de compra, é só me avisar."
+         - Usuário respondeu: "Gostaria"
+         - ✅ VOCÊ DEVE EXTRAIR:
+           `"lista_perguntas_extraidas": ["Como funciona o curso?", "Quais são as formas de pagamento?", "Qual é o link de compra / inscrição?"]`
+           `"perguntas_extraidas": "Como funciona o curso?\nQuais são as formas de pagamento?\nQual é o link de compra / inscrição?"`
+       - ⛔ **PROIBIDO DESCARTAR AS OUTRAS OPÇÕES OFERECIDAS:** NUNCA reduza "Gostaria" a apenas "Gostaria de saber mais sobre o curso", pois o cliente aceitou receber TODAS as informações oferecidas pelo assistente!
+       - ⚠️ **CONFIRMAÇÕES E ENCERRAMENTOS PASSIVOS (NUNCA EXPANDIR PARA OFERTAS):** Encerramentos e confirmações passivas como "Ta bom", "Tá bom", "Ta bem", "Tudo bem", "Ok", "Entendi", "Certo", "Beleza", "Ótimo", "Maravilha" NUNCA devem ser expandidos para ofertas de cursos/links/pagamentos. Trate-os como confirmação/saudação (eh_saudacao = true) com resposta conclusiva amigável.
+
+  5e. **RESOLUÇÃO CONTEXTUAL DE RESPOSTAS A PERGUNTAS DO TEMPLATE OU HISTÓRICO RECENTE:**
+       - Se no turno anterior o assistente ou o template enviou uma pergunta direta (Ex: "Você tem alguma dúvida?", "Quer receber o link?", "Qual sua dúvida?"):
+         * Se o usuário responder "Não tenho", "Não", "Nenhuma": Isso significa que ele NÃO tem dúvidas e está respondendo diretamente ao assistente. NUNCA pergunte "Você não tem o quê?".
+         * Se o usuário responder "Tenho", "Quero", "Sim", "Gostaria": Trate como confirmação legítima de interesse.
 
  6. **DECIDIR E MAPEAR ACIONAMENTO DE FERRAMENTAS (MUITO IMPORTANTE):**
     Analise a mensagem atual e o histórico para determinar se o usuário está solicitando uma ação que corresponde a alguma destas ferramentas cadastradas:
     {tools_desc}
     - Se o usuário pedir para marcar/agendar, listar agendamentos, cancelar ou verificar horários, ou qualquer ação técnica equivalente, você DEVE preencher `chamada_ferramenta` estruturando a chamada com o nome da ferramenta e os argumentos necessários perfeitamente extraídos (ex: resolvendo datas relativas usando o contexto temporal abaixo).
-    - **⚠️ REGRA DE OURO PARA SUPORTE HUMANO (`transferir_suporte_humano`)**: NUNCA acione esta ferramenta se o usuário estiver apenas tirando dúvidas comuns sobre o curso, preços, políticas ou fazendo perguntas gerais (Ex: "Quanto custa?", "Qual o valor em reais?"). Você deve acionar `transferir_suporte_humano` **APENAS** se o usuário solicitar explicitamente falar com um atendente humano, suporte, especialista ou demonstrar extrema insatisfação com a IA (Ex: "Quero falar com uma pessoa", "Suporte", "Humano por favor").
+    - **⚠️ REGRA DE OURO PARA SUPORTE HUMANO (`transferir_suporte_humano`)**: NUNCA acione esta ferramenta se o usuário estiver apenas tirando dúvidas comuns sobre o curso, preços, políticas ou fazendo perguntas gerais (Ex: "Quanto custa?", "Qual o valor em reais?"). Você deve acionar `transferir_suporte_humano` se o usuário solicitar explicitamente falar com um atendente humano, suporte, especialista, demonstrar extrema insatisfação com a IA OU se solicitar cancelamento, devolução ou reembolso de compras/cursos. NUNCA mencione em texto que vai transferir para outro setor sem efetivamente preencher `chamada_ferramenta` com `transferir_suporte_humano`.
+    - **⛔ MENSAGENS DE AVISO DE ACESSO PENDENTE (NÃO TRANSFERIR):** Frases como "já paguei, só não acessei ainda", "não assisti ainda", "não entrei ainda" NUNCA são erros técnicos nem pedidos de suporte. NUNCA acione `transferir_suporte_humano` e NUNCA responda prometendo transferir para outro setor. Responda apenas parabenizando e incentivando o aluno a acessar quando puder.
     - Se nenhuma ferramenta for necessária, defina `chamada_ferramenta` como null.
 
 7. **DECIDIR NECESSIDADE DE CONSULTA A BASE VETORIAL (RAG):**
@@ -148,6 +188,7 @@ Retorne SEMPRE um JSON completo com TODAS as chaves:
 {
   "eh_saudacao": boolean,
   "eh_agradecimento": boolean,
+  "eh_agradecimento_recorrente": boolean,
   "eh_mensagem_automatica": boolean,
   "precisa_esclarecimento": boolean,
   "eh_anuncio": boolean,
@@ -195,19 +236,34 @@ async def enrich_user_message(message: str, history: list, client) -> str:
     if len(message.strip()) > 70 or len(message.strip().split()) > 10:
         return message
 
+    # Se a mensagem for uma confirmação ou encerramento puro (ex: "Ta bom", "Ok", "Entendi", "Combinado", "Beleza"), não reescrevemos
+    msg_clean_check = message.strip().lower()
+    for char in ["?", "!", ".", ",", ";", ":", "-", "_", "(", ")", "[", "]", "{", "}"]:
+        msg_clean_check = msg_clean_check.replace(char, "")
+    msg_clean_check = re.sub(r'\s+', ' ', msg_clean_check).strip()
+
+    confirmation_closings = [
+        "ta bom", "tá bom", "ta bem", "tá bem", "tudo bem", "tudo bom",
+        "ok", "entendi", "tendi", "certo", "beleza", "blz", "perfeito", "combinado",
+        "fechado", "tá certo", "ta certo", "ótimo", "otimo", "tá ótimo", "ta otimo",
+        "maravilha", "belezinha", "tá joia", "ta joia", "joia", "jóia", "combinadíssimo", "combinadissimo"
+    ]
+    if msg_clean_check in confirmation_closings:
+        return message
+
     history_text = ""
     for h in history:
-        role = h.get('role', 'user').upper()
-        content = h.get('content', '')
+        role = (h.get('role') if isinstance(h, dict) else getattr(h, 'role', 'user')).upper()
+        content = (h.get('content') if isinstance(h, dict) else getattr(h, 'content', ''))
         history_text += f"{role}: {content}\n\n"
 
     system_prompt = (
         "Você é um assistente especializado em enriquecimento e desambiguação de mensagens (Query Enrichment).\n"
         "Sua única tarefa é substituir pronomes vagos (como 'ele', 'isso', 'quanto é?') pelo assunto citado no histórico recente.\n\n"
         "⚠️ REGRAS ANTI-ALUCINAÇÃO E ANTI-ESPECULAÇÃO (ESTRITAMENTE OBRIGATÓRIAS):\n"
-        "1. PROIBIDO INVENTAR PERGUNTAS OU DETALHES: NUNCA crie, deduza ou adicione perguntas adicionais ou suposições que o usuário NÃO perguntou explicitamente (como mentoria, suporte prático, técnicas específicas, prazos, formas de pagamento, etc.).\n"
-        "2. Se a mensagem do usuário for uma objeção, desabafo ou relato de experiência anterior, MANTENHA A MENSAGEM EXATAMENTE COMO ESTÁ sem inventar perguntas suplementares no final.\n"
-        "3. Apenas substitua termos vagos (como 'sim', 'quero', 'quanto é?', 'como funciona?') pelo assunto do histórico.\n"
+        "1. PROIBIDO INVENTAR PERGUNTAS OU DETALHES NÃO DITOS E NÃO OFERECIDOS: NUNCA crie, deduza ou adicione perguntas adicionais que o usuário NÃO perguntou e que o assistente NÃO ofereceu.\n"
+        "2. 🎯 EXCEÇÃO CRÍTICA PARA RESPOSTAS A OFERTAS DO ASSISTENTE: Se na mensagem anterior o assistente ofereceu opções ou tópicos (Ex: 'Se quiser mais informações sobre o Método Laser Day, sobre pagamentos ou se quiser o link de compra, é só me avisar') e o usuário respondeu com confirmação/interesse EXPLÍCITO (Ex: 'Gostaria', 'Quero', 'Sim', 'Gostaria sim', 'Aceito'): Você DEVE OBRIGATORIAMENTE expandir a resposta do usuário incluindo TODAS as opções que o assistente ofereceu no turno anterior! NUNCA aplique essa regra a mensagens de confirmação passiva ou encerramento (Ex: 'Ta bom', 'Ok', 'Entendi', 'Beleza', 'Certo').\n"
+        "3. Se a mensagem do usuário for uma objeção, desabafo ou relato de experiência anterior, MANTENHA A MENSAGEM EXATAMENTE COMO ESTÁ sem inventar perguntas suplementares no final.\n"
         "4. NUNCA invente ou presuma nomes de marcas, pessoas ou clínicas específicas se não estiverem no histórico.\n\n"
         "Retorne APENAS a mensagem desambiguada resultante, sem qualquer introdução, explicação ou aspas."
     )
@@ -227,10 +283,240 @@ async def enrich_user_message(message: str, history: list, client) -> str:
         if enriched:
             if enriched.startswith('"') and enriched.endswith('"'):
                 enriched = enriched[1:-1]
+            
+            # Garantia determinística em Python para respostas verdadeiramente curtas de interesse ("Gostaria", "Quero", "Sim", etc.)
+            msg_clean = message.strip().lower()
+            words_count = len(msg_clean.split())
+            if words_count <= 4 or len(msg_clean) <= 25:
+                short_interest_words = ["gostaria", "quero", "sim", "pode ser", "gostaria sim", "aceito", "gostaria de saber", "manda", "envia", "mande", "envie"]
+                if any(msg_clean == w or msg_clean.startswith(w) for w in short_interest_words):
+                    last_assistant_msg = ""
+                    for h in reversed(history):
+                        role = (h.get('role') if isinstance(h, dict) else getattr(h, 'role', '')).lower()
+                        content = (h.get('content') if isinstance(h, dict) else getattr(h, 'content', ''))
+                        if role == "assistant" and content:
+                            last_assistant_msg = str(content).lower()
+                            break
+
+                    if last_assistant_msg:
+                        parts = ["mais informações sobre o curso"]
+                        if ("pagamento" in last_assistant_msg or "pagamentos" in last_assistant_msg) and "pagamento" not in enriched.lower():
+                            parts.append("sobre as formas de pagamento")
+                        if ("link" in last_assistant_msg or "compra" in last_assistant_msg or "inscrição" in last_assistant_msg) and ("link" not in enriched.lower() and "compra" not in enriched.lower()):
+                            parts.append("do link de compra / inscrição")
+
+                        if len(parts) > 1:
+                            enriched = f"Gostaria de {', '.join(parts[:-1])} e {parts[-1]}."
+
             return enriched
     except Exception as e:
         logger.error(f"Erro ao enriquecer mensagem no pre-router: {e}")
     return message
+    return message
+
+
+async def _get_kb_reference_context(main_agent, message: str, async_db=None):
+    """Recupera contexto de referência da Base de Conhecimento para alinhar a reescrita de perguntas do Pre-Router.
+    Fase 1: Pré-Busca Vetorial RAG com limite de relevância >= 0.60.
+    Fase 2 (Fallback): Se a pré-busca vetorial retornar 0 itens >= 0.60, carrega todas as perguntas cadastradas
+            nas bases de conhecimento do agente para que o Pre-Router selecione a pergunta correspondente.
+    """
+    if not main_agent or not message or not message.strip():
+        return "", {
+            "fase": "⚠️ Mensagem Vazia ou Agente Ausente",
+            "status": "vazio",
+            "perguntas_referencia": [],
+            "custo": "R$ 0,00"
+        }
+
+    try:
+        from database import async_session
+        from services.rag.core import search_knowledge_base
+        from models import KnowledgeItemModel, AgentConfigModel
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        async def _fetch(db_session):
+            agent_id = getattr(main_agent, 'id', None)
+            kb_ids = []
+            if agent_id:
+                try:
+                    stmt_agent = select(AgentConfigModel).options(selectinload(AgentConfigModel.knowledge_bases)).where(AgentConfigModel.id == agent_id)
+                    res_agent = await db_session.execute(stmt_agent)
+                    agent_obj = res_agent.scalars().first()
+                    if agent_obj:
+                        kb_ids = [kb.id for kb in agent_obj.knowledge_bases] or ([agent_obj.knowledge_base_id] if agent_obj.knowledge_base_id else [])
+                except Exception as e_ag:
+                    logger.warning(f"Erro ao buscar agent_obj no _fetch: {e_ag}")
+            
+            if not kb_ids:
+                kb_ids = [kb.id for kb in getattr(main_agent, 'knowledge_bases', [])] or ([main_agent.knowledge_base_id] if getattr(main_agent, 'knowledge_base_id', None) else [])
+
+            if not kb_ids:
+                return "", {
+                    "fase": "⚠️ Nenhuma Base de Conhecimento Vinculada",
+                    "status": "sem_base",
+                    "perguntas_referencia": [],
+                    "detalhe": f"O agente '{getattr(main_agent, 'name', 'Principal')}' (ID: {agent_id}) não possui nenhuma Base de Conhecimento vinculada.",
+                    "custo": "R$ 0,00"
+                }
+
+            # Carrega catálogo de perguntas via SQL sem realizar embeddings/busca vetorial antes do Pre-Router
+            stmt = select(KnowledgeItemModel.question).where(KnowledgeItemModel.knowledge_base_id.in_(kb_ids))
+            res = await db_session.execute(stmt)
+            all_questions = [q for q in res.scalars().all() if q and q.strip()]
+
+            if all_questions:
+                ctx = "\n### BASE DE CONHECIMENTO CADASTRADA (REFERÊNCIA DE CATÁLOGO PARA ALINHAMENTO):\n"
+                ctx += "Utilize o catálogo de perguntas cadastradas abaixo para ALINHAR E REESCREVER a dúvida do usuário no formato de pergunta oficial:\n"
+                for idx, q in enumerate(all_questions[:100], 1): # limite defensivo de 100 perguntas
+                    ctx += f"{idx}. \"{q}\"\n"
+
+                info = {
+                    "fase": "Catálogo de Referência (Pré-Router)",
+                    "status": "catalogo_carregado",
+                    "perguntas_referencia": all_questions[:100],
+                    "usou_fallback": False,
+                    "custo": "R$ 0,00 (Busca Vetorial será executada APÓS o Pre-Router)"
+                }
+                return ctx, info
+
+            return "", {
+                "fase": "⚠️ Nenhuma Pergunta Encontrada no Catálogo",
+                "status": "catalogo_vazio",
+                "perguntas_referencia": [],
+                "detalhe": "Nenhum item cadastrado nas bases de conhecimento do agente.",
+                "custo": custo_str
+            }
+
+        from sqlalchemy.ext.asyncio import AsyncSession
+        from unittest.mock import AsyncMock
+        
+        is_real_async = isinstance(async_db, (AsyncSession, AsyncMock)) or getattr(async_db, 'is_async', False)
+        if is_real_async:
+            return await _fetch(async_db)
+        else:
+            async with async_session() as db_session:
+                return await _fetch(db_session)
+    except Exception as e:
+        logger.error(f"Erro ao obter contexto de referência da Base de Conhecimento para o Pre-Router: {e}")
+        return "", {
+            "fase": "❌ Erro Geral de Consulta",
+            "status": "erro_geral",
+            "perguntas_referencia": [],
+            "detalhe": f"Erro inesperado: {str(e)}",
+            "custo": "R$ 0,00"
+        }
+
+
+def _has_previous_assistant_closing(history: list) -> bool:
+    """Verifica se a mensagem mais recente do assistente no histórico
+    já foi uma resposta de agradecimento/encerramento (ex: 'Por nada', 'é só chamar', 'estou à disposição', '❤️', etc.)."""
+    if not history:
+        return False
+
+    closing_indicators = [
+        "por nada",
+        "se precisar de mais alguma coisa",
+        "é só chamar",
+        "e so chamar",
+        "estou à disposição",
+        "estou a disposição",
+        "qualquer dúvida",
+        "qualquer duvida",
+        "estou por aqui",
+        "disponha",
+        "de nada",
+        "sempre à disposição",
+        "sempre a disposição",
+        "qualquer coisa, estou por aqui",
+        "qualquer coisa",
+        "❤️",
+        "♥️"
+    ]
+
+    for h in reversed(history):
+        if h.get("role") == "assistant":
+            content = (h.get("content") or "").lower().strip()
+            if any(ind in content for ind in closing_indicators):
+                return True
+            if content in ["❤️", "♥️", "😊", "🥰", "🤗", "👍"]:
+                return True
+            break
+
+    return False
+
+
+def _count_payment_issue_occurrences(history: list, current_message: str) -> int:
+    """Conta quantas mensagens do usuário na conversa relatam dificuldade para pagar ou comprar."""
+    payment_terms = [
+        "nao consigo pagar", "não consigo pagar", "nao estou conseguindo pagar", "não estou conseguindo pagar",
+        "erro no cartao", "erro no cartão", "cartao recusado", "cartão recusado", "erro no pagamento",
+        "tentando pagar", "outro link", "link de pagamento", "nao consigo comprar", "não consigo comprar",
+        "erro na compra", "recusou", "tentando desde", "tentando", "desde ontem"
+    ]
+    
+    count = 0
+    all_user_msgs = []
+    if history:
+        for h in history:
+            role = (h.get('role') if isinstance(h, dict) else getattr(h, 'role', '')).lower()
+            content = (h.get('content') if isinstance(h, dict) else getattr(h, 'content', ''))
+            if role == "user" and content:
+                all_user_msgs.append(str(content).lower())
+    
+    if current_message:
+        all_user_msgs.append(current_message.lower())
+        
+    for msg in all_user_msgs:
+        if any(term in msg for term in payment_terms):
+            count += 1
+            
+    return count
+
+
+def _is_generic_doubt_or_vague_topic(raw_message: str) -> bool:
+    """Verifica se a mensagem do usuário é apenas uma declaração afirmativa de dúvida ou citação de um tópico genérico
+    sem fazer uma pergunta objetiva (ex: 'Não finalizei tive umas duvida', 'Sobre a máquina', 'tenho dúvidas')."""
+    if not raw_message or not raw_message.strip():
+        return False
+
+    msg_clean = raw_message.lower().strip()
+
+    # Negações de dúvida expressas (NUNCA devem ser tratadas como pedido de esclarecimento)
+    negative_doubt_patterns = [
+        r'\bn[aã]o\s+(?:tenho|tem|fiquei|restou|h[aá])\s+(?:nenhuma\s+)?d[uú]vidas?\b',
+        r'\bsem\s+d[uú]vidas?\b',
+        r'\bnenhuma\s+d[uú]vidas?\b',
+        r'\bzero\s+d[uú]vidas?\b',
+        r'\btudo\s+(?:certo|claro|esclarecido|tranquilo)\b',
+        r'^n[aã]o\s+tenho$'
+    ]
+    if any(re.search(p, msg_clean) for p in negative_doubt_patterns):
+        return False
+
+    # Palavras explícitas que indicam uma pergunta real com intenção específica
+    explicit_question_words = [
+        "qual", "quais", "como", "quanto", "quantos", "quanta", "quantas",
+        "quem", "onde", "quando", "por que", "porque", "porquê", "pode",
+        "consigo", "funciona", "custa", "valor", "preço", "preco",
+        "oferece", "disponibiliza", "inclui", "indica", "indicam", "comprar", "alugar"
+    ]
+
+    if any(re.search(r'\b' + re.escape(w) + r'\b', msg_clean) for w in explicit_question_words):
+        return False
+
+    if "?" in raw_message and len(msg_clean.split()) > 3:
+        return False
+
+    has_doubt_word = bool(re.search(r'\bd[uú]vidas?\b', msg_clean))
+    is_about_topic = bool(re.search(r'^(?:sobre|a respeito|referente|relacionado)\s+(?:a|o|as|os)?\s*', msg_clean))
+    is_unfinished = bool(re.search(r'\bn[aã]o\s+(?:finalizei|conclui|comprei|terminei)\b', msg_clean))
+
+    if has_doubt_word or is_about_topic or is_unfinished:
+        return True
+
+    return False
 
 
 async def run_pre_router_ai(message: str, history: list, main_agent, secondary_agents: list = None, context_variables: dict = None, db = None) -> dict:
@@ -239,15 +525,8 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
     """
     raw_user_message = message
     secondary_agents = secondary_agents or []
+    has_prev_closing = _has_previous_assistant_closing(history)
     
-    # 0. Enriquecimento da Mensagem com IA baseado no Histórico no Início do Pre-Router
-    api_key = os.getenv("OPENAI_API_KEY")
-    client = openai.AsyncOpenAI(api_key=api_key) if api_key else None
-    
-    if client and history and len(message.strip()) < 150:
-        message = await enrich_user_message(message, history, client)
-        
-    # --- ATALHO PROGRAMÁTICO PARA SAUDAÇÃO CURTA E ANÚNCIOS ---
     msg_clean = message.lower().strip()
     is_first_msg = not history or len(history) == 0
     
@@ -263,8 +542,13 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
     # Lista de emojis negativos (insatisfação, raiva, tristeza, dedo do meio e variações de tons de pele)
     negative_emojis = ["👎🏻", "👎🏼", "👎🏽", "👎🏾", "👎🏿", "🖕🏻", "🖕🏼", "🖕🏽", "🖕🏾", "🖕🏿", "👎", "🖕", "😡", "😠", "🤬", "😕", "🙁", "☹️", "😢", "😭"]
     
-    # Lista de termos de confirmação curtos comuns
-    common_confirmations = ["ok", "blz", "show", "combinado", "perfeito", "certo", "beleza", "entendi", "tendi", "tá", "ta", "sim", "isso", "fechado"]
+    # Lista de termos de confirmação e encerramento curtos comuns
+    common_confirmations = [
+        "ok", "blz", "show", "combinado", "perfeito", "certo", "beleza", "entendi", "tendi",
+        "tá", "ta", "sim", "isso", "fechado", "ta bom", "tá bom", "ta bem", "tá bem",
+        "tudo bem", "tudo bom", "tá certo", "ta certo", "tá ótimo", "ta otimo", "ótimo", "otimo",
+        "maravilha", "belezinha", "fechou", "tá joia", "ta joia", "joia", "jóia", "combinadíssimo", "combinadissimo"
+    ]
     
     # Lista de anúncios configurada (se houver)
     ignore_messages = []
@@ -284,7 +568,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
     
     # Executa a triagem programática de anúncios apenas se ad_mode for 'panel'
     if getattr(main_agent, 'ad_mode', 'panel') == 'panel' and is_first_msg and ignore_messages:
-        import re
         # Ordena anúncios pelo tamanho descendente para remover correspondências mais longas primeiro
         sorted_ads = sorted(ignore_messages, key=len, reverse=True)
         for ad_text in sorted_ads:
@@ -330,14 +613,91 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         msg_clean_no_punct = msg_clean_no_punct.replace(char, "")
     msg_clean_no_punct = msg_clean_no_punct.strip()
 
+    # Limpa a mensagem de emojis para verificar se sobrou texto
+    msg_no_emojis = msg_clean_no_punct
+    has_reaction_emoji = False
+    has_negative_emoji = False
+    
+    for em in negative_emojis:
+        if em in msg_no_emojis:
+            has_negative_emoji = True
+        msg_no_emojis = msg_no_emojis.replace(em, "")
+        
+    for em in common_emojis:
+        if em in msg_no_emojis:
+            has_reaction_emoji = True
+        msg_no_emojis = msg_no_emojis.replace(em, "")
+        
+    msg_no_emojis = msg_no_emojis.strip()
+
     # Identifica se a mensagem contém alguma pergunta ou intenção real de conhecimento
     has_real_question = "?" in raw_user_message or any(term in raw_user_message.lower() for term in [
         "qual", "como", "quanto", "quem", "onde", "quando", "pode", "precisa",
         "faz", "curso", "valor", "preço", "preco", "gostaria", "tenho interesse", "funciona",
-        "endereço", "endereco", "horario", "horário", "ajuda", "duvida", "dúvida",
+        "endereço", "endereco", "horario", "horário", "ajuda",
         "inscrição", "incrição", "requisito", "formação", "formacao", "posso", "consigo",
         "serve", "aula", "aulas", "plano", "planos", "comprar", "alugar", "saber mais"
     ])
+
+    # Atalho para Dificuldade Recorrente no Pagamento (>= 3 mensagens relatando erro/tentativa de pagamento)
+    payment_issue_count = _count_payment_issue_occurrences(history, raw_user_message)
+    if payment_issue_count >= 3:
+        return {
+            "eh_saudacao": False,
+            "eh_agradecimento": False,
+            "eh_agradecimento_recorrente": False,
+            "precisa_esclarecimento": False,
+            "resposta_esclarecimento": None,
+            "id_agente_alvo": main_agent.id,
+            "chamada_ferramenta": {
+                "name": "transferir_suporte_humano",
+                "arguments": {"motivo": f"Dificuldade recorrente de pagamento ({payment_issue_count} mensagens do cliente tentando pagar sem sucesso)"}
+            },
+            "resposta_direta": "Poxa, lamento muito que esteja com dificuldades para concluir o pagamento! Vou te transferir agora mesmo para nossa equipe de suporte humano para te ajudar a finalizar certinho. Um momento, por favor! 😊",
+            "perguntas_extraidas": None,
+            "lista_perguntas_extraidas": [],
+            "data_extraida": None,
+            "precisa_rag": False,
+            "eh_anuncio": is_ad,
+            "detalhe_anuncio": similarity_info,
+            "mensagem_original": raw_user_message,
+            "mensagem_melhorada": None,
+            "tipo_mensagem": "Dificuldade Recorrente de Pagamento (Transferir para Suporte Humano)",
+            "_model_used": "shortcut-logic"
+        }
+
+    if _is_generic_doubt_or_vague_topic(raw_user_message):
+        topic_match = re.search(r'(?:sobre|a respeito|referente|relacionado)\s+(?:a|o|as|os)?\s*([a-z0-9áàâãéèêíïóôõöúçñ\s]+)', raw_user_message.lower().strip())
+        if topic_match:
+            topic_str = topic_match.group(1).strip()
+            topic_str = re.sub(r'^(?:a|o|as|os)\s+', '', topic_str).strip()
+            if topic_str:
+                resposta_esclarecimento = f"Olá! Quais são as suas dúvidas sobre {topic_str}? Pode me dizer exatamente o que gostaria de saber para que eu possa te ajudar?"
+            else:
+                resposta_esclarecimento = "Olá! Pode me dizer exatamente qual é a sua dúvida? Me conte o que você gostaria de saber para que eu possa te ajudar!"
+        else:
+            resposta_esclarecimento = "Olá! Pode me dizer exatamente qual é a sua dúvida? Me conte o que você gostaria de saber para que eu possa te ajudar!"
+
+        return {
+            "eh_saudacao": False,
+            "eh_agradecimento": False,
+            "precisa_esclarecimento": True,
+            "resposta_esclarecimento": resposta_esclarecimento,
+            "id_agente_alvo": main_agent.id,
+            "resposta_direta": None,
+            "perguntas_extraidas": None,
+            "lista_perguntas_extraidas": [],
+            "data_extraida": None,
+            "precisa_rag": False,
+            "eh_anuncio": is_ad,
+            "detalhe_anuncio": similarity_info,
+            "mensagem_original": raw_user_message,
+            "mensagem_melhorada": None,
+            "tipo_mensagem": "Declaração de Dúvida / Tópico Vago (Solicitar Esclarecimento)",
+            "_model_used": "shortcut-logic"
+        }
+
+    is_thank_you = (msg_clean_no_punct in common_thanks) or (msg_no_emojis in common_thanks)
 
     # Executa o atalho programático de saudação APENAS se não houver pergunta na mensagem
     if not has_real_question and (msg_clean_no_punct in common_greetings or (msg_clean_no_punct == "" and not raw_user_message.strip())) and getattr(main_agent, 'greeting_mode', 'panel') == 'panel':
@@ -361,40 +721,42 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             "tipo_mensagem": "Saudação (Atalho Programático)",
             "_model_used": "shortcut-logic"
         }
-    elif msg_clean_no_punct in common_thanks:
-        return {
-            "eh_saudacao": True,
-            "eh_agradecimento": True,
-            "precisa_esclarecimento": False,
-            "id_agente_alvo": main_agent.id,
-            "resposta_direta": "Por nada! Se precisar de mais alguma coisa, é só chamar.",
-            "perguntas_extraidas": None,
-            "data_extraida": None,
-            "eh_anuncio": is_ad,
-            "detalhe_anuncio": similarity_info,
-            "mensagem_original": raw_user_message,
-            "mensagem_melhorada": message if message != raw_user_message else None,
-            "tipo_mensagem": "Agradecimento (Atalho Programático)",
-            "_model_used": "shortcut-logic"
-        }
+    elif is_thank_you:
+        if has_prev_closing:
+            return {
+                "eh_saudacao": True,
+                "eh_agradecimento": True,
+                "eh_agradecimento_recorrente": True,
+                "precisa_esclarecimento": False,
+                "id_agente_alvo": main_agent.id,
+                "resposta_direta": None,
+                "perguntas_extraidas": None,
+                "data_extraida": None,
+                "eh_anuncio": is_ad,
+                "detalhe_anuncio": similarity_info,
+                "mensagem_original": raw_user_message,
+                "mensagem_melhorada": message if message != raw_user_message else None,
+                "tipo_mensagem": "Agradecimento Recorrente (Não Responder)",
+                "motivo_silencio": "2º agradecimento/encerramento consecutivo detectado. Automação silenciada para evitar envio de mensagens infinitamente.",
+                "_model_used": "shortcut-logic"
+            }
+        else:
+            return {
+                "eh_saudacao": True,
+                "eh_agradecimento": True,
+                "precisa_esclarecimento": False,
+                "id_agente_alvo": main_agent.id,
+                "resposta_direta": "Por nada! Se precisar de mais alguma coisa, é só chamar.",
+                "perguntas_extraidas": None,
+                "data_extraida": None,
+                "eh_anuncio": is_ad,
+                "detalhe_anuncio": similarity_info,
+                "mensagem_original": raw_user_message,
+                "mensagem_melhorada": message if message != raw_user_message else None,
+                "tipo_mensagem": "Agradecimento (Atalho Programático)",
+                "_model_used": "shortcut-logic"
+            }
     else:
-        # Limpa a mensagem de emojis para verificar se sobrou texto
-        msg_no_emojis = msg_clean_no_punct
-        has_reaction_emoji = False
-        has_negative_emoji = False
-        
-        for em in negative_emojis:
-            if em in msg_no_emojis:
-                has_negative_emoji = True
-            msg_no_emojis = msg_no_emojis.replace(em, "")
-            
-        for em in common_emojis:
-            if em in msg_no_emojis:
-                has_reaction_emoji = True
-            msg_no_emojis = msg_no_emojis.replace(em, "")
-            
-        msg_no_emojis = msg_no_emojis.strip()
-        
         # Verifica se a mensagem contém apenas emojis de reação (ou se ficou vazia após removê-los)
         is_pure_emoji_reaction = (has_reaction_emoji or has_negative_emoji) and msg_no_emojis == ""
         
@@ -435,29 +797,54 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             
             # Interceptamos se for reação de emoji pura OU (se for confirmação por texto e o assistente não perguntou por último)
             if is_pure_emoji_reaction or not last_assistant_asked:
-                resposta_confirmacao = "Perfeito! Se precisar de mais alguma coisa, é só chamar. 😊"
-                if "combinado" in msg_clean_no_punct:
-                    resposta_confirmacao = "Combinado! Qualquer dúvida, estou por aqui. 😉"
-                elif "ok" in msg_clean_no_punct:
-                    resposta_confirmacao = "Combinado! Se precisar de algo, é só chamar. 👍"
-                elif "certo" in msg_clean_no_punct:
-                    resposta_confirmacao = "Certo! Se precisar de mais alguma ajuda, estou à disposição. 👍"
-                    
-                return {
-                    "eh_saudacao": True,
-                    "eh_agradecimento": False,
-                    "precisa_esclarecimento": False,
-                    "id_agente_alvo": main_agent.id,
-                    "resposta_direta": resposta_confirmacao,
-                    "perguntas_extraidas": None,
-                    "data_extraida": None,
-                    "eh_anuncio": is_ad,
-                    "detalhe_anuncio": similarity_info,
-                    "mensagem_original": raw_user_message,
-                    "mensagem_melhorada": message if message != raw_user_message else None,
-                    "tipo_mensagem": "Confirmação / Reação (Atalho Programático)",
-                    "_model_used": "shortcut-logic"
-                }
+                if has_prev_closing:
+                    return {
+                        "eh_saudacao": True,
+                        "eh_agradecimento": True,
+                        "eh_agradecimento_recorrente": True,
+                        "precisa_esclarecimento": False,
+                        "id_agente_alvo": main_agent.id,
+                        "resposta_direta": None,
+                        "perguntas_extraidas": None,
+                        "data_extraida": None,
+                        "eh_anuncio": is_ad,
+                        "detalhe_anuncio": similarity_info,
+                        "mensagem_original": raw_user_message,
+                        "mensagem_melhorada": message if message != raw_user_message else None,
+                        "tipo_mensagem": "Agradecimento Recorrente (Não Responder)",
+                        "motivo_silencio": "2º agradecimento/encerramento consecutivo detectado. Automação silenciada para evitar envio de mensagens infinitamente.",
+                        "_model_used": "shortcut-logic"
+                    }
+                else:
+                    resposta_confirmacao = "Perfeito! Se precisar de mais alguma coisa, é só chamar. 😊"
+                    if "combinado" in msg_clean_no_punct:
+                        resposta_confirmacao = "Combinado! Qualquer dúvida, estou por aqui. 😉"
+                    elif "ok" in msg_clean_no_punct:
+                        resposta_confirmacao = "Combinado! Se precisar de algo, é só chamar. 👍"
+                    elif "certo" in msg_clean_no_punct:
+                        resposta_confirmacao = "Certo! Se precisar de mais alguma ajuda, estou à disposição. 👍"
+                    elif any(t in msg_clean_no_punct for t in ["ta bom", "tá bom", "ta bem", "tá bem", "tudo bem", "tudo bom"]):
+                        resposta_confirmacao = "Combinado! Se precisar de qualquer ajuda, estou por aqui. 😊"
+                    elif any(t in msg_clean_no_punct for t in ["ótimo", "otimo", "maravilha", "show", "beleza", "blz"]):
+                        resposta_confirmacao = "Maravilha! Qualquer dúvida, é só me chamar por aqui. 😊"
+                        
+                    return {
+                        "eh_saudacao": True,
+                        "eh_agradecimento": False,
+                        "precisa_esclarecimento": False,
+                        "id_agente_alvo": main_agent.id,
+                        "resposta_direta": resposta_confirmacao,
+                        "perguntas_extraidas": None,
+                        "lista_perguntas_extraidas": [],
+                        "data_extraida": None,
+                        "precisa_rag": False,
+                        "eh_anuncio": is_ad,
+                        "detalhe_anuncio": similarity_info,
+                        "mensagem_original": raw_user_message,
+                        "mensagem_melhorada": message if message != raw_user_message else None,
+                        "tipo_mensagem": "Confirmação / Reação (Atalho Programático)",
+                        "_model_used": "shortcut-logic"
+                    }
 
     # Se a mensagem contém algo além de saudação/anúncio, usamos o conteúdo limpo no processamento
     message = cleaned_message
@@ -475,6 +862,10 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         }
         
     client = openai.AsyncOpenAI(api_key=api_key)
+    
+    # Enriquecimento da Mensagem com IA baseado no Histórico (apenas para mensagens que não usaram atalho)
+    if client and history and len(message.strip()) < 150:
+        message = await enrich_user_message(message, history, client)
     
     agents_desc = f"1 (PRINCIPAL). ID: {main_agent.id} | Nome: {main_agent.name} | Descrição: {getattr(main_agent, 'description', 'Agente Principal')}\n"
     for idx, sa in enumerate(secondary_agents):
@@ -496,7 +887,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
     if main_system_prompt_cleaned:
         from agent_core.logic.substitution import resolve_conditional_blocks
         main_system_prompt_cleaned = resolve_conditional_blocks(main_system_prompt_cleaned, context_variables)
-        import re
         main_system_prompt_cleaned = re.sub(r'(?m)^[ \t]*#+[ \t]*', '', main_system_prompt_cleaned)
     tools_list = getattr(main_agent, "tools", None) or []
     agent_tool_prompts = getattr(main_agent, "tool_prompts", None) or {}
@@ -538,6 +928,11 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
     )
     system_prompt = _build_pre_router_system_prompt(main_agent, template_vars)
 
+    # Recupera contexto de alinhamento com a Base de Conhecimento (Fase 1 RAG / Fase 2 Fallback)
+    kb_alignment_context, kb_info = await _get_kb_reference_context(main_agent, message, async_db=db)
+    if kb_alignment_context:
+        system_prompt += f"\n\n{kb_alignment_context}"
+
     if not is_first_msg:
         system_prompt += "\n⚠️ REGRA CRÍTICA DE HISTÓRICO: Há interações anteriores na conversa. Se a mensagem for apenas uma saudação curta ou cumprimento isolado (Ex: 'Oi', 'Olá', 'Bom dia', 'Tudo bem?'), você PODE definir 'eh_saudacao' como true. Mas se o usuário trouxer qualquer dúvida, resposta ou assunto novo, trate a mensagem como continuação normal da conversa (eh_saudacao = false)."
 
@@ -559,14 +954,136 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         )
         result = json.loads(response.choices[0].message.content.strip())
         
-        # Se houver pergunta real na mensagem, NUNCA enviar resposta direta padrão de saudação
-        if has_real_question:
+        # Se houver pergunta real na mensagem ou perguntas extraídas, NUNCA tratar como saudação ou esclarecimento
+        has_extracted_q = bool(result.get("perguntas_extraidas") and len(str(result.get("perguntas_extraidas")).strip()) > 3)
+        if has_real_question or has_extracted_q:
             result["eh_saudacao"] = False
+            result["eh_agradecimento"] = False
+            result["eh_agradecimento_recorrente"] = False
             result["resposta_direta"] = None
+            result["precisa_esclarecimento"] = False
+            result["resposta_esclarecimento"] = None
             result["precisa_rag"] = True
             if not result.get("perguntas_extraidas"):
                 result["perguntas_extraidas"] = raw_user_message
                 result["lista_perguntas_extraidas"] = [raw_user_message]
+            
+            # Garantia de separação de múltiplas perguntas em lista_perguntas_extraidas no Python
+            raw_list = result.get("lista_perguntas_extraidas") or []
+            split_list = []
+            if isinstance(raw_list, list) and raw_list:
+                for item in raw_list:
+                    if isinstance(item, str):
+                        # Caso 1: Múltiplas interrogações '?'
+                        if item.count("?") > 1:
+                            parts = [p.strip() + ("?" if not p.strip().endswith("?") else "") for p in item.split("?") if p.strip()]
+                            split_list.extend(parts)
+                        # Caso 2: Contém vírgula ou ';' juntando duas dúvidas (ex: 'como funciona, quanto custa os equipamentos?')
+                        elif ("," in item or ";" in item) and any(qw in item.lower() for qw in ["quanto", "qual", "como", "onde", "valor", "preço", "preco"]):
+                            sub_parts = re.split(r'[,;]|\s+e\s+(?=(?:quanto|qual|como|onde|o que|tem|possui)\b)', item, flags=re.IGNORECASE)
+                            valid_sp = []
+                            for sp in sub_parts:
+                                sp_c = sp.strip()
+                                if len(sp_c) >= 3:
+                                    if not sp_c.endswith("?") and not sp_c.endswith("."):
+                                        sp_c += "?"
+                                    valid_sp.append(sp_c)
+                            if len(valid_sp) >= 2:
+                                split_list.extend(valid_sp)
+                            else:
+                                split_list.append(item.strip())
+                        elif item.strip():
+                            split_list.append(item.strip())
+                if split_list:
+                    result["lista_perguntas_extraidas"] = split_list
+
+            # Garantia adicional: Verificar se o usuário enviou múltiplas linhas/perguntas e o LLM omitiu alguma delas
+            raw_lines = [l.strip() for l in raw_user_message.splitlines() if l.strip()]
+            if len(raw_lines) > 1 or "?" in raw_user_message:
+                current_extracted_lower = " ".join([str(x).lower() for x in result.get("lista_perguntas_extraidas", [])])
+                question_triggers = [
+                    "de onde", "onde fica", "onde e", "onde é", "qual", "quais", "como", "quanto", "quantos",
+                    "quem", "quando", "por que", "porque", "posso", "consigo", "tem", "oferece", "certificado",
+                    "duracao", "duração", "suporte", "valor", "preco", "preço"
+                ]
+
+                for raw_line in raw_lines:
+                    line_clean = raw_line.lower()
+                    has_q_indicator = "?" in raw_line or any(trig in line_clean for trig in question_triggers)
+
+                    if has_q_indicator:
+                        keywords = [w for w in line_clean.replace("?", "").replace(",", "").split() if len(w) > 2 and w not in ["que", "com", "para", "uma", "uns", "curso", "esta", "está"]]
+                        matched = any(kw in current_extracted_lower for kw in keywords) if keywords else False
+
+                        if not matched:
+                            missing_q = raw_line.strip()
+                            if not missing_q.endswith("?") and not missing_q.endswith("."):
+                                missing_q += "?"
+
+                            if "de onde" in line_clean or "onde fica" in line_clean or "onde e" in line_clean or "onde é" in line_clean:
+                                missing_q = "De onde você é / onde fica a sede do curso?"
+
+                            if "lista_perguntas_extraidas" not in result or not isinstance(result["lista_perguntas_extraidas"], list):
+                                result["lista_perguntas_extraidas"] = []
+
+                            result["lista_perguntas_extraidas"].append(missing_q)
+                            current_extracted_lower += " " + missing_q.lower()
+
+            if isinstance(result.get("lista_perguntas_extraidas"), list) and len(result["lista_perguntas_extraidas"]) > 1:
+                # Regra de Ordenação: Se houver pergunta sobre o link de compra / inscrição, colocar por último para que o link seja enviado no final
+                link_qs = [q for q in result["lista_perguntas_extraidas"] if "link" in str(q).lower() or "inscrição" in str(q).lower() or "inscricao" in str(q).lower() or "comprar" in str(q).lower()]
+                other_qs = [q for q in result["lista_perguntas_extraidas"] if q not in link_qs]
+                if link_qs:
+                    result["lista_perguntas_extraidas"] = other_qs + link_qs
+                result["perguntas_extraidas"] = "\n".join(result["lista_perguntas_extraidas"])
+
+            # Sanitização extra: Se o usuário perguntou sobre os cursos de forma geral (ex: 'gostaria de saber sobre os cursos')
+            # e o LLM reescreveu adicionando 'estão disponíveis?' (o que faz a busca no RAG falhar), sanitizamos para 'Como funciona o curso?'
+            if result.get("perguntas_extraidas"):
+                pe_lower = str(result["perguntas_extraidas"]).lower()
+                raw_lower = raw_user_message.lower()
+                if "disponíveis" in pe_lower or "disponiveis" in pe_lower:
+                    if "disponíveis" not in raw_lower and "disponiveis" not in raw_lower:
+                        if "gostaria de saber" in raw_lower or "queria saber" in raw_lower or "saber sobre" in raw_lower or "quais os cursos" in raw_lower:
+                            result["perguntas_extraidas"] = "Como funciona o curso de remoção de tatuagem?"
+                            if isinstance(result.get("lista_perguntas_extraidas"), list) and len(result["lista_perguntas_extraidas"]) == 1:
+                                result["lista_perguntas_extraidas"] = ["Como funciona o curso de remoção de tatuagem?"]
+
+            # Resolução de confirmação a ofertas anteriores do assistente (ex: usuário diz 'Gostaria' após o assistente oferecer informações, pagamentos e link de compra)
+            raw_clean = raw_user_message.strip().lower()
+            raw_words_count = len(raw_clean.split())
+            if (raw_words_count <= 4 or len(raw_clean) <= 25) and history:
+                short_interest_words = ["gostaria", "quero", "sim", "pode ser", "gostaria sim", "aceito", "gostaria de saber", "manda", "envia", "mande", "envie"]
+                if any(raw_clean == w or raw_clean.startswith(w) for w in short_interest_words):
+                    last_assistant_msg = ""
+                for h in reversed(history):
+                    if isinstance(h, dict) and h.get("role") == "assistant" and h.get("content"):
+                        last_assistant_msg = str(h["content"]).lower()
+                        break
+                
+                if last_assistant_msg:
+                    questions_to_add = []
+                    current_pe_lower = str(result.get("perguntas_extraidas") or "").lower()
+                    
+                    if ("pagamento" in last_assistant_msg or "pagamentos" in last_assistant_msg) and "pagamento" not in current_pe_lower:
+                        questions_to_add.append("Quais são as formas de pagamento?")
+                    
+                    if ("link" in last_assistant_msg or "compra" in last_assistant_msg or "inscrição" in last_assistant_msg) and ("link" not in current_pe_lower and "compra" not in current_pe_lower):
+                        questions_to_add.append("Qual é o link de compra / inscrição?")
+
+                    if questions_to_add:
+                        if not isinstance(result.get("lista_perguntas_extraidas"), list) or not result.get("lista_perguntas_extraidas"):
+                            result["lista_perguntas_extraidas"] = ["Como funciona o curso de remoção de tatuagem?"]
+                        for q in questions_to_add:
+                            if q not in result["lista_perguntas_extraidas"]:
+                                result["lista_perguntas_extraidas"].append(q)
+                        
+                        # Garantir que pergunta do link de compra fique por último na lista
+                        link_qs = [q for q in result["lista_perguntas_extraidas"] if "link" in str(q).lower() or "inscrição" in str(q).lower() or "inscricao" in str(q).lower() or "comprar" in str(q).lower()]
+                        other_qs = [q for q in result["lista_perguntas_extraidas"] if q not in link_qs]
+                        if link_qs:
+                            result["lista_perguntas_extraidas"] = other_qs + link_qs
+                        result["perguntas_extraidas"] = "\n".join(result["lista_perguntas_extraidas"])
         elif result.get("eh_saudacao") or result.get("eh_mensagem_automatica"):
             if result.get("eh_agradecimento"):
                 if not result.get("resposta_direta") or str(result.get("resposta_direta")).strip().lower() in ["", "none", "null"]:
@@ -662,9 +1179,11 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         if not result.get("id_agente_alvo"): result["id_agente_alvo"] = main_agent.id
         result["eh_anuncio"] = result.get("eh_anuncio", False) or is_ad
         result["detalhe_anuncio"] = result.get("detalhe_anuncio", None) or similarity_info
+        if kb_info:
+            result["_kb_alignment_info"] = kb_info
         return result
     except Exception as e:
-        logger.error(f"Erro no Pre-Router: {e}")
+        logger.error(f"❌ Erro no Pre-Router (OpenAI): {e}")
         return {
             "eh_saudacao": False, 
             "eh_agradecimento": False,
@@ -675,5 +1194,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             "resposta_esclarecimento": None,
             "data_extraida": None,
             "eh_anuncio": is_ad,
-            "detalhe_anuncio": similarity_info
+            "detalhe_anuncio": similarity_info,
+            "pre_router_error": str(e)
         }

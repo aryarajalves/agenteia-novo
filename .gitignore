@@ -65,6 +65,15 @@ test_out.log
 test_pydantic.log
 resultado_testes.txt
 backend_logs.txt
+
+# Screenshots e scripts de teste temporários
+*.png
+*.jpg
+*.jpeg
+scratch_*.py
+take_screenshot*.py
+run_browser.py
+generate_evidence.py
 frontend/test-results/
 frontend/playwright-report/
-
+scratch/

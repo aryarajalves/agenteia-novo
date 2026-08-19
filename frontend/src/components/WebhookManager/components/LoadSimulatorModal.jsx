@@ -358,7 +358,7 @@ const LoadSimulatorModal = ({ webhook, onClose, onFinish, onViewLeads }) => {
                                 {onViewLeads && (
                                     <button
                                         type="button"
-                                        onClick={onViewLeads}
+                                        onClick={() => onViewLeads && onViewLeads(webhook)}
                                         style={{
                                             flex: 1.3,
                                             background: 'linear-gradient(135deg, #10b981, #059669)',

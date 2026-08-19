@@ -105,4 +105,20 @@ describe('InputArea Component - Image Preview', () => {
         expect(screen.getByText('Editor Expandido de Mensagem')).toBeInTheDocument();
         expect(screen.getAllByDisplayValue('Texto de teste expandido').length).toBeGreaterThanOrEqual(1);
     });
+
+    it('não deve enviar mensagem ao pressionar Shift+Enter, permitindo quebra de linha', () => {
+        const handleSendMessageMock = vi.fn();
+        const props = {
+            ...mockProps,
+            input: 'Linha 1',
+            handleSendMessage: handleSendMessageMock
+        };
+
+        render(<InputArea {...props} />);
+
+        const textarea = screen.getByPlaceholderText('Mensagem para o agente...');
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
+
+        expect(handleSendMessageMock).not.toHaveBeenCalled();
+    });
 });

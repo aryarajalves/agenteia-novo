@@ -8,8 +8,9 @@ import logging
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-# Carrega as variáveis do .env na raiz do projeto
+# Carrega as variáveis do .env
 load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env')))
+load_dotenv(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '.env')))
 
 os.environ["TESTING"] = "true"
 
@@ -18,7 +19,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Capturar e interceptar a DATABASE_URL para isolamento de testes
 db_url = os.getenv("DATABASE_URL")
-if not db_url:
+if not db_url or "banco-agente" in db_url or ":5432" in db_url:
     db_url = "postgresql+asyncpg://postgres:postgres@localhost:5433/ai_agent_db"
 
 # Redireciona de forma limpa para test_ai_agent_db para proteger o banco de desenvolvimento

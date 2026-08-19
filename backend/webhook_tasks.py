@@ -143,7 +143,8 @@ def process_media_content_task(webhook_config_id: int, event_id: int):
             db, 
             event_id, 
             "✅ Conteúdo Extraído", 
-            f"Modelo de transcrição utilizado: {model_used}\n\nConteúdo: {extracted_text[:200]}..."
+            f"Modelo de transcrição utilizado: {model_used}\n\nConteúdo: {extracted_text}",
+            metadata={"full_text": extracted_text, "model": model_used}
         )
         
     except Exception as e:
@@ -347,7 +348,7 @@ def process_webhook_automation(self, event_id: int):
         clean_phone = re.sub(r"\D", "", raw_phone)
         session_id = str(lead_internal_id) if lead_internal_id else f"tel_{clean_phone}"
 
-        _add_step(db, event_id, "📨 Mensagem enviada ao agente", mensagem[:500] + ("..." if len(mensagem) > 500 else ""))
+        _add_step(db, event_id, "📨 Mensagem enviada ao agente", mensagem)
 
         # --- RECUPERAÇÃO DE HISTÓRICO (MEMÓRIA DE CONTEXTO) ---
         history = retrieve_context_history(db, event, db_agent, raw_phone, clean_phone, event_id)
@@ -408,6 +409,48 @@ def process_webhook_automation(self, event_id: int):
                         context_variables={"session_id": session_id},
                         db=db
                     )
+
+                kb_info = pre_router_result.get("_kb_alignment_info")
+                if kb_info:
+                    fase_nome = kb_info.get("fase", "Alinhamento com Base de Conhecimento")
+                    perguntas_ref = kb_info.get("perguntas_referencia_detalhadas") or kb_info.get("perguntas_referencia", [])
+                    total_count = len(kb_info.get("perguntas_referencia", perguntas_ref))
+                    custo_str = kb_info.get("custo", "R$ 0,00")
+                    detalhe_str = kb_info.get("detalhe", "")
+                    
+                    if perguntas_ref:
+                        formatted_items = []
+                        for q in perguntas_ref[:5]:
+                            if q.startswith('"'):
+                                formatted_items.append(f"• {q}")
+                            else:
+                                formatted_items.append(f'• "{q}"')
+                        ref_text = "\n".join(formatted_items)
+                        more_count = total_count - 5
+                        if more_count > 0:
+                            ref_text += f"\n• ... (e mais {more_count} perguntas analisadas no catálogo)"
+                        
+                        _add_step(
+                            db, 
+                            event_id, 
+                            f"🎯 {fase_nome}", 
+                            f"Consultando a Base de Conhecimento para alinhar a dúvida do usuário às perguntas oficiais.\n\n**Perguntas de Referência Analisadas ({total_count} itens):**\n{ref_text}\n\n**💰 Custo / Consumo de Tokens da Pré-Busca:** {custo_str}"
+                        )
+                    elif detalhe_str:
+                        _add_step(
+                            db, 
+                            event_id, 
+                            f"{fase_nome}", 
+                            f"{detalhe_str}\n\n**💰 Custo / Consumo:** {custo_str}"
+                        )
+                    else:
+                        _add_step(
+                            db, 
+                            event_id, 
+                            f"{fase_nome}", 
+                            f"Nenhuma pergunta cadastrada foi encontrada nas bases de conhecimento do agente.\n\n**💰 Custo / Consumo:** {custo_str}"
+                        )
+                    db.commit()
                 
                 # Se for mensagem automática, salva o estado no banco de dados do evento e ignora
                 if pre_router_result.get("eh_mensagem_automatica"):
@@ -560,6 +603,15 @@ def process_webhook_automation(self, event_id: int):
                             }
                         }
 
+                if pre_router_result.get("eh_agradecimento_recorrente") or (pre_router_result.get("eh_agradecimento") and not pre_router_result.get("resposta_direta")):
+                    _add_step(
+                        db,
+                        event_id,
+                        "🤫 Agradecimento Recorrente (Não Responder)",
+                        "O Pre-Router detectou um 2º (ou subsequente) agradecimento/encerramento consecutivo do usuário. A resposta foi omitida para evitar envio infinito de mensagens."
+                    )
+                    return {"ignored_recurrent_thanks": True, "content": None, "usage": pr_usage, "model": pr_model}
+
                 if pre_router_result.get("eh_saudacao") and pre_router_result.get("resposta_direta"):
                     _add_step(db, event_id, "👋 Saudação Detectada", "O Pre-Router gerou uma resposta direta, ignorando o agente principal.")
                     return {"content": pre_router_result.get("resposta_direta"), "usage": pr_usage, "model": pr_model, "debug": {"is_greeting": True}}
@@ -665,9 +717,9 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
                     original_msg = str(mensagem)
                     mensagem = str(extracted)
                     if original_msg != mensagem:
-                        _add_step(db, event_id, "🧹 Melhoria de Mensagem (Pre-Router)", f"A mensagem do usuário foi melhorada pelo Pre-Router com base no histórico.\nAntes: \"{original_msg}\"\nDepois: \"{mensagem}\"")
+                        _add_step(db, event_id, "🧹 Melhoria de Mensagem Alinhada ao RAG", f"A mensagem do usuário foi alinhada com as perguntas da Base de Conhecimento.\n\n**Antes:** \"{original_msg}\"\n**Depois (Alinhado):** \"{mensagem}\"")
                     else:
-                        _add_step(db, event_id, "🧹 Mensagem Limpa/Extraída", mensagem[:1000])
+                        _add_step(db, event_id, "🧹 Mensagem Limpa/Extraída", f"Mensagem mantida para consulta: \"{mensagem[:1000]}\"")
 
                 pre_executed_tool_calls = []
                 pre_executed_rag_context = None
@@ -680,9 +732,34 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
                     else:
                         from rag_service import search_knowledge_base
                         
+                        def _clean_rag_query(q: str) -> str:
+                            """Remove ruídos comuns das queries antes de enviar ao banco vetorial.
+                            Ex: 'Me fale sobre o curso ....valores...etc....' → 'Me fale sobre o curso, valores'"""
+                            import re
+                            # Remove sequências de pontos (... ....)
+                            q = re.sub(r'\.{2,}', ' ', q)
+                            # Remove 'etc.', 'etc' soltos no final
+                            q = re.sub(r'\betc\.?\b', '', q, flags=re.IGNORECASE)
+                            # Remove excesso de espaços e pontuação solta no final
+                            q = re.sub(r'[,;:\s]+$', '', q.strip())
+                            q = re.sub(r'\s{2,}', ' ', q)
+                            return q.strip()
+                        
                         # Identificar se há múltiplas perguntas individuais
+                        # Prioridade: lista_perguntas_extraidas > perguntas_extraidas (string limpa) > mensagem bruta
                         perguntas_list = pre_router_result.get("lista_perguntas_extraidas")
-                        if not perguntas_list or not isinstance(perguntas_list, list):
+                        if not perguntas_list or not isinstance(perguntas_list, list) or not any(p.strip() for p in perguntas_list):
+                            # Fallback 1: usar a string limpa do pre-router (campo perguntas_extraidas)
+                            pergunta_limpa = pre_router_result.get("perguntas_extraidas") or pre_router_result.get("mensagem_melhorada")
+                            if pergunta_limpa and str(pergunta_limpa).strip():
+                                perguntas_list = [str(pergunta_limpa).strip()]
+                            else:
+                                # Fallback 2: mensagem bruta (último recurso)
+                                perguntas_list = [mensagem]
+                        
+                        # Limpar ruídos de cada query (pontos, etc.) antes de enviar ao RAG
+                        perguntas_list = [_clean_rag_query(q) for q in perguntas_list if q and q.strip()]
+                        if not perguntas_list:
                             perguntas_list = [mensagem]
                             
                         all_relevant_items = []
@@ -691,7 +768,19 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
                         for q_idx, query_item in enumerate(perguntas_list, 1):
                             _add_step(db, event_id, f"🔍 RAG - Pergunta {q_idx}", f"Consultando bases semânticas para a pergunta {q_idx}: \"{query_item}\"")
                             
-                            rag_res = await search_knowledge_base(db=async_db, query=query_item, kb_ids=kb_ids, limit=getattr(final_db_agent, 'rag_retrieval_count', 3), similarity_threshold=getattr(final_db_agent, 'rag_relevance_threshold', 0.0) or 0.0)
+                            rag_res = await search_knowledge_base(
+                                db=async_db,
+                                query=query_item,
+                                kb_ids=kb_ids,
+                                limit=getattr(final_db_agent, 'rag_retrieval_count', 3),
+                                similarity_threshold=getattr(final_db_agent, 'rag_relevance_threshold', 0.0) or 0.0,
+                                # Passa as configs do agente explicitamente — sem agent_id a função usaria os defaults (multi_query=False, etc.)
+                                force_translation=getattr(final_db_agent, 'rag_translation_enabled', False),
+                                force_multi_query=getattr(final_db_agent, 'rag_multi_query_enabled', False),
+                                force_rerank=getattr(final_db_agent, 'rag_rerank_enabled', True),
+                                force_agentic_eval=getattr(final_db_agent, 'rag_agentic_eval_enabled', True),
+                                force_parent_expansion=getattr(final_db_agent, 'rag_parent_expansion_enabled', True),
+                            )
                             
                             relevant_items = []
                             discarded_items = []
@@ -909,6 +998,25 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
                 logger.error(f"Erro ao limpar redis no Mensagem Automática: {redis_err}")
             return
 
+        # Se foi ignorado por ser 2º Agradecimento Recorrente, encerramos a pipeline aqui sem enviar mensagem
+        if isinstance(result, dict) and result.get("ignored_recurrent_thanks"):
+            event.status = "ignored_recurrent_thanks"
+            db.commit()
+            _add_step(db, event_id, "🤫 Automação Silenciada (Agradecimento Recorrente)", "2º agradecimento/encerramento consecutivo detectado. Nenhuma mensagem foi enviada para evitar loop.")
+            
+            # Limpar debounce no redis
+            try:
+                import redis as redis_lib
+                _redis_local = redis_lib.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
+                phone = event.telefone
+                wid = config.id
+                _redis_local.delete(f"webhook:debounce:id:{wid}:{phone}")
+                _redis_local.delete(f"webhook:debounce:text:{wid}:{phone}")
+                logger.info(f"🧹 Limpeza de debounce concluída após Agradecimento Recorrente para {phone}")
+            except Exception as redis_err:
+                logger.error(f"Erro ao limpar redis no Agradecimento Recorrente: {redis_err}")
+            return
+
         # Se foi ignorado por ser Mensagem de Anúncio, encerramos a pipeline aqui
         if isinstance(result, dict) and result.get("ignored_by_ad"):
             event.status = "ignored"
@@ -985,8 +1093,12 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
             
             _add_step(db, event_id, "🛠️ Ferramentas acionadas", "\n\n".join(tools_summary))
 
+        is_error = isinstance(result, dict) and result.get("error", False)
+        
         resp_title = "✅ Resposta gerada pelo agente"
-        if is_bypassed:
+        if is_error:
+            resp_title = "❌ Erro na integração da IA"
+        elif is_bypassed:
             resp_title = "⚡ Resposta direta do Pre-Router"
             
         _add_step(db, event_id, resp_title, 
@@ -1018,6 +1130,10 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
         if is_simulated:
             _add_step(db, event_id, "📤 Resposta Final Enviada (MOCK)", f"Mensagem simulada enviada com sucesso no ambiente MOCK:\n\n{response_text}")
             send_success = True
+        elif is_error:
+            # Se for um erro técnico da plataforma de IA (ex: saldo esgotado da OpenAI), NÃO enviar mensagem ao lead pelo ZapVoice, apenas registrar o rastro no Pipeline
+            _add_step(db, event_id, "🛑 Disparo Cancelado devido a Erro de IA", f"O envio de mensagem via ZapVoice/WhatsApp foi cancelado para não enviar erro técnico ao cliente final.\n\nDetalhes do erro: {response_text}")
+            send_success = False
         elif response_text and event.conversa_id and event.conta_id:
             split_enabled = getattr(config, 'split_response_enabled', True)
             if split_enabled is None:
@@ -1089,12 +1205,17 @@ Use essas informações para responder com precisão e clareza. Caso o usuário 
         except Exception as e_log_vars:
             logger.error(f"Erro ao adicionar etapa de variáveis extraídas no pipeline: {e_log_vars}")
 
-        event.status = "completed" if send_success else "error"
-        db.commit()
-        if send_success:
-            _add_step(db, event_id, "🏁 Pipeline Finalizado", "Processamento concluído com sucesso.")
+        if is_error:
+            event.status = "error_ai"
+            db.commit()
+            _add_step(db, event_id, "🛑 Pipeline Interrompido (Erro de IA)", "O envio via WhatsApp foi evitado devido a falha no provedor de IA. O rastro do erro está registrado no Raio-X.")
         else:
-            _add_step(db, event_id, "❌ Pipeline Finalizado com Falha no Envio", "O processamento foi concluído, mas o envio da mensagem falhou.")
+            event.status = "completed" if send_success else "error"
+            db.commit()
+            if send_success:
+                _add_step(db, event_id, "🏁 Pipeline Finalizado", "Processamento concluído com sucesso.")
+            else:
+                _add_step(db, event_id, "❌ Pipeline Finalizado com Falha no Envio", "O processamento foi concluído, mas o envio da mensagem falhou.")
 
 
         try:

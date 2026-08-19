@@ -110,9 +110,9 @@ async def verify_bot_defense(db, event, config, agent_config, session_id, messag
     return False
 
 async def _trigger_handoff(db, event, config):
-    """Auxiliar para aplicar etiquetas de handoff no Chatwoot e pausar automação."""
+    """Auxiliar para aplicar etiquetas de handoff no ZapVoice e pausar automação."""
     import webhook_tasks
-    from chatwoot_utils import sync_conversation_labels
+    from zapvoice_utils import sync_conversation_labels
     import json
     
     cw_url = (config.chatwoot_url or os.getenv("CHATWOOT_URL", "")).rstrip("/")

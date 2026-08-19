@@ -407,7 +407,7 @@ const AutomationPipelineModal = ({
                                                  displayedContent
                                              )}
 
-                                            {isLarge && (
+                                             {((isLarge || step.title?.includes("Conteúdo Extraído")) && !step.title?.includes("Variáveis Extraídas")) && (
                                                 <div style={{ 
                                                     marginTop: '1.25rem', display: 'flex', justifyContent: 'center',
                                                     borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem'

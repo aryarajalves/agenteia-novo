@@ -239,6 +239,21 @@ const MessageBubble = ({
                                 </span>
                             )}
 
+                            {msg.isError && msg.systemError && (
+                                <span 
+                                    className="meta-pill error-admin-pill" 
+                                    style={{ 
+                                        background: 'rgba(239, 68, 68, 0.2)', 
+                                        color: '#f87171', 
+                                        border: '1px solid rgba(239, 68, 68, 0.5)',
+                                        fontWeight: 700,
+                                        cursor: 'help'
+                                    }} 
+                                    title={`⚠️ [PRIVADO ADMIN] Detalhes do Erro da IA:\n${msg.systemError}`}
+                                >
+                                    ⚠️ Erro Técnico (Admin)
+                                </span>
+                            )}
                             {msg.debug?.guardrails_active && (
                                 <span className="meta-pill guardrail-pill active" title="Políticas de segurança aplicadas">🛡️ Seguro</span>
                             )}

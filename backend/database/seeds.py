@@ -40,9 +40,10 @@ async def seed_native_tools():
             "name": "transferir_suporte_humano",
             "description": (
                 "Transfere o atendimento para um especialista humano. "
-                "REGRAS RÍGIDAS: 1. Use APENAS se o usuário pedir EXPLICITAMENTE para falar com atendente. "
-                "2. NUNCA use se você não souber a resposta (use 'registrar_duvida_sem_resposta'). "
-                "3. NUNCA assuma que nomes desconhecidos são de funcionários."
+                "REGRAS RÍGIDAS: 1. Use se o usuário pedir EXPLICITAMENTE para falar com atendente ou se solicitar cancelamento/reembolso. "
+                "2. NUNCA mencione em texto que vai transferir sem acionar esta ferramenta. "
+                "3. NUNCA use se você não souber a resposta (use 'registrar_duvida_sem_resposta'). "
+                "4. NUNCA assuma que nomes desconhecidos são de funcionários."
             ),
             "parameters_schema": json.dumps({
                 "type": "object",

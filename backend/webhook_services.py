@@ -330,18 +330,32 @@ def retrieve_context_history(db, event, db_agent, raw_phone, clean_phone, event_
                 past_events.reverse()
                 seen_msgs = set()
                 for pe in past_events:
-                    if pe.mensagem:
-                        role = "assistant" if (pe.dono and pe.dono.lower() in ['agente', 'bot']) else "user"
-                        msg_clean = pe.mensagem.strip()
-                        if msg_clean not in seen_msgs:
-                            content = f"[Mensagem Ativa de Campanha]: {pe.mensagem}" if role == "assistant" else pe.mensagem
-                            history.append({"role": role, "content": content})
-                            seen_msgs.add(msg_clean)
-                    if pe.agent_response:
-                        resp_clean = pe.agent_response.strip()
-                        if resp_clean not in seen_msgs:
-                            history.append({"role": "assistant", "content": pe.agent_response})
-                            seen_msgs.add(resp_clean)
+                    is_agent_event = (pe.dono and pe.dono.lower() in ['agente', 'bot']) or (pe.event_type == 'followup')
+                    
+                    if is_agent_event:
+                        # Para eventos do agente/follow-up, a mensagem dita pelo robô é o agent_response
+                        agent_text = (pe.agent_response or "").strip()
+                        if not agent_text and pe.mensagem:
+                            raw_msg = pe.mensagem.strip()
+                            # Ignorar marcadores técnicos de sistema
+                            if not (raw_msg.startswith("🔄") or raw_msg.startswith("[Follow-Up") or raw_msg.startswith("[Disparo")):
+                                agent_text = raw_msg
+                        
+                        if agent_text and agent_text not in seen_msgs:
+                            history.append({"role": "assistant", "content": agent_text})
+                            seen_msgs.add(agent_text)
+                    else:
+                        # Eventos originados pelo usuário/cliente
+                        if pe.mensagem:
+                            user_msg = pe.mensagem.strip()
+                            if user_msg and not (user_msg.startswith("🔄 [Follow-Up") or user_msg.startswith("[Follow-Up")) and user_msg not in seen_msgs:
+                                history.append({"role": "user", "content": user_msg})
+                                seen_msgs.add(user_msg)
+                        if pe.agent_response:
+                            resp_clean = pe.agent_response.strip()
+                            if resp_clean and resp_clean not in seen_msgs:
+                                history.append({"role": "assistant", "content": resp_clean})
+                                seen_msgs.add(resp_clean)
 
                 deduped_history = []
                 for msg in history:
