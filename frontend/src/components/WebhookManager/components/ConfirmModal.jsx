@@ -25,8 +25,8 @@ const ConfirmModal = ({
             ? `Tem certeza que deseja excluir permanentemente as ${name} selecionadas?`
             : `Tem certeza que deseja excluir permanentemente a integração "${name}"?`;
     } else if (type === 'cw-webhook') {
-        title = 'Excluir Webhook Chatwoot';
-        text = 'Tem certeza que deseja deletar este webhook do Chatwoot?';
+        title = 'Excluir Webhook ZapVoice / WhatsApp';
+        text = 'Tem certeza que deseja deletar este webhook do ZapVoice / WhatsApp?';
         confirmBtnText = 'Sim, Excluir';
     } else if (type === 'followup') {
         icon = '🗑️';

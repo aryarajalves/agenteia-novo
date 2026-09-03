@@ -1,8 +1,33 @@
+# Dependências do Node (serão instaladas dentro do container)
 node_modules/
+.npm/
+
+# Builds e Bundles locais
 dist/
-.DS_Store
-*.local
-.env
+build/
+
+# Logs do Node/NPM/Yarn
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+.pnpm-debug.log*
+
+# Variáveis de Ambiente e Segredos
+.env
+.env.*
+!.env.example
+
+# Testes e Relatórios
+coverage/
+playwright-report/
+test-results/
+
+# Documentação
+*.md
+*.txt
+
+# Git e IDEs
+.git/
+.gitignore
+.vscode/
+.idea/

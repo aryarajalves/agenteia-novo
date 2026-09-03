@@ -1,0 +1,220 @@
+/* PromptEditor Selection, Conditionals, Badges and Warnings */
+
+/* Persistent Search Highlight */
+.editor-line.search-highlight-active {
+    background: rgba(59, 130, 246, 0.25);
+    box-shadow: inset 4px 0 0 #3b82f6;
+    border-radius: 4px;
+}
+
+/* Selection Visibility Indicators */
+.selection-indicator {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: white;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: 0 10px 25px rgba(99, 102, 241, 0.4);
+    animation: indicatorPulse 2s infinite;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.selection-indicator.up {
+    top: 20px;
+}
+
+.selection-indicator.down {
+    bottom: 20px;
+}
+
+.selection-indicator:hover {
+    transform: translateX(-50%) scale(1.05);
+    background: linear-gradient(135deg, #818cf8, #6366f1);
+}
+
+@keyframes indicatorPulse {
+    0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+.clear-selection-btn {
+    position: absolute;
+    right: 30px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1000;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(5px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.clear-selection-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+
+/* Estilo Ultra-Premium para Condicionais Colapsadas */
+.collapsed-cond-line {
+    position: relative;
+    padding-left: 55px;
+    height: 26px; /* Altura exata de uma linha para manter 100% o alinhamento vertical */
+    min-height: 26px;
+    max-height: 26px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    margin: 0 !important; /* Margem estritamente zerada para evitar desalinhamento */
+    padding: 0;
+    pointer-events: none;
+}
+
+/* Card Container com Glassmorphism Compacto e Degradê Neon lateral */
+.collapsed-cond-line .premium-cond-card {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 22px; /* Encaixa perfeitamente na linha de 26px */
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.12) 0%, rgba(139, 92, 246, 0.06) 100%);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(236, 72, 153, 0.25);
+    border-left: 3px solid #db2777;
+    border-radius: 4px;
+    padding: 0 10px;
+    margin-right: 20px;
+    box-shadow: 0 4px 15px rgba(236, 72, 153, 0.08);
+    position: relative;
+    overflow: hidden;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.collapsed-cond-line .premium-cond-card:hover {
+    border-color: rgba(236, 72, 153, 0.85);
+    box-shadow: 0 0 15px rgba(236, 72, 153, 0.4), 0 4px 15px rgba(236, 72, 153, 0.2);
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.18) 0%, rgba(139, 92, 246, 0.1) 100%);
+}
+
+.collapsed-cond-line .cond-expr-premium {
+    z-index: 1;
+    color: #cbd5e1;
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 15px;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+    text-shadow: 0 0 8px rgba(203, 213, 225, 0.1);
+}
+
+/* Brilho interno (Glow) */
+.collapsed-cond-line .premium-cond-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(236, 72, 153, 0.15) 0%, transparent 70%);
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.collapsed-cond-line .cond-badge-premium {
+    z-index: 1;
+    background: linear-gradient(135deg, #db2777, #ec4899);
+    color: white;
+    font-size: 8px;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    box-shadow: 0 2px 6px rgba(236, 72, 153, 0.4);
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+}
+
+.collapsed-cond-line .cond-var-name-premium {
+    z-index: 1;
+    color: #f472b6 !important;
+    font-family: 'Fira Code', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    text-shadow: 0 0 10px rgba(236, 72, 153, 0.2);
+}
+
+.collapsed-cond-line .cond-edit-hint-premium {
+    z-index: 1;
+    color: #f472b6 !important;
+    font-size: 10px;
+    font-weight: 800;
+    margin-left: auto;
+    background: rgba(236, 72, 153, 0.15);
+    border: 1px solid rgba(236, 72, 153, 0.4);
+    border-radius: 4px;
+    padding: 1px 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 2px 5px rgba(236, 72, 153, 0.2);
+    transition: all 0.2s ease;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.collapsed-cond-line .cond-edit-hint-premium:hover {
+    background: rgba(236, 72, 153, 0.35);
+    border-color: #f472b6;
+    color: white !important;
+    box-shadow: 0 0 10px rgba(236, 72, 153, 0.6);
+    transform: scale(1.05);
+}
+
+/* Aviso exibido na aba Pre-Router, explicando riscos de editar o template */
+.prerouter-warning-banner {
+    margin: 0 1.5rem 0.75rem;
+    padding: 0.65rem 1rem;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 10px;
+    color: #fbbf24;
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.prerouter-warning-banner code {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #fde68a;
+    font-family: 'Fira Code', monospace;
+}
+
+

@@ -18,8 +18,11 @@ os.environ["TESTING"] = "true"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Capturar e interceptar a DATABASE_URL para isolamento de testes
-db_url = os.getenv("DATABASE_URL")
-if not db_url or "banco-agente" in db_url or ":5432" in db_url:
+db_url = os.getenv("DATABASE_URL", "")
+if "@db:" in db_url or "@db" in db_url:
+    # Dentro do Docker, preserva o host 'db:5432'
+    pass
+elif not db_url or "banco-agente" in db_url or ":5432" in db_url:
     db_url = "postgresql+asyncpg://postgres:postgres@localhost:5433/ai_agent_db"
 
 # Redireciona de forma limpa para test_ai_agent_db para proteger o banco de desenvolvimento
@@ -33,6 +36,17 @@ from main import app
 from database import get_db, Base
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import text
+
+try:
+    from celery_app import app as celery_app
+    celery_app.conf.update(
+        task_always_eager=True,
+        task_eager_propagates=True,
+        broker_url="memory://",
+        result_backend="cache+memory://"
+    )
+except Exception:
+    pass
 
 @pytest.fixture(scope="session")
 def event_loop():

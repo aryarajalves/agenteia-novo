@@ -1,0 +1,157 @@
+/* PromptEditor Textarea, Backdrop, Line Numbers and Scrollbars */
+
+.prompt-editor-container {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+}
+
+.editor-line {
+    position: relative;
+    min-height: 26px;
+    line-height: 26px;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+}
+
+.editor-ln {
+    position: absolute;
+    left: -55px;
+    width: 45px;
+    text-align: right;
+    padding-right: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    user-select: none;
+    pointer-events: none;
+}
+
+.editor-relative-container {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+}
+
+.prompt-textarea {
+    width: 100%;
+    height: 100%;
+    background: transparent !important;
+    border: none;
+    padding: 2rem 2rem 2rem 55px; /* Padding-left de 55px reserva espaço para os números de linha */
+    box-sizing: border-box !important;
+    color: transparent !important; /* Texto transparente para evitar sobreposição */
+    -webkit-text-fill-color: transparent !important; /* Previne escurecimento do texto no Chrome/Edge ao focar */
+    caret-color: #60a5fa !important; /* Cursor piscando visível e destacado */
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace !important;
+    font-size: 15px !important;
+    line-height: 26px !important;
+    letter-spacing: normal !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0 !important;
+    resize: none;
+    outline: none;
+    z-index: 2; /* Textarea no topo para posicionamento do cursor e foco perfeitos */
+    position: relative;
+    overflow-x: hidden;
+    overflow-y: auto;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    tab-size: 4;
+}
+
+.prompt-textarea:focus,
+.prompt-textarea:active,
+.prompt-textarea:focus-visible {
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+    background: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.prompt-textarea::selection {
+    background: rgba(59, 130, 246, 0.35) !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+}
+
+/* Custom Scrollbar for Textarea */
+.prompt-textarea::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.prompt-textarea::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.prompt-textarea::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    border: 2px solid #0b1120;
+}
+
+.prompt-textarea::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.editor-backdrop {
+    position: absolute;
+    inset: 0;
+    padding: 2rem 2rem 2rem 55px; /* Padding identico ao da textarea (2rem top/right/bottom, 55px left) */
+    box-sizing: border-box !important;
+    font-family: 'Fira Code', 'Cascadia Code', Consolas, 'Courier New', monospace !important;
+    font-size: 15px !important;
+    line-height: 26px !important;
+    letter-spacing: normal !important;
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0 !important;
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    color: #f8fafc !important; /* Texto do prompt em branco radiante de alto contraste */
+    z-index: 1;
+    pointer-events: none;
+    overflow-x: hidden;
+    overflow-y: scroll; /* Reserva exata da scrollbar de 10px para evitar desvio de largura */
+    scrollbar-width: thin;
+}
+
+.editor-backdrop::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.editor-backdrop::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.editor-backdrop::-webkit-scrollbar-thumb {
+    background: transparent; /* Thumb transparente para não duplicar scrollbar visualmente */
+}
+
+/* Flash Highlight ao clicar em links de linha do assistente */
+@keyframes lineScrollFlash {
+    0% {
+        background: rgba(99, 102, 241, 0.45);
+        box-shadow: 0 0 18px rgba(99, 102, 241, 0.6);
+    }
+    50% {
+        background: rgba(99, 102, 241, 0.22);
+    }
+    100% {
+        background: transparent;
+        box-shadow: none;
+    }
+}
+
+.line-scroll-highlight {
+    animation: lineScrollFlash 2.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    border-radius: 6px;
+}
+

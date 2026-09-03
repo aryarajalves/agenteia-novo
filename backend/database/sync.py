@@ -1,6 +1,7 @@
 import logging
 from sqlalchemy import text, inspect
 from database.connection import engine, engine_sync, Base
+import models
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +110,7 @@ async def sync_database_schema():
 
 
     # Rodar a inspeção (precisa ser em modo síncrono via run_sync)
-    async with engine.connect() as conn:
+    async with engine.begin() as conn:
         await conn.run_sync(sync_columns)
-        await conn.commit()
 
     logger.info("✅ Sincronização de schema concluída.")

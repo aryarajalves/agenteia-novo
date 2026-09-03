@@ -126,7 +126,7 @@ async def test_evaluate_rag_relevance_returns_relevant_indices():
         mock_response.usage = MagicMock()
         mock_call.return_value = mock_response
 
-        result, _ = await evaluate_rag_relevance("Quais são os tipos de dívida", items)
+        result, *_ = await evaluate_rag_relevance("Quais são os tipos de dívida", items)
         assert len(result) == 1
         assert result[0]["id"] == 10
 
@@ -143,7 +143,7 @@ async def test_evaluate_rag_relevance_trust_threshold_bypasses_filter():
         mock_response.usage = MagicMock()
         mock_call.return_value = mock_response
 
-        result, _ = await evaluate_rag_relevance("Exato match", items)
+        result, *_ = await evaluate_rag_relevance("Exato match", items)
         # But trust threshold is 0.45, and distance=0.40 < 0.45, so it should be kept!
         assert any(item["id"] == 42 for item in result), \
             "Item with distance < TRUST_THRESHOLD must bypass the filter"
@@ -165,7 +165,7 @@ async def test_evaluate_rag_relevance_fallback_when_all_filtered():
 
         # evaluate_rag_relevance has an internal fallback: if everything is filtered
         # but top-1 has distance < 0.6, it keeps that item.
-        result, _ = await evaluate_rag_relevance("pergunta", items)
+        result, *_ = await evaluate_rag_relevance("pergunta", items)
         # The internal fallback at < 0.6 should preserve the top item (id=5, dist=0.50)
         assert len(result) == 1
         assert result[0]["id"] == 5
@@ -182,7 +182,7 @@ async def test_evaluate_rag_relevance_truly_irrelevant_filtered():
         mock_response.usage = MagicMock()
         mock_call.return_value = mock_response
 
-        result, _ = await evaluate_rag_relevance("pergunta sobre finanças", items)
+        result, *_ = await evaluate_rag_relevance("pergunta sobre finanças", items)
         # dist=0.95 is NOT < trust threshold (0.45) nor < 0.6 fallback, so result is empty
         assert result == []
 
@@ -191,7 +191,7 @@ async def test_evaluate_rag_relevance_truly_irrelevant_filtered():
 async def test_evaluate_rag_relevance_empty_input():
     """Empty items should return empty without calling LLM."""
     with patch("services.rag.agentic.call_rag_llm") as mock_call:
-        result, _ = await evaluate_rag_relevance("query", [])
+        result, *_ = await evaluate_rag_relevance("query", [])
         mock_call.assert_not_called()
         assert result == []
 
@@ -208,7 +208,7 @@ async def test_evaluate_rag_relevance_invalid_json_fallback():
         mock_response.usage = MagicMock()
         mock_call.return_value = mock_response
 
-        result, _ = await evaluate_rag_relevance("query", items)
+        result, *_ = await evaluate_rag_relevance("query", items)
         # SIM found in content -> keep all
         assert len(result) == 1
 

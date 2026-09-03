@@ -8,7 +8,9 @@ def test_webhook_tasks_finally_close_is_implemented():
     that the process_webhook_automation task has the finally: db.close() block
     implemented for connection leak prevention.
     """
-    file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webhook_tasks.py")
+    file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webhook_tasks", "automation.py")
+    if not os.path.exists(file_path):
+        file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webhook_tasks.py")
     assert os.path.exists(file_path), f"Arquivo {file_path} não encontrado!"
     
     with open(file_path, "r", encoding="utf-8") as f:

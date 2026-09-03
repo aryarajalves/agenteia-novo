@@ -435,12 +435,12 @@ def check_followup_due():
     db = SessionLocal()
     try:
         configs = db.execute(_text(
-            "SELECT id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_business_hours, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zapvoice_url, zapvoice_api_token, zapvoice_client_id, followup_add_label "
+            "SELECT id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_business_hours, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zapvoice_url, zapvoice_api_token, zapvoice_client_id, followup_add_label, purchased_label "
             "FROM webhook_configs "
             "WHERE followup_enabled = TRUE AND followup_steps IS NOT NULL AND followup_steps != '' AND followup_steps != '[]'"
         )).fetchall()
 
-        for config_id, leads_table, cw_url_cfg, cw_token_cfg, followup_steps_raw, followup_bh_raw, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zv_url_cfg, zv_token_cfg, zv_client_cfg, followup_add_label in configs:
+        for config_id, leads_table, cw_url_cfg, cw_token_cfg, followup_steps_raw, followup_bh_raw, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zv_url_cfg, zv_token_cfg, zv_client_cfg, followup_add_label, purchased_label in configs:
             cw_url = (cw_url_cfg or zv_url_cfg or cw_url_global or os.getenv("ZAPVOICE_URL") or "").rstrip("/")
             cw_token = cw_token_cfg or zv_token_cfg or cw_token_global or os.getenv("ZAPVOICE_API_TOKEN") or ""
 
@@ -467,6 +467,8 @@ def check_followup_due():
                 cancel_labels_list.extend([l.strip() for l in ignore_by_label.split(",") if l.strip()])
             if followup_cancel_label:
                 cancel_labels_list.extend([l.strip() for l in followup_cancel_label.split(",") if l.strip()])
+            if purchased_label:
+                cancel_labels_list.extend([l.strip() for l in purchased_label.split(",") if l.strip()])
             if not cancel_labels_list:
                 cancel_labels_list = ["humano"]
 
@@ -481,24 +483,36 @@ def check_followup_due():
                     # Busca leads no step_index inativos há até 30 dias (suporta passos de minutos, horas ou dias)
                     cutoff_30d = datetime.utcnow() - timedelta(days=30)
                     due = db.execute(_text(f"""
-                        SELECT id, conta_id, conversa_id, telefone, contato_nome, ultima_mensagem_em, mensagem, ultima_resposta_agente, labels
+                        SELECT id, conta_id, conversa_id, telefone, contato_nome, 
+                               COALESCE(ultima_mensagem_em, ultima_resposta_agente_em, created_at) AS ref_time, 
+                               mensagem, ultima_resposta_agente, labels
                         FROM {leads_table}
                         WHERE followup_step = :step_index
-                          AND ultima_mensagem_em >= :cutoff_30d
+                          AND COALESCE(ultima_mensagem_em, ultima_resposta_agente_em, created_at) >= :cutoff_30d
                     """), {"step_index": step_index, "cutoff_30d": cutoff_30d}).fetchall()
 
                     if not due:
                         continue
 
-                    # Tempo atual (UTC naive, vindo do datetime.utcnow equivalente no PostgreSQL)
                     now_utc = datetime.utcnow()
+                    target_audience = step.get("target_audience")
 
-                    for lead_id, conta_id, conversa_id, telefone, nome, ultima_msg_em, lead_msg, agent_resp, lead_labels_raw in due:
-                        if not ultima_msg_em:
+                    for lead_id, conta_id, conversa_id, telefone, nome, ref_time, lead_msg, agent_resp, lead_labels_raw in due:
+                        if not ref_time:
+                            continue
+
+                        # Validação de Público-Alvo: Re-tentativa de Disparo vs Remarketing Pós-Conversa
+                        # Considera que houve interação apenas se o próprio lead respondeu
+                        has_interacted = bool(lead_msg and str(lead_msg).strip())
+                        if target_audience == "retentativas" and has_interacted:
+                            # Passo exclusivo para quem NÃO respondeu ao disparo inicial
+                            continue
+                        if target_audience == "remarketing" and not has_interacted:
+                            # Passo exclusivo para quem JÁ conversou com a IA (Remarketing)
                             continue
 
                         # Calcula o tempo passado considerando o horário comercial
-                        elapsed_minutes = calculate_elapsed_business_minutes(ultima_msg_em, now_utc, business_hours)
+                        elapsed_minutes = calculate_elapsed_business_minutes(ref_time, now_utc, business_hours)
                         
                         if elapsed_minutes >= delay_minutes:
                             eff_conta_id = str(conta_id or zv_client_cfg or "1")
@@ -522,8 +536,8 @@ def check_followup_due():
                                     c_lbl_lower = cancel_lbl.lower().strip()
                                     if c_lbl_lower in local_labels_lower:
                                         is_cancelled = True
-                                    elif cw_url and cw_token and conta_id and conversa_id and str(conversa_id).strip() != "None":
-                                        if asyncio.run(is_conversation_paused(cw_url, str(conta_id), str(conversa_id), cw_token, cancel_lbl)):
+                                    elif cw_url and cw_token and eff_conversa_id and eff_conversa_id != "None":
+                                        if asyncio.run(is_conversation_paused(cw_url, eff_conta_id, eff_conversa_id, cw_token, cancel_lbl)):
                                             is_cancelled = True
 
                                     if is_cancelled:
@@ -539,8 +553,8 @@ def check_followup_due():
                                 if followup_required_label and followup_required_label.strip():
                                     req_lbl = followup_required_label.strip().lower()
                                     has_req = req_lbl in local_labels_lower
-                                    if not has_req and cw_url and cw_token and conta_id and conversa_id and str(conversa_id).strip() != "None":
-                                        has_req = asyncio.run(is_conversation_paused(cw_url, str(conta_id), str(conversa_id), cw_token, followup_required_label.strip()))
+                                    if not has_req and cw_url and cw_token and eff_conversa_id and eff_conversa_id != "None":
+                                        has_req = asyncio.run(is_conversation_paused(cw_url, eff_conta_id, eff_conversa_id, cw_token, followup_required_label.strip()))
                                     if not has_req:
                                         logger.info(f"[FollowUp] Pulando {telefone}: não possui a etiqueta obrigatória '{followup_required_label.strip()}'.")
                                         continue
@@ -560,15 +574,32 @@ def check_followup_due():
                                 custom_prompt = step.get("custom_prompt", "")
                                 fixed_message = step.get("fixed_message", "")
 
-                                if step_type == "fixed" and fixed_message and fixed_message.strip():
-                                    primeiro_nome = (nome or "").strip().split()[0] if nome else "Cliente"
-                                    message = fixed_message.replace("{nome}", nome or "Cliente") \
-                                                           .replace("{primeiro_nome}", primeiro_nome) \
-                                                           .replace("{telefone}", telefone or "")
+                                # Higienização de Nome: se for número/telefone, "Sem Nome" ou vazio, deixa a variável vazia
+                                raw_nome = (nome or "").strip()
+                                is_number_name = raw_nome.replace("+", "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "").isdigit()
+                                if not raw_nome or is_number_name or raw_nome.lower() in ("sem nome", "cliente", "lead"):
+                                    clean_nome = ""
+                                    primeiro_nome = ""
+                                else:
+                                    clean_nome = raw_nome
+                                    primeiro_nome = raw_nome.split()[0]
+
+                                media_url = step.get("media_url", "")
+                                media_type = step.get("media_type", "video" if step.get("media_type") == "video" else "audio")
+
+                                if step_type == "fixed" and (fixed_message.strip() or (media_url and media_url.strip())):
+                                    if fixed_message and fixed_message.strip():
+                                        import re
+                                        message = fixed_message.replace("{nome}", clean_nome) \
+                                                               .replace("{primeiro_nome}", primeiro_nome) \
+                                                               .replace("{telefone}", telefone or "")
+                                        message = re.sub(r' +', ' ', message).strip()
+                                    else:
+                                        message = ""
                                     ai_usage = None
                                     pipeline_steps.append({
-                                        "step": "Usando Template de Mensagem Fixa", 
-                                        "detail": f"Mensagem de template personalizada formatada para {nome or telefone}.", 
+                                        "step": "Usando Disparo de Mídia / Mensagem Fixa", 
+                                        "detail": f"Disparo de {(media_type or 'Mídia/Mensagem').upper()} formatada para {clean_nome or telefone}.", 
                                         "timestamp": datetime.utcnow().isoformat()
                                     })
                                 elif step_type == "whatsapp_template":
@@ -578,13 +609,14 @@ def check_followup_due():
                                     template_header_media = step.get("template_header_media") or ""
                                     template_header_type = step.get("template_header_type") or "IMAGE"
                                     
-                                    primeiro_nome = (nome or "").strip().split()[0] if nome else "Cliente"
-                                    
                                     def resolve_val(raw_v):
                                         if not raw_v: return ""
-                                        return str(raw_v).replace("{nome}", nome or "Cliente") \
-                                                         .replace("{primeiro_nome}", primeiro_nome) \
-                                                         .replace("{telefone}", telefone or "")
+                                        res = str(raw_v).replace("{nome}", clean_nome) \
+                                                        .replace("{primeiro_nome}", primeiro_nome) \
+                                                        .replace("{telefone}", telefone or "")
+                                        # Para a API do WhatsApp Oficial, parâmetro de texto não pode ser string vazia ("")
+                                        # Se for vazio, enviamos " " (espaço) para a Meta aceitar o template
+                                        return res.strip() if res.strip() else " "
                                     
                                     components_payload = []
                                     
@@ -619,13 +651,13 @@ def check_followup_due():
                                     # 3. Body Text Variables
                                     body_var_keys = sorted([k for k in template_variables.keys() if k.startswith("body_")], key=lambda x: int(x.split("_")[1]) if x.split("_")[1].isdigit() else 0)
                                     if body_var_keys:
-                                        body_params = []
+                                        header_params = []
                                         for bk in body_var_keys:
                                             val = resolve_val(template_variables.get(bk, ""))
-                                            body_params.append({"type": "text", "text": val})
+                                            header_params.append({"type": "text", "text": val})
                                         components_payload.append({
                                             "type": "body",
-                                            "parameters": body_params
+                                            "parameters": header_params
                                         })
 
                                     processed_components = components_payload if components_payload else (step.get("template_components") or [])
@@ -651,8 +683,8 @@ def check_followup_due():
                                     _save_followup_event(db, config_id, eff_conta_id, eff_conversa_id, telefone, nome, None, pipeline_steps, "lead_responded")
                                     continue
 
-                                if not message:
-                                    logger.warning(f"[FollowUp] Não foi possível gerar mensagem para lead {lead_id}, pulando.")
+                                if not message and not (media_url and media_url.strip()):
+                                    logger.warning(f"[FollowUp] Não foi possível gerar mensagem nem mídia para lead {lead_id}, pulando.")
                                     pipeline_steps.append({"step": "Erro", "detail": "Não foi possível gerar a mensagem de follow-up com a IA.", "timestamp": datetime.utcnow().isoformat()})
                                     _save_followup_event(db, config_id, eff_conta_id, eff_conversa_id, telefone, nome, None, pipeline_steps, "error")
                                     continue
@@ -698,7 +730,6 @@ def check_followup_due():
                                     zv_client_id = eff_conta_id
                                     
                                     from zapvoice_utils import send_zapvoice_whatsapp_template
-                                    import asyncio
                                     try:
                                         loop = asyncio.new_event_loop()
                                         asyncio.set_event_loop(loop)
@@ -752,8 +783,18 @@ def check_followup_due():
                                             logger.warning(f"[FollowUp] Tentativa 2 ZapVoice para {telefone} falhou: {e_post2}")
 
                                 if sent_ok:
-                                    db.execute(_text(f"UPDATE {leads_table} SET followup_step = :next_step WHERE id = :id"),
-                                               {"next_step": step_index + 1, "id": lead_id})
+                                    db.execute(_text(f"""
+                                        UPDATE {leads_table} 
+                                        SET followup_step = :next_step, 
+                                            ultima_resposta_agente_em = :now,
+                                            ultima_resposta_agente = :agent_resp
+                                        WHERE id = :id
+                                    """), {
+                                        "next_step": step_index + 1, 
+                                        "now": datetime.utcnow(), 
+                                        "agent_resp": message, 
+                                        "id": lead_id
+                                    })
                                     pipeline_steps.append({"step": "📩 Mensagem Entregue", "detail": f"Status de envio: {status_code_res}. Passo de follow-up marcado como concluído.", "timestamp": datetime.utcnow().isoformat()})
                                     
                                     # --- Sincronização de Etiqueta de Follow-Up no ZapVoice ---
@@ -894,4 +935,36 @@ def rescue_stuck_waiting_events():
         logger.error(f"Erro na execução da tarefa de resgate periódico: {e}")
     finally:
         db.close()
+
+
+@app.task(name="tasks.cleanup_old_logs")
+def cleanup_old_logs():
+    """Expurga eventos de webhook e logs de interação mais antigos que LOG_RETENTION_DAYS (default: 60 dias)."""
+    db = SessionLocal()
+    try:
+        retention_days = int(os.getenv("LOG_RETENTION_DAYS", "60"))
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        logger.info(f"🧹 [LOG CLEANUP] Iniciando expurgo de logs anteriores a {cutoff_date.isoformat()} ({retention_days} dias)...")
+
+        # 1. Expurgo em webhook_events
+        deleted_webhooks = db.query(WebhookEventModel).filter(
+            WebhookEventModel.created_at < cutoff_date
+        ).delete(synchronize_session=False)
+
+        # 2. Expurgo em interaction_logs
+        deleted_interactions = db.query(InteractionLog).filter(
+            InteractionLog.timestamp < cutoff_date
+        ).delete(synchronize_session=False)
+
+        db.commit()
+        logger.info(
+            f"✅ [LOG CLEANUP] Concluído: {deleted_webhooks} eventos de webhook e "
+            f"{deleted_interactions} logs de interação expurgados com sucesso."
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"❌ [LOG CLEANUP] Erro durante o expurgo periódico de logs: {e}")
+    finally:
+        db.close()
+
 

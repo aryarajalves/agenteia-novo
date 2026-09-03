@@ -77,3 +77,8 @@ generate_evidence.py
 frontend/test-results/
 frontend/playwright-report/
 scratch/
+
+# Códigos obsoletos e backups de modularização
+codigo_obsoleto/
+*.backup.*
+backend/backup/

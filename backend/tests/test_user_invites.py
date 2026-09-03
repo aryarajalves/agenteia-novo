@@ -49,7 +49,7 @@ async def test_create_invite_flow(client: AsyncClient):
     register_data = {
         "name": f"Convidado {uid}",
         "email": f"invited_{uid}@example.com",
-        "password": "password123"
+        "password": "Password123!"
     }
     reg_res = await client.post(f"/users/register/{invite_token}", json=register_data)
     assert reg_res.status_code == 200
@@ -63,7 +63,7 @@ async def test_create_invite_flow(client: AsyncClient):
     # 7. Validar se o usuário consegue logar
     login_user_res = await client.post("/login", json={
         "email": f"invited_{uid}@example.com",
-        "password": "password123"
+        "password": "Password123!"
     })
     assert login_user_res.status_code == 200
     assert login_user_res.json()["user"]["role"] == "Admin"
@@ -94,13 +94,42 @@ async def test_invite_validation_errors(client: AsyncClient):
     assert val_res_exp.status_code == 400
     assert "expirou" in val_res_exp.json()["detail"]
 
-    # Deve falhar registro
+    # Deve falhar registro em convite expirado
     reg_res_exp = await client.post(f"/users/register/{expired_token}", json={
         "name": "Falho",
         "email": "falho@example.com",
-        "password": "pass"
+        "password": "Password123!"
     })
     assert reg_res_exp.status_code == 400
+
+@pytest.mark.asyncio
+async def test_password_strength_validation(client: AsyncClient):
+    admin_email = os.getenv("ADMIN_EMAIL", "aryarajmarketing@gmail.com")
+    admin_password = os.getenv("ADMIN_PASSWORD", "123456")
+    login_res = await client.post("/login", json={"email": admin_email, "password": admin_password})
+    token = login_res.json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    create_res = await client.post("/users/invites", json={"role": "Usuário", "validity_hours": 24}, headers=headers)
+    invite_token = create_res.json()["token"]
+
+    # Senha curta (< 10 chars)
+    res_short = await client.post(f"/users/register/{invite_token}", json={
+        "name": "Teste", "email": "teste1@example.com", "password": "Pass1!"
+    })
+    assert res_short.status_code == 422
+
+    # Senha sem número
+    res_no_num = await client.post(f"/users/register/{invite_token}", json={
+        "name": "Teste", "email": "teste2@example.com", "password": "PasswordSpecial!"
+    })
+    assert res_no_num.status_code == 422
+
+    # Senha sem caractere especial
+    res_no_spec = await client.post(f"/users/register/{invite_token}", json={
+        "name": "Teste", "email": "teste3@example.com", "password": "Password1234"
+    })
+    assert res_no_spec.status_code == 422
 
 @pytest.mark.asyncio
 async def test_invite_revocation(client: AsyncClient):

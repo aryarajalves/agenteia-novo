@@ -3,6 +3,7 @@ import { useKB } from '../KBContext';
 import { useNavigate } from 'react-router-dom';
 import { uploadManager } from '../../../api/uploadManager';
 import { api } from '../../../api/client';
+import ImportLoadingOverlay from '../../ImportLoadingOverlay';
 
 const QuickActions = () => {
     const { 
@@ -140,6 +141,11 @@ const QuickActions = () => {
                     />
                 </>
             )}
+            <ImportLoadingOverlay
+                isOpen={loading}
+                title="Importando Perguntas e Respostas..."
+                message="Processando o arquivo JSON e adicionando os novos itens à base de conhecimento. Aguarde..."
+            />
         </div>
     );
 };

@@ -18,8 +18,10 @@ export const useConfigData = () => {
         setRagRetrievalCount, setRagTranslationEnabled, setRagMultiQueryEnabled,
         setRagRerankEnabled, setRagAgenticEvalEnabled, setRagParentExpansionEnabled,
         setRagRelevanceThreshold,
+        setSemanticCacheEnabled,
+        setSemanticCacheThreshold,
         setInboxCaptureEnabled, setInitialMessage, setInitialQuestionMessage,
-        setInitialIgnoreMessage, setQualificationQuestions, setQualificationLabels, setQualificationCriteria, setSecurityBlacklist, setSecurityForbidden,
+        setInitialIgnoreMessage, setQualificationQuestions, setQualificationLabels, setQualificationCriteria, setQualificationFinalAction, setSecurityBlacklist, setSecurityForbidden,
         setSecurityDiscount, setSecurityComplexity, setSecurityPii,
         setSecurityValidatorIa, setSecurityBotProtection, setSecurityMaxMessages,
         setSecuritySemanticThreshold, setSecurityLoopCount, setRouterEnabled,
@@ -27,7 +29,8 @@ export const useConfigData = () => {
         setRouterComplexFallbackModel, setHandoffEnabled, setResponseTranslationEnabled,
         setResponseTranslationFallbackLang, setUiPrimaryColor, setUiHeaderColor,
         setUiChatTitle, setUiWelcomeMessage, setModelSettings,
-        setGreetingMode, setQuestionMode, setAdMode
+        setGreetingMode, setQuestionMode, setAdMode,
+        setUnansweredHandoffEnabled, setUnansweredHandoffLimit, setUnansweredQuestionPrompt
     } = useConfig();
 
     useEffect(() => {
@@ -123,7 +126,7 @@ export const useConfigData = () => {
                         setSimulatedTime(configData.simulated_time || '');
                         setInitialMessage(configData.initial_message || '');
                         setInitialQuestionMessage(configData.initial_question_message || '');
-                        setGreetingMode(configData.greeting_mode || 'panel');
+                        setGreetingMode(configData.greeting_mode || 'prompt');
                         setQuestionMode(configData.question_mode || 'panel');
                         setAdMode(configData.ad_mode || 'panel');
                         
@@ -154,6 +157,7 @@ export const useConfigData = () => {
                         } catch (e) { console.error("Error processing qualification labels", e); }
                         
                         setQualificationCriteria(configData.qualification_criteria || '');
+                        setQualificationFinalAction(configData.qualification_final_action || '');
 
                         setSecurityBlacklist(configData.security_competitor_blacklist || '');
                         setSecurityForbidden(configData.security_forbidden_topics || '');
@@ -177,7 +181,19 @@ export const useConfigData = () => {
                         setHandoffEnabled(configData.handoff_enabled || false);
                         setResponseTranslationEnabled(configData.response_translation_enabled || false);
                         setResponseTranslationFallbackLang(configData.response_translation_fallback_lang || 'portuguese');
+                        setSemanticCacheEnabled(configData.semantic_cache_enabled !== undefined ? configData.semantic_cache_enabled : true);
+                        setSemanticCacheThreshold(Math.round((configData.semantic_cache_threshold || 0.92) * 100));
                         setModelSettings(configData.model_settings || {});
+
+                        const handoffLimitVal = configData.unanswered_handoff_limit;
+                        if (handoffLimitVal === 0) {
+                            setUnansweredHandoffEnabled(false);
+                            setUnansweredHandoffLimit(2);
+                        } else {
+                            setUnansweredHandoffEnabled(true);
+                            setUnansweredHandoffLimit(handoffLimitVal !== undefined && handoffLimitVal !== null ? handoffLimitVal : 2);
+                        }
+                        setUnansweredQuestionPrompt(configData.unanswered_question_prompt || '');
 
                         if (configData.top_k !== undefined) setTopK(configData.top_k);
                         if (configData.presence_penalty !== undefined) setPresencePenalty(configData.presence_penalty);
@@ -193,11 +209,14 @@ export const useConfigData = () => {
                     setSelectedModel("gpt-4o-mini");
                     setQualificationLabels([]);
                     setQualificationCriteria('');
-                    setGreetingMode('panel');
+                    setGreetingMode('prompt');
                     setQuestionMode('panel');
                     setAdMode('panel');
                     setDateAwarenessPastDays(7);
                     setDateAwarenessFutureDays(7);
+                    setUnansweredHandoffEnabled(true);
+                    setUnansweredHandoffLimit(2);
+                    setUnansweredQuestionPrompt('');
                 }
             } catch (err) {
                 console.error("Global load error:", err);

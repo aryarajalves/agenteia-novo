@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Dict, Any, Union, Optional
 import json
 import os
@@ -19,25 +19,28 @@ MODEL_INFO = {
     "gpt-5.2": {"input": 0.00000175, "output": 0.000014, "supports_tools": True, "supports_temperature": False, "context_window": "128k", "provider": "openai"},
     "gpt-5-mini": {"input": 0.0000003, "output": 0.0000021, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
     "gpt-5": {"input": 0.0000015, "output": 0.000012, "supports_tools": True, "supports_temperature": False, "context_window": "128k", "provider": "openai"},
+    "o3-mini": {"input": 0.0000011, "output": 0.0000044, "supports_tools": True, "supports_temperature": False, "context_window": "200k", "provider": "openai"},
+    "o1-mini": {"input": 0.0000011, "output": 0.0000044, "supports_tools": True, "supports_temperature": False, "context_window": "128k", "provider": "openai"},
     "gpt-4.1": {"input": 0.000001, "output": 0.000008, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
     "gpt-4o-mini": {"input": 0.00000015, "output": 0.0000006, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
     "gpt-4o": {"input": 0.0000025, "output": 0.00001, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
+    "gpt-4-turbo": {"input": 0.00001, "output": 0.00003, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
 
     # == Gemini Models (Preços por token) ==
-    "gemini-3.1-pro": {"input": 0.000002, "output": 0.000012, "supports_tools": True, "supports_temperature": True, "context_window": "2M", "provider": "gemini"},
-    "gemini-3.1-flash": {"input": 0.0000005, "output": 0.000003, "supports_tools": True, "supports_temperature": True, "context_window": "1M", "provider": "gemini"},
     "gemini-2.5-pro": {"input": 0.00000125, "output": 0.00001, "supports_tools": True, "supports_temperature": True, "context_window": "2M", "provider": "gemini"},
     "gemini-2.5-flash": {"input": 0.0000003, "output": 0.0000025, "supports_tools": True, "supports_temperature": True, "context_window": "1M", "provider": "gemini"},
+    "gemini-2.0-flash": {"input": 0.0000001, "output": 0.0000004, "supports_tools": True, "supports_temperature": True, "context_window": "1M", "provider": "gemini"},
     "gemini-1.5-pro": {"input": 0.00000125, "output": 0.00001, "supports_tools": True, "supports_temperature": True, "context_window": "2M", "provider": "gemini"},
     "gemini-1.5-flash": {"input": 0.0000003, "output": 0.0000025, "supports_tools": True, "supports_temperature": True, "context_window": "1M", "provider": "gemini"},
 
     # == Anthropic Models (Preços por token) ==
-    "claude-4.6-opus": {"input": 0.000005, "output": 0.000025, "supports_tools": True, "supports_temperature": True, "context_window": "1M", "provider": "anthropic"},
-    "claude-4.6-sonnet": {"input": 0.000003, "output": 0.000015, "supports_tools": True, "supports_temperature": True, "context_window": "200k", "provider": "anthropic"},
-    "claude-4.5-haiku": {"input": 0.000001, "output": 0.000005, "supports_tools": True, "supports_temperature": True, "context_window": "200k", "provider": "anthropic"},
+    "claude-3-7-sonnet": {"input": 0.000003, "output": 0.000015, "supports_tools": True, "supports_temperature": True, "context_window": "200k", "provider": "anthropic"},
+    "claude-3-5-sonnet": {"input": 0.000003, "output": 0.000015, "supports_tools": True, "supports_temperature": True, "context_window": "200k", "provider": "anthropic"},
+    "claude-3-5-haiku": {"input": 0.000001, "output": 0.000005, "supports_tools": True, "supports_temperature": True, "context_window": "200k", "provider": "anthropic"},
+    "claude-3-opus": {"input": 0.000015, "output": 0.000075, "supports_tools": True, "supports_temperature": True, "context_window": "200k", "provider": "anthropic"},
 }
 
-USD_TO_BRL = 5.30
+USD_TO_BRL = float(os.getenv("USD_TO_BRL_RATE") or os.getenv("USD_TO_BRL") or 5.30)
 WHATSAPP_TEMPLATE_COST_BRL = 0.30 # Valor fixo sugerido para cada disparo de template
 
 # =============================================================================
@@ -127,16 +130,29 @@ def discover_models() -> list:
     try:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if api_key:
-            # IDs reais da API para suportar o mapeamento
-            anthropic_ids = ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
-            print(f"✅ Anthropic: {len(anthropic_ids)} modelos de chat configurados")
+            import anthropic
+            ant_client = anthropic.Anthropic(api_key=api_key)
+            ant_models = ant_client.models.list()
+            anthropic_ids = sorted([m.id for m in ant_models.data if hasattr(m, 'id')])
+            print(f"✅ Anthropic: {len(anthropic_ids)} modelos de chat descobertos")
     except Exception as e:
         print(f"⚠️ Falha ao buscar modelos Anthropic: {e}")
+
+    has_openai = bool(os.getenv("OPENAI_API_KEY"))
+    has_gemini = bool(os.getenv("GEMINI_API_KEY"))
+    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY"))
 
     # 4. Cruza famílias do MODEL_INFO com modelos reais encontrados
     result = []
     for family, info in MODEL_INFO.items():
         provider = info.get("provider", "openai")
+        if provider == "openai" and not (has_openai and openai_ids):
+            continue
+        if provider == "gemini" and not (has_gemini and gemini_ids):
+            continue
+        if provider == "anthropic" and not (has_anthropic and anthropic_ids):
+            continue
+
         if provider == "gemini": pool = gemini_ids
         elif provider == "anthropic": pool = anthropic_ids
         else: pool = openai_ids
@@ -295,8 +311,7 @@ class KnowledgeItem(BaseModel):
     category: str | None = "Geral"
     source_metadata: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class KnowledgeBase(BaseModel):
     id: int | None = None
@@ -309,8 +324,7 @@ class KnowledgeBase(BaseModel):
     items: list[KnowledgeItem] = []
     updated_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class AgentConfig(BaseModel):
     id: int | None = None
@@ -376,12 +390,15 @@ class AgentConfig(BaseModel):
     response_translation_enabled: bool = False
     response_translation_fallback_lang: str = "portuguese"
     tool_prompts: dict | None = None
+    greeting_mode: str = "prompt"
     qualification_questions: Optional[str] = None
     qualification_labels: Optional[str] = None
     qualification_criteria: Optional[str] = None
+    qualification_final_action: Optional[str] = None
+    unanswered_handoff_limit: Optional[int] = 2
+    unanswered_question_prompt: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 def load_config():
     if os.path.exists(CONFIG_FILE):

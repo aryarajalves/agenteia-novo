@@ -276,50 +276,67 @@ const InviteManagement = ({ onInviteCreated, triggerInviteModal, hideHeader = fa
                                 </div>
                             </form>
                         ) : (
-                            <div className="invite-result-container fade-in" style={{ padding: '1.5rem 0' }}>
-                                <p style={{ color: '#94a3b8', fontSize: '0.95rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+                            <div className="invite-result-card">
+                                <div className="invite-status-banner">
+                                    <span>⚡</span>
+                                    <span>Convite Criado com Sucesso!</span>
+                                </div>
+
+                                <p style={{ color: '#94a3b8', fontSize: '0.92rem', margin: '0', textAlign: 'center' }}>
                                     Envie o link abaixo para o convidado realizar o cadastro como <strong>{formData.role}</strong>.
                                 </p>
-                                <div className="form-group">
-                                    <label htmlFor="generated-link">LINK DE CONVITE</label>
-                                    <div style={{ position: 'relative', display: 'flex', gap: '10px' }}>
+
+                                <div className="invite-meta-badges">
+                                    <span className="invite-badge-item role">
+                                        <span>👤</span> Cargo: <strong>{formData.role}</strong>
+                                    </span>
+                                    <span className="invite-badge-item expiry">
+                                        <span>⏳</span> Válido por <strong>{formData.validity_hours}h</strong>
+                                    </span>
+                                </div>
+
+                                <div className="invite-url-section">
+                                    <div className="invite-url-header">
+                                        <label htmlFor="generated-link">LINK DE CONVITE</label>
+                                        <span className="invite-url-hint">Clique para copiar</span>
+                                    </div>
+                                    <div className="invite-url-box-premium" onClick={handleCopyLink}>
+                                        <span className="invite-url-prefix-icon">🔗</span>
                                         <input
                                             id="generated-link"
                                             type="text"
                                             value={generatedLink}
                                             readOnly
-                                            style={{
-                                                flex: 1,
-                                                padding: '12px 16px',
-                                                background: 'rgba(15, 23, 42, 0.7)',
-                                                border: '2px solid rgba(255, 255, 255, 0.1)',
-                                                borderRadius: '12px',
-                                                color: 'white',
-                                                fontSize: '0.9rem',
-                                                outline: 'none'
-                                            }}
+                                            className="invite-link-input-display"
+                                            title="Clique para copiar o link"
                                         />
                                         <button
                                             type="button"
-                                            onClick={handleCopyLink}
-                                            className="modal-btn modal-btn-confirm"
-                                            style={{
-                                                width: 'auto',
-                                                padding: '0 20px',
-                                                whiteSpace: 'nowrap',
-                                                margin: 0
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCopyLink();
                                             }}
+                                            className={`invite-copy-btn-primary ${copied ? 'copied' : ''}`}
                                         >
-                                            {copied ? 'Copiado! ✓' : 'Copiar'}
+                                            <span>{copied ? '✓' : '📋'}</span>
+                                            <span>{copied ? 'Copiado! ✓' : 'Copiar'}</span>
                                         </button>
                                     </div>
                                 </div>
-                                <div className="modal-actions" style={{ marginTop: '2rem', justifyContent: 'center' }}>
+
+                                <div className="invite-security-tip">
+                                    <span className="tip-icon">ℹ️</span>
+                                    <span>
+                                        Este link é de uso único. Após a conclusão do cadastro, o token é invalidado automaticamente por segurança.
+                                    </span>
+                                </div>
+
+                                <div className="modal-actions" style={{ marginTop: '0.5rem', justifyContent: 'center' }}>
                                     <button
                                         type="button"
                                         className="modal-btn modal-btn-cancel"
                                         onClick={() => setShowCreateModal(false)}
-                                        style={{ width: '100%', maxWidth: '200px' }}
+                                        style={{ width: '100%', maxWidth: '220px' }}
                                     >
                                         Fechar
                                     </button>

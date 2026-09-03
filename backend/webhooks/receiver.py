@@ -1,0 +1,602 @@
+import os
+import json
+import logging
+from datetime import timedelta
+from typing import Optional, Dict, Any
+import redis as redis_lib
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from database import get_db
+from core.timezone import get_now_br
+from core.websocket import manager
+from models import WebhookConfigModel, WebhookEventModel
+from webhook_tasks import process_webhook_automation, sync_memory_to_vector, process_media_content_task
+from .utils import normalize_phone, get_value_by_path
+from .service import ensure_leads_table, upsert_lead, handle_keyword_handoffs
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+def _get_redis():
+    redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    try:
+        r = redis_lib.from_url(redis_url, decode_responses=True)
+        r.ping()
+        return r
+    except Exception:
+        try:
+            r = redis_lib.from_url("redis://localhost:6382/0", decode_responses=True)
+            r.ping()
+            return r
+        except Exception:
+            return None
+
+def _redis_get(key: str) -> Optional[str]:
+    try:
+        r = _get_redis()
+        return r.get(key) if r else None
+    except Exception:
+        return None
+
+def _redis_setex(key: str, ttl: int, value: str):
+    try:
+        r = _get_redis()
+        if r:
+            r.setex(key, ttl, value)
+    except Exception:
+        pass
+
+CHATWOOT_URL_DEFAULT = (os.getenv("CHATWOOT_URL") or "").rstrip("/")
+CHATWOOT_TOKEN_DEFAULT = os.getenv("CHATWOOT_API_TOKEN") or ""
+
+
+@router.get("/receive/{token}", status_code=200)
+async def check_webhook_active(token: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.token == token, WebhookConfigModel.is_active == True))
+    config = result.scalar_one_or_none()
+    if not config:
+        raise HTTPException(status_code=404, detail="Webhook inativo ou token inválido")
+    
+    return {
+        "status": "online",
+        "webhook_name": config.name,
+        "message": f"O webhook '{config.name}' está ativo e pronto para receber requisições POST!"
+    }
+
+
+@router.post("/receive/{token}", status_code=200)
+async def receive_webhook(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.token == token, WebhookConfigModel.is_active == True))
+    config = result.scalar_one_or_none()
+    if not config: 
+        raise HTTPException(status_code=404, detail="Webhook inativo")
+
+    try: 
+        body = await request.json()
+    except Exception: 
+        raise HTTPException(status_code=400, detail="JSON inválido")
+
+    # Extração Básica e Completa
+    is_zapvoice = "event" in body and "message" in body and "contact" in body
+    if is_zapvoice:
+        zap_msg = body.get("message", {}) or {}
+        zap_contact = body.get("contact", {}) or {}
+        sender_type = zap_msg.get("sender_type", "contact")
+        
+        is_out = sender_type in ("user", "system")
+        phone = normalize_phone(str(zap_contact.get("phone") or ""))
+        msg_id = str(zap_msg.get("id") or "")
+        
+        labels_raw = zap_contact.get("labels", [])
+        if not labels_raw:
+            labels_raw = body.get("labels", [])
+        labels_str = json.dumps(labels_raw) if isinstance(labels_raw, list) else str(labels_raw or "[]")
+        
+        content_type = zap_msg.get("message_type", "text")
+        
+        media_url_raw = str(zap_msg.get("media_url") or "")
+        if media_url_raw.startswith("media_id:"):
+            media_id = media_url_raw.split("media_id:")[1]
+            zv_url = (config.zapvoice_url or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
+            if zv_url and not zv_url.endswith("/api"):
+                zv_url = f"{zv_url}/api"
+            zv_token = config.zapvoice_api_token or os.getenv("ZAPVOICE_API_TOKEN", "")
+            client_id = str(body.get("client_id") or "")
+            media_url_raw = f"{zv_url}/chat/media/{media_id}?client_id={client_id}&token={zv_token}"
+        
+        zv_name = (
+            zap_contact.get("name") or 
+            zap_contact.get("pushname") or 
+            zap_contact.get("push_name") or 
+            body.get("contact_name") or 
+            body.get("name")
+        )
+        contato_nome_val = str(zv_name).strip() if zv_name and str(zv_name).strip() and str(zv_name).strip().lower() not in ("none", "null", "contato desconhecido") else None
+
+        extracted = {
+            "conta_id": str(body.get("client_id") or ""),
+            "inbox_id": str(body.get("client_id") or ""),
+            "inbox_nome": "ZapVoice Canal",
+            "conversa_id": str(zap_msg.get("conversation_id") or ""),
+            "mensagem_id": msg_id,
+            "contato_id": str(zap_contact.get("phone") or ""),
+            "telefone": phone,
+            "contato_nome": contato_nome_val,
+            "mensagem": str(zap_msg.get("template_content") or zap_msg.get("content") or ""),
+            "labels": labels_str,
+            "link": media_url_raw,
+            "dono": "agente" if is_out else "usuario",
+            "message_type": content_type
+        }
+    else:
+        conv = body.get("conversation", {}) or {}
+        sender = body.get("sender", {}) or {}
+        inbox = body.get("inbox", {}) or {}
+        account = body.get("account", {}) or {}
+        is_out = str(body.get("message_type")) in ("1", "outgoing")
+        if is_out and "meta" in conv: 
+            sender = conv["meta"].get("sender", sender)
+
+        phone = normalize_phone(str(sender.get("phone_number") or ""))
+        msg_id = str(body.get("id") or "")
+        
+        labels_raw = body.get("labels", [])
+        if not labels_raw and conv:
+            labels_raw = conv.get("labels", [])
+        labels_str = json.dumps(labels_raw) if isinstance(labels_raw, list) else str(labels_raw or "[]")
+
+        attachments = body.get("attachments", [])
+        media_link = ""
+        if attachments and len(attachments) > 0:
+            media_link = str(
+                attachments[0].get("data_url") or 
+                attachments[0].get("url") or 
+                attachments[0].get("file_url") or 
+                attachments[0].get("attachment_url") or 
+                ""
+            )
+        if not media_link:
+            media_link = str(
+                body.get("media_url") or 
+                body.get("audio_url") or 
+                body.get("file_url") or 
+                body.get("data_url") or 
+                body.get("link") or 
+                ""
+            )
+
+        content_type = "text"
+        if attachments and len(attachments) > 0:
+            file_type = str(attachments[0].get("file_type") or attachments[0].get("type") or "").lower()
+            if "image" in file_type or (media_link and media_link.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif'))):
+                content_type = "image"
+            elif "audio" in file_type or "voice" in file_type or (media_link and media_link.lower().endswith(('.ogg', '.mp3', '.wav', '.m4a', '.oga', '.opus'))):
+                content_type = "audio"
+            elif "video" in file_type:
+                content_type = "video"
+            elif "file" in file_type or "application" in file_type:
+                content_type = "document"
+            else:
+                content_type = file_type or "file"
+        elif body.get("message_type") in ("audio", "image", "video", "file", "document"):
+            content_type = body.get("message_type")
+        elif body.get("content_type") in ("audio", "image", "video", "file", "document"):
+            content_type = body.get("content_type")
+
+        meta_sender = (conv.get("meta", {}) or {}).get("sender", {}) or {}
+        cw_name = (
+            sender.get("name") or 
+            sender.get("push_name") or 
+            sender.get("pushname") or 
+            meta_sender.get("name") or 
+            meta_sender.get("push_name") or 
+            (body.get("contact", {}) or {}).get("name") or 
+            body.get("contact_name") or 
+            body.get("name")
+        )
+        contato_nome_val = str(cw_name).strip() if cw_name and str(cw_name).strip() and str(cw_name).strip().lower() not in ("none", "null", "contato desconhecido") else None
+
+        extracted = {
+            "conta_id": str(body.get("account_id") or account.get("id") or conv.get("account_id") or ""),
+            "inbox_id": str(inbox.get("id") or body.get("inbox_id") or conv.get("inbox_id") or ""),
+            "inbox_nome": str(inbox.get("name") or ""),
+            "conversa_id": str(conv.get("id") or body.get("conversation_id") or ""),
+            "mensagem_id": msg_id,
+            "contato_id": str(sender.get("id") or body.get("contact_id") or ""),
+            "telefone": phone,
+            "contato_nome": contato_nome_val,
+            "mensagem": str(body.get("template_content") or body.get("content") or (body.get("message", {}) or {}).get("content") or ""),
+            "labels": labels_str,
+            "link": media_link,
+            "dono": "agente" if is_out else "usuario",
+            "message_type": content_type
+        }
+    
+    logger.info(f"📩 Webhook: {config.name} | De: {phone} | Msg: {extracted['mensagem'][:30]}... | Account: {extracted['conta_id']} | Inbox: {extracted['inbox_id']} | Conv: {extracted['conversa_id']} | Contact: {extracted['contato_id']}")
+
+    # Filtro por ID do Cliente do ZapVoice (ou ID do Inbox do Chatwoot legado)
+    target_client_id = config.zapvoice_client_id or getattr(config, 'chatwoot_inbox_id', None)
+    if target_client_id and str(extracted.get("inbox_id") or "").strip() != str(target_client_id).strip():
+        logger.info(f"⏭️ Webhook ignorado: inbox_id '{extracted.get('inbox_id')}' não corresponde ao configurado '{target_client_id}'")
+        return {"ok": True, "status": "ignored_inbox"}
+
+    # --- FILTRO DE MENSAGENS DE SAÍDA (ECHO) ---
+    if is_out:
+        resetting_key = f"webhook:resetting:{config.id}:{phone}"
+        if _redis_get(resetting_key):
+            logger.info(f"⏭️ Mensagem de saída de eco pós-reset ignorada para evitar recriação do lead {phone}")
+            return {"ok": True, "status": "outgoing_ignored"}
+
+        try:
+            await ensure_leads_table(config.leads_table)
+            await upsert_lead(config.leads_table, {**extracted, "dono": "agente"}, config.id)
+        except Exception as e:
+            logger.error(f"Erro ao inserir lead de saída: {e}")
+        return {"ok": True, "status": "outgoing_ignored"}
+
+    # --- FILTRO DE CONTATOS PERMITIDOS E BLOQUEADOS ---
+    blocked_list = []
+    if config.blocked_messages:
+        try:
+            blocked_list = json.loads(config.blocked_messages)
+        except Exception:
+            blocked_list = []
+
+    allowed_list = []
+    if config.allowed_contacts:
+        try:
+            allowed_list = json.loads(config.allowed_contacts)
+        except Exception:
+            allowed_list = []
+
+    def match_contact(item_to_match: str, phone_num: str, name_str: str) -> bool:
+        item_str = str(item_to_match).strip().lower()
+        if not item_str:
+            return False
+            
+        clean_item = "".join(c for c in item_str if c.isdigit())
+        if clean_item:
+            clean_phone = "".join(c for c in phone_num if c.isdigit())
+            match_len = min(8, len(clean_item), len(clean_phone))
+            if match_len >= 6:
+                return clean_phone[-match_len:] == clean_item[-match_len:]
+                
+        if name_str and item_str in name_str.lower():
+            return True
+            
+        return False
+
+    # 1. Validar se o contato está na lista de bloqueados
+    for blocked_item in blocked_list:
+        if match_contact(blocked_item, phone, extracted.get("contato_nome", "")):
+            logger.info(f"🚫 Webhook bloqueado: Contato {phone} / {extracted.get('contato_nome')} está na lista de bloqueados.")
+            return {"ok": True, "status": "blocked", "reason": "contact is blocked"}
+
+    # 2. Validar se o contato está na lista de permitidos
+    if allowed_list:
+        is_allowed = False
+        for allowed_item in allowed_list:
+            if match_contact(allowed_item, phone, extracted.get("contato_nome", "")):
+                is_allowed = True
+                break
+        
+        if not is_allowed:
+            logger.info(f"🚫 Webhook bloqueado: Contato {phone} / {extracted.get('contato_nome')} não está na lista de permitidos.")
+            return {"ok": True, "status": "blocked", "reason": "contact not in allowed list"}
+
+    # 1. Verificar palavra-chave de deleção antes de checar tag de ignorar
+    is_delete_keyword = False
+    msg_limpa = extracted["mensagem"].lower().strip()
+    if msg_limpa and config.delete_keywords:
+        try:
+            keywords = []
+            if config.delete_keywords.strip().startswith("["):
+                keywords = json.loads(config.delete_keywords)
+            else:
+                keywords = [k.strip() for k in config.delete_keywords.split(",") if k.strip()]
+            
+            keywords_lower = [str(k).lower().strip() for k in keywords]
+            if msg_limpa in keywords_lower:
+                is_delete_keyword = True
+                logger.info(f"🗑️ Mensagem coincide com palavra-chave de deleção: '{msg_limpa}'")
+        except Exception as e:
+            logger.error(f"Erro ao parsear delete_keywords: {e}")
+
+    # 2. Filtro por etiqueta (Ignore by Label)
+    if config.ignore_by_label and not is_delete_keyword:
+        labels_list = labels_raw if isinstance(labels_raw, list) else []
+        if config.ignore_by_label in labels_list:
+            logger.info(f"🚫 Contato possui etiqueta de bloqueio/ignorar: '{config.ignore_by_label}'. Gravando mensagem e log de pausado.")
+            now_br = get_now_br()
+            
+            steps = [{
+                "step": "🚫 Automação Pausada",
+                "detail": f"A automação para este contato está pausada porque ele possui a etiqueta '{config.ignore_by_label}', que indica suporte humano ativo ou pausa manual da IA.",
+                "timestamp": now_br.isoformat()
+            }]
+            
+            event = WebhookEventModel(
+                webhook_config_id=config.id,
+                event_type="message",
+                status="ignored",
+                message_type=content_type,
+                conta_id=extracted.get("conta_id"),
+                inbox_id=extracted.get("inbox_id"),
+                inbox_nome=extracted.get("inbox_nome"),
+                conversa_id=extracted.get("conversa_id"),
+                mensagem_id=extracted.get("mensagem_id"),
+                contato_id=extracted.get("contato_id"),
+                telefone=phone,
+                labels=extracted.get("labels"),
+                contato_nome=extracted.get("contato_nome"),
+                mensagem=extracted.get("mensagem"),
+                link=extracted.get("link"),
+                raw_payload=json.dumps(body, ensure_ascii=False),
+                dono="usuario",
+                agent_response=f"Automação pausada: Contato possui a etiqueta '{config.ignore_by_label}'",
+                processing_steps=json.dumps(steps, ensure_ascii=False)
+            )
+            db.add(event)
+            await db.commit()
+            await db.refresh(event)
+
+            await manager.broadcast({
+                "type": "new_event",
+                "webhook_id": config.id,
+                "event": {
+                    "id": event.id,
+                    "event_type": event.event_type,
+                    "status": event.status,
+                    "telefone": event.telefone,
+                    "contato_nome": event.contato_nome,
+                    "mensagem": event.mensagem,
+                    "agent_response": event.agent_response,
+                    "created_at": event.created_at.isoformat() if event.created_at else None
+                }
+            })
+
+            try:
+                await ensure_leads_table(config.leads_table)
+                await upsert_lead(config.leads_table, extracted, config.id)
+            except Exception as e:
+                logger.error(f"Erro ao atualizar lead ignorado: {e}")
+
+            return {"ok": True, "status": "ignored", "reason": f"contact has block label: {config.ignore_by_label}"}
+
+    # --- LÓGICA DE AGRUPAMENTO (DEBOUNCE) ---
+    now_br = get_now_br()
+    redis_id_key = f"webhook:debounce:id:{config.id}:{phone}"
+    redis_text_key = f"webhook:debounce:text:{config.id}:{phone}"
+    
+    last_event_id = _redis_get(redis_id_key)
+    accumulated_text = _redis_get(redis_text_key) or ""
+    
+    if last_event_id:
+        try:
+            old_event_res = await db.execute(select(WebhookEventModel).where(WebhookEventModel.id == int(last_event_id)))
+            old_event = old_event_res.scalar_one_or_none()
+            
+            if old_event and old_event.status == "waiting":
+                old_event.status = "grouped"
+                
+                steps = json.loads(old_event.processing_steps or "[]")
+                steps.append({
+                    "step": "📦 Mensagem Absorvida",
+                    "detail": "Uma nova mensagem chegou antes do processamento desta. Esta mensagem foi agrupada à próxima para manter o contexto e evitar respostas fragmentadas.",
+                    "timestamp": now_br.isoformat()
+                })
+                old_event.processing_steps = json.dumps(steps, ensure_ascii=False)
+                
+                await manager.broadcast({
+                    "type": "status_update",
+                    "webhook_id": config.id,
+                    "event_id": int(last_event_id),
+                    "status": "grouped",
+                    "steps": steps
+                })
+                
+                if accumulated_text:
+                    accumulated_text += "\n\n"
+            else:
+                accumulated_text = ""
+        except Exception as e:
+            logger.error(f"Erro ao agrupar evento anterior {last_event_id}: {e}")
+
+    current_content = extracted.get("mensagem") or ""
+    if content_type in ["audio", "image"]:
+        current_content = f"[{content_type.upper()} PENDENTE]"
+    
+    accumulated_text += current_content
+    
+    event = WebhookEventModel(
+        webhook_config_id=config.id, 
+        event_type="message", 
+        status="waiting" if config.delay_seconds > 0 else "processing", 
+        raw_payload=json.dumps(body), 
+        scheduled_at=now_br + timedelta(seconds=config.delay_seconds) if config.delay_seconds > 0 else None,
+        created_at=now_br,
+        **{**extracted, "mensagem": accumulated_text}
+    )
+    
+    if config.delay_seconds > 0:
+        event.processing_steps = json.dumps([{
+            "step": "⏱️ Agrupamento Ativo",
+            "detail": f"Aguardando {config.delay_seconds}s para ver se o usuário envia mais mensagens.",
+            "timestamp": now_br.isoformat()
+        }], ensure_ascii=False)
+    
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+
+    _redis_setex(redis_id_key, config.delay_seconds + 60, str(event.id))
+    _redis_setex(redis_text_key, config.delay_seconds + 60, accumulated_text)
+
+    # --- PROCESSAMENTO IMEDIATO DE MÍDIA ---
+    if content_type in ["audio", "image"]:
+        process_a = config.process_audio if config.process_audio is not None else True
+        process_i = config.process_image if config.process_image is not None else True
+        
+        is_enabled = (content_type == "audio" and process_a) or (content_type == "image" and process_i)
+        if is_enabled:
+            logger.info(f"🎙️ Disparando processamento imediato de {content_type} para evento {event.id}")
+            process_media_content_task.delay(config.id, event.id)
+
+    try:
+        await manager.broadcast({
+            "type": "new_event",
+            "webhook_id": config.id,
+            "event": {
+                "id": event.id,
+                "telefone": event.telefone,
+                "mensagem": event.mensagem,
+                "agent_response": event.agent_response,
+                "dono": event.dono,
+                "message_type": event.message_type,
+                "status": event.status,
+                "scheduled_at": event.scheduled_at.isoformat() if event.scheduled_at else None,
+                "created_at": event.created_at.isoformat() if event.created_at else None
+            }
+        })
+    except Exception as ws_err:
+        logger.error(f"Erro ao transmitir via WebSocket: {ws_err}")
+
+    try:
+        await ensure_leads_table(config.leads_table)
+        await upsert_lead(config.leads_table, {**extracted, "dono": "cliente"}, config.id)
+    except Exception as e:
+        logger.error(f"Erro ao inserir lead na tabela {config.leads_table}: {e}")
+
+    if await handle_keyword_handoffs(db, config, event, extracted, CHATWOOT_URL_DEFAULT, CHATWOOT_TOKEN_DEFAULT):
+        event.status = "completed"
+        await db.commit()
+        return {"ok": True, "status": "handoff"}
+
+    if config.delay_seconds > 0:
+        logger.info(f"⏳ Agrupando automação para {event.telefone} em {config.delay_seconds}s (ID: {event.id})")
+        process_webhook_automation.apply_async(args=[event.id], countdown=config.delay_seconds)
+    else:
+        process_webhook_automation.apply_async(args=[event.id])
+    
+    return {"ok": True, "event_id": event.id}
+
+
+@router.get("/memory/{token}", status_code=200)
+async def check_memory_webhook(token: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.memory_token == token, WebhookConfigModel.is_active == True))
+    config = result.scalar_one_or_none()
+    if not config or not config.memory_sync_enabled:
+        raise HTTPException(status_code=404, detail="Memória desativada ou token inválido")
+    
+    return {
+        "status": "online",
+        "message": "O endpoint de memória está ativo e aguardando requisições POST!"
+    }
+
+
+@router.post("/memory/{token}", status_code=200)
+async def receive_memory_webhook(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.memory_token == token, WebhookConfigModel.is_active == True))
+    config = result.scalar_one_or_none()
+    if not config or not config.memory_sync_enabled: 
+        raise HTTPException(status_code=404, detail="Memória desativada")
+
+    try: 
+        body = await request.json()
+    except Exception: 
+        raise HTTPException(status_code=400, detail="JSON inválido")
+
+    phone_raw = get_value_by_path(body, config.memory_phone_path)
+    if not phone_raw:
+        phone_raw = get_value_by_path(body, "telefone") or get_value_by_path(body, "phone") or get_value_by_path(body, "sender.phone")
+        
+    phone = normalize_phone(str(phone_raw or ""))
+    if not phone: 
+        raise HTTPException(status_code=400, detail="Telefone não encontrado. O JSON deve conter 'phone', 'telefone' ou 'sender.phone'")
+
+    mensagem_text = get_value_by_path(body, "template_content") or get_value_by_path(body, "content") or ""
+    dono_raw = (
+        get_value_by_path(body, "Dono") or 
+        get_value_by_path(body, "dono") or 
+        get_value_by_path(body, "sender_type") or 
+        get_value_by_path(body, "sender.type")
+    )
+    if not dono_raw:
+        direction = get_value_by_path(body, "direction") or get_value_by_path(body, "type") or ""
+        from_me = get_value_by_path(body, "from_me") or get_value_by_path(body, "fromMe")
+        if str(direction).lower() in ("outgoing", "outbound", "sent") or from_me is True or str(from_me).lower() == "true":
+            dono = "agente"
+        else:
+            dono = "cliente"
+    else:
+        dono = str(dono_raw).lower()
+
+    if dono not in ("agente", "bot"):
+        recent_agent_evt = await db.execute(
+            select(WebhookEventModel).where(
+                WebhookEventModel.webhook_config_id == config.id,
+                WebhookEventModel.telefone == phone,
+                WebhookEventModel.agent_response.isnot(None),
+                WebhookEventModel.agent_response != ""
+            ).order_by(WebhookEventModel.created_at.desc()).limit(5)
+        )
+        recent_evts = recent_agent_evt.scalars().all()
+        for revt in recent_evts:
+            if revt.agent_response and mensagem_text and (mensagem_text.strip() in revt.agent_response or revt.agent_response.strip() in mensagem_text):
+                dono = "agente"
+                break
+
+    name_raw = None
+    if getattr(config, 'memory_name_path', None):
+        name_raw = get_value_by_path(body, config.memory_name_path)
+    if not name_raw:
+        name_raw = (
+            get_value_by_path(body, "name") or 
+            get_value_by_path(body, "nome") or 
+            get_value_by_path(body, "contato_nome") or 
+            get_value_by_path(body, "sender.name") or 
+            get_value_by_path(body, "contact.name") or 
+            get_value_by_path(body, "pushname")
+        )
+
+    memory_contato_nome = str(name_raw).strip() if name_raw and str(name_raw).strip() and str(name_raw).strip().lower() not in ("none", "null", "contato desconhecido") and not str(name_raw).strip().startswith("Lead_") else None
+
+    await ensure_leads_table(config.leads_table)
+    await upsert_lead(config.leads_table, {
+        "telefone": phone, 
+        "contato_nome": memory_contato_nome, 
+        "dono": dono,
+        "mensagem": mensagem_text,
+        "is_memory": True,
+        "event_type": "memory"
+    }, config.id)
+    
+    if dono in ("agente", "bot"):
+        logger.info(f"⏭️ Webhook de memória ignorado para criação de evento de agente ({phone}): '{mensagem_text[:30]}...'")
+        return {"ok": True, "phone": phone, "status": "agent_memory_echo_ignored"}
+
+    now_br = get_now_br()
+    event = WebhookEventModel(
+        webhook_config_id=config.id,
+        event_type="memory",
+        status="waiting",
+        raw_payload=json.dumps(body, ensure_ascii=False),
+        telefone=phone,
+        contato_nome=memory_contato_nome or ("Lead_" + phone[-4:]),
+        dono=dono,
+        mensagem=mensagem_text,
+        created_at=now_br,
+        processing_steps=json.dumps([{
+            "step": "📥 Recebido Webhook de Memória",
+            "detail": "Os dados foram recebidos e estão aguardando o processamento da fila de vetorização.",
+            "timestamp": now_br.isoformat()
+        }], ensure_ascii=False)
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+
+    sync_memory_to_vector.delay(event.id)
+    return {"ok": True, "phone": phone}

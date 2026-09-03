@@ -33,8 +33,8 @@ async def test_agent_lead_creation_and_listing(client: AsyncClient, admin_header
     config = WebhookConfigModel(
         name="Webhook Teste Criacao Agente",
         token=token,
-        chatwoot_url="https://chat.test-creation.com",
-        chatwoot_api_token="test_api_token_cw",
+        zapvoice_url="https://chat.test-creation.com",
+        zapvoice_api_token="test_api_token_cw",
         leads_table=leads_table
     )
     db_session.add(config)

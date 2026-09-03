@@ -2,6 +2,9 @@ import React, { useEffect } from 'react';
 import HistoryFilters from './Filters';
 import { formatDate } from '../../utils/helpers';
 import AutomationPipelineModal from '../AutomationPipelineModal';
+import ApproveCacheModal from '../../../ChatPlayground/components/ApproveCacheModal';
+import { useSaveToCache } from '../LeadHistoryModal/hooks/useSaveToCache';
+import EventCostBadge from '../LeadHistoryModal/components/EventCostBadge';
 
 const HistoryModal = ({
     selectedWebhook,
@@ -26,6 +29,15 @@ const HistoryModal = ({
     onDeleteEvent
 }) => {
     const [selectedPipelineEvent, setSelectedPipelineEvent] = React.useState(null);
+
+    const {
+        approveCacheModal,
+        setApproveCacheModal,
+        isSavingCache,
+        handleOpenSaveCache,
+        handleConfirmSaveCache,
+        handleLinkExistingCache
+    } = useSaveToCache(selectedWebhook);
 
     // Bloquear scroll ao montar o modal
     useEffect(() => {
@@ -118,6 +130,12 @@ const HistoryModal = ({
                             ) : safeEvents.map(event => {
                                 const isAgent = event.dono === 'agente' || event.dono === 'bot';
                                 const message = event.mensagem || event.conteudo || event.agent_response || '—';
+                                const isFollowUp = Boolean(
+                                    event.event_type === 'followup' || 
+                                    event.is_followup || 
+                                    (typeof event.mensagem === 'string' && event.mensagem.toLowerCase().includes('follow-up')) ||
+                                    (typeof event.message_type === 'string' && event.message_type.toLowerCase() === 'followup')
+                                );
                                 
                                 const getMessageTypeLabel = (type) => {
                                     switch (type) {
@@ -150,6 +168,7 @@ const HistoryModal = ({
                                                 <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>
                                                     {getMessageTypeLabel(event.message_type)}
                                                 </span>
+                                                <EventCostBadge event={event} compact={true} style={{ marginTop: '2px' }} />
                                             </div>
                                         </td>
                                         <td style={{ padding: '1.5rem', fontSize: '0.85rem', color: '#64748b', fontWeight: 500 }}>{formatDate(event.created_at)}</td>
@@ -166,6 +185,19 @@ const HistoryModal = ({
                                                         }}
                                                         title="Ver Pipeline"
                                                     >⚡</button>
+                                                )}
+                                                {!isFollowUp && (event.agent_response || message) && (
+                                                    <button 
+                                                        onClick={() => handleOpenSaveCache(event)}
+                                                        data-testid={`save-webhook-cache-btn-${event.id}`}
+                                                        style={{ 
+                                                            background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', 
+                                                            color: '#34d399', borderRadius: '10px', width: '36px', height: '36px', 
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            cursor: 'pointer', transition: 'all 0.2s', fontSize: '1rem' 
+                                                        }}
+                                                        title="Aprovar e Salvar no Cache Semântico (Custo Zero)"
+                                                    >💾</button>
                                                 )}
                                                 <button 
                                                     onClick={() => onDeleteEvent ? onDeleteEvent(event) : null}
@@ -222,6 +254,16 @@ const HistoryModal = ({
                         >Próxima →</button>
                     </div>
                 </div>
+                {approveCacheModal && (
+                    <ApproveCacheModal
+                        modal={approveCacheModal}
+                        agentId={approveCacheModal.agentId}
+                        onConfirm={handleConfirmSaveCache}
+                        onLinkExisting={handleLinkExistingCache}
+                        onCancel={() => setApproveCacheModal(null)}
+                        isSaving={isSavingCache}
+                    />
+                )}
                 {selectedPipelineEvent && (
                     <AutomationPipelineModal
                         event={selectedPipelineEvent}

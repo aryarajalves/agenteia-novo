@@ -455,9 +455,10 @@ def _build_agent_config(db_agent):
     )
 
 
-def _send_zapvoice_message(db, event_id, conversation_id, client_id, content, config, split_paragraphs=False, delay=0):
+def _send_zapvoice_message(db, event_id, conversation_id, client_id, content, config, split_paragraphs=False, delay=0, meta_data=None, total_cost=None):
     """
     Envia a resposta do agente para o ZapVoice. Mapeado de webhook_tasks para respeitar limite de clean code.
+    Nas partes intermediárias envia apenas o content. Na última parte envia content + total_cost / meta_data.
     """
     import webhook_tasks
     try:
@@ -474,12 +475,15 @@ def _send_zapvoice_message(db, event_id, conversation_id, client_id, content, co
             webhook_tasks._add_step(db, event_id, "❌ Erro: Dados faltantes", f"conversa_id={conversation_id}, client_id={client_id}")
             return False
 
+        from agent_core.utils import format_whatsapp_message
+        formatted_content = format_whatsapp_message(content)
+
         import re
         if split_paragraphs:
-            parts = [p.strip() for p in re.split(r'\n\n+', content) if p.strip()]
-            if not parts: parts = [content]
+            parts = [p.strip() for p in re.split(r'\n\n+', formatted_content) if p.strip()]
+            if not parts: parts = [formatted_content]
         else:
-            parts = [content]
+            parts = [formatted_content]
 
         total_parts = len(parts)
         if total_parts > 1:
@@ -497,7 +501,15 @@ def _send_zapvoice_message(db, event_id, conversation_id, client_id, content, co
         success = True
         for i, part in enumerate(parts):
             time.sleep(1)
+            is_last_part = (i == total_parts - 1)
+            
             payload = {"content": part, "is_private": False}
+            # Apenas na última parte enviamos o custo total / meta_data
+            if is_last_part:
+                if total_cost is not None:
+                    payload["total_cost"] = total_cost
+                if meta_data is not None:
+                    payload["meta_data"] = meta_data
             
             part_success = False
             last_err_msg = ""
@@ -643,6 +655,14 @@ def proactive_update_lead_table(db, event, config, response_text, lead_internal_
         if event.created_at:
             update_fields.append("ultima_mensagem_em = :last_msg_at")
             params["last_msg_at"] = event.created_at
+        
+        if event.message_type and event.message_type != 'text':
+            update_fields.append("message_type = :mtype")
+            params["mtype"] = event.message_type
+
+        if event.link and str(event.link).strip() and str(event.link).strip() != "None":
+            update_fields.append("link = :link")
+            params["link"] = event.link
         
         if cw_labels is not None:
             update_fields.append("labels = :labels")

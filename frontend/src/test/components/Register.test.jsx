@@ -54,7 +54,7 @@ describe('Register Component', () => {
         });
     });
 
-    it('deve renderizar o formulario se o token for valido', async () => {
+    it('deve renderizar o formulario com campo de confirmacao de senha e checklist se o token for valido', async () => {
         mockGet.mockResolvedValue({
             ok: true,
             status: 200,
@@ -68,10 +68,34 @@ describe('Register Component', () => {
             expect(screen.getByPlaceholderText('Seu nome completo')).toBeInTheDocument();
             expect(screen.getByPlaceholderText('seu@email.com')).toBeInTheDocument();
             expect(screen.getByPlaceholderText('Crie uma senha forte')).toBeInTheDocument();
+            expect(screen.getByPlaceholderText('Digite a senha novamente')).toBeInTheDocument();
+            expect(screen.getByText('Mínimo 10 caracteres')).toBeInTheDocument();
         });
     });
 
-    it('deve enviar o cadastro com sucesso e redirecionar para login', async () => {
+    it('deve manter botao desativado se a senha nao cumprir requisitos', async () => {
+        mockGet.mockResolvedValue({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ valid: true, role: 'Admin' }),
+        });
+
+        render(<Register />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Criar Conta')).toBeInTheDocument();
+        });
+
+        await userEvent.type(screen.getByPlaceholderText('Seu nome completo'), 'Maria Silva');
+        await userEvent.type(screen.getByPlaceholderText('seu@email.com'), 'maria@silva.com');
+        await userEvent.type(screen.getByPlaceholderText('Crie uma senha forte'), 'fraca');
+        await userEvent.type(screen.getByPlaceholderText('Digite a senha novamente'), 'fraca');
+
+        const submitBtn = screen.getByText('Finalizar Cadastro');
+        expect(submitBtn).toBeDisabled();
+    });
+
+    it('deve enviar o cadastro com sucesso ao preencher senha forte e confirmacao correspondente', async () => {
         mockGet.mockResolvedValue({
             ok: true,
             status: 200,
@@ -92,15 +116,19 @@ describe('Register Component', () => {
 
         await userEvent.type(screen.getByPlaceholderText('Seu nome completo'), 'Maria Silva');
         await userEvent.type(screen.getByPlaceholderText('seu@email.com'), 'maria@silva.com');
-        await userEvent.type(screen.getByPlaceholderText('Crie uma senha forte'), 'senha123');
+        await userEvent.type(screen.getByPlaceholderText('Crie uma senha forte'), 'Senha@Forte2026');
+        await userEvent.type(screen.getByPlaceholderText('Digite a senha novamente'), 'Senha@Forte2026');
 
-        fireEvent.submit(screen.getByText('Finalizar Cadastro').closest('form'));
+        const submitBtn = screen.getByText('Finalizar Cadastro');
+        expect(submitBtn).not.toBeDisabled();
+
+        fireEvent.submit(submitBtn.closest('form'));
 
         await waitFor(() => {
             expect(mockPost).toHaveBeenCalledWith('/users/register/mock-token-123', {
                 name: 'Maria Silva',
                 email: 'maria@silva.com',
-                password: 'senha123'
+                password: 'Senha@Forte2026'
             });
             expect(mockNavigate).toHaveBeenCalledWith('/login');
         });
@@ -127,9 +155,13 @@ describe('Register Component', () => {
 
         await userEvent.type(screen.getByPlaceholderText('Seu nome completo'), 'Maria Silva');
         await userEvent.type(screen.getByPlaceholderText('seu@email.com'), 'maria@silva.com');
-        await userEvent.type(screen.getByPlaceholderText('Crie uma senha forte'), 'senha123');
+        await userEvent.type(screen.getByPlaceholderText('Crie uma senha forte'), 'Senha@Forte2026');
+        await userEvent.type(screen.getByPlaceholderText('Digite a senha novamente'), 'Senha@Forte2026');
 
-        fireEvent.submit(screen.getByText('Finalizar Cadastro').closest('form'));
+        const submitBtn = screen.getByText('Finalizar Cadastro');
+        expect(submitBtn).not.toBeDisabled();
+
+        fireEvent.submit(submitBtn.closest('form'));
 
         await waitFor(() => {
             expect(screen.getByText('Este e-mail já está em uso')).toBeInTheDocument();

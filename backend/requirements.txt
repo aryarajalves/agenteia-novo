@@ -1,13 +1,14 @@
 # === Framework Web e API ===
-fastapi==0.115.8          # Framework async de alta performance para construção de APIs REST
+fastapi==0.141.1          # Framework async de alta performance para construção de APIs REST
 gunicorn==23.0.0          # Gerenciador de workers WSGI/ASGI para deploy em produção
 httptools==0.7.1          # Parser HTTP ultrarrápido usado pelo uvicorn
-starlette==0.45.3         # Toolkit ASGI base usado pelo FastAPI para roteamento e middleware
+starlette==1.6.0          # Toolkit ASGI base usado pelo FastAPI para roteamento e middleware
 uvicorn==0.34.0           # Servidor ASGI de alta performance para rodar o FastAPI
 uvloop==0.22.1            # Event loop alternativo mais rápido para asyncio (Linux/Docker)
 watchfiles==1.1.1         # Monitoramento de arquivos para recarregamento automático no dev
 
 # === Banco de Dados ===
+aiosqlite==0.20.0          # Driver assíncrono para SQLite usado na suíte de testes
 alembic==1.14.1           # Ferramenta de migrações de banco de dados para SQLAlchemy
 asyncpg==0.30.0           # Driver assíncrono para PostgreSQL, otimizado para SQLAlchemy
 pgvector==0.3.6           # Suporte para tipos vetoriais no PostgreSQL (usado para RAG)
@@ -15,10 +16,11 @@ psycopg2-binary==2.9.10   # Driver síncrono para PostgreSQL usado em scripts e 
 SQLAlchemy==2.0.38        # ORM principal para mapeamento objeto-relacional e queries
 
 # === Autenticação e Segurança ===
-bcrypt<5.0.0              # Pin obrigatório (<5.0.0) para compatibilidade com passlib
-passlib[bcrypt]==1.7.4    # Biblioteca para hashing e verificação de senhas com segurança
+argon2-cffi==23.1.0           # Algoritmo de hashing Argon2id com proteção contra força bruta e GPUs (Memory-Hard)
+bcrypt<5.0.0                  # Pin obrigatório (<5.0.0) para compatibilidade com passlib
+passlib[bcrypt]==1.7.4        # Biblioteca para hashing e verificação de senhas com segurança
 python-jose[cryptography]==3.5.0 # Implementação de JWT para autenticação baseada em tokens
-slowapi==0.1.9            # Rate limiting para proteção contra ataques de força bruta e DoS
+slowapi==0.1.9                # Rate limiting para proteção contra ataques de força bruta e DoS
 
 # === IA e Processamento de Linguagem ===
 openai==1.63.2            # SDK oficial da OpenAI para GPT-4, Embeddings e Fine-Tuning
@@ -35,15 +37,15 @@ boto3==1.36.19            # SDK da AWS usado para interagir com o S3/Backblaze
 # === Data Science e Manipulação de Arquivos ===
 beautifulsoup4==4.13.3    # Extração de dados e texto de arquivos HTML/XML
 joblib==1.5.3             # Persistência de objetos e paralelismo para tarefas de ML
-lxml==6.0.2               # Parser XML/HTML de alta performance para processamento de documentos
+lxml==6.1.2               # Parser XML/HTML de alta performance para processamento de documentos
 numpy==2.4.2              # Computação numérica e manipulação de arrays/matrizes
 openpyxl==3.1.5           # Leitura e escrita de arquivos Excel (.xlsx)
 pandas==3.0.1             # Manipulação e análise de dados estruturados
-pdfminer.six==20231228    # Ferramenta para extração de texto e metadados de PDFs
-pdfplumber==0.11.5        # Extração avançada de texto e tabelas de documentos PDF
-pillow==12.1.1            # Processamento e manipulação de imagens
-PyPDF2==3.0.1             # Utilitário para manipulação, merge e split de arquivos PDF
-pypdfium2==5.5.0          # Wrapper para PDFium (extração rápida de texto de PDFs)
+pdfminer.six==20260107    # Ferramenta para extração de texto e metadados de PDFs
+pdfplumber==0.11.10       # Extração avançada de texto e tabelas de documentos PDF
+pillow==12.3.0            # Processamento e manipulação de imagens
+pypdf==6.16.1             # Utilitário para manipulação, merge e split de arquivos PDF
+pypdfium2==5.13.0         # Wrapper para PDFium (extração rápida de texto de PDFs)
 python-docx==1.1.2        # Criação e manipulação de documentos Microsoft Word (.docx)
 regex>=2024.1.1              # Motor de expressões regulares avançado (alternativo ao re nativo)
 scikit-learn==1.8.0       # Ferramentas para machine learning e mineração de dados
@@ -57,12 +59,12 @@ google-auth==2.48.0       # Autenticação Google e suporte para tokens OAuth2
 google-auth-httplib2==0.2.0 # Transporte httplib2 para autenticação Google
 google-auth-oauthlib==1.2.1 # Integração OAuthlib para fluxos de autenticação Google
 httpx==0.28.1             # Cliente HTTP moderno e assíncrono para chamadas a APIs
-requests==2.32.3          # Cliente HTTP síncrono padrão para scripts utilitários
-urllib3==2.6.3            # Cliente HTTP de baixo nível usado por diversas bibliotecas
+requests==2.34.2          # Cliente HTTP síncrono padrão para scripts utilitários
+urllib3==2.7.0            # Cliente HTTP de baixo nível usado por diversas bibliotecas
 
 # === Testes e Qualidade ===
 coverage==7.13.4          # Ferramenta para medir cobertura de testes de código
-pytest==9.0.2             # Framework principal para execução de testes unitários e de integração
+pytest==9.1.1             # Framework principal para execução de testes unitários e de integração
 pytest-asyncio==1.3.0     # Suporte para testes unitários assíncronos no pytest
 pytest-cov==7.0.0         # Plugin do pytest para relatórios de cobertura (coverage)
 respx==0.21.1             # Mocking HTTPX for testing
@@ -70,9 +72,9 @@ respx==0.21.1             # Mocking HTTPX for testing
 # === Utilitários e Core ===
 anyio==4.12.1             # Camada de compatibilidade assíncrona para múltiplas backends (asyncio/trio)
 certifi==2026.2.25        # Coleção de certificados CA para validação de conexões SSL/TLS
-click==8.3.1              # Criação de interfaces de linha de comando elegantes
+click==8.4.2              # Criação de interfaces de linha de comando elegantes
 pydantic==2.12.5          # Validação de dados e gestão de configurações usando types
-python-dotenv==1.0.1      # Carregamento de segredos e variáveis de ambiente de arquivos .env
-python-multipart==0.0.20  # Suporte para parsing de formulários multipart (upload de arquivos)
+python-dotenv==1.2.3      # Carregamento de segredos e variáveis de ambiente de arquivos .env
+python-multipart==0.0.31  # Suporte para parsing de formulários multipart (upload de arquivos)
 PyYAML==6.0.3             # Leitura e escrita de arquivos no formato YAML
 typing_extensions==4.15.0 # Backport de novos recursos de typing para versões mais antigas do Python

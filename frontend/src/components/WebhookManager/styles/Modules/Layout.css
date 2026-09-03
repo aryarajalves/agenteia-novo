@@ -178,6 +178,38 @@
   left: 22px;
 }
 
+.card-info-row {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.info-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--wh-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-value-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
 .url-display-premium {
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--wh-border);

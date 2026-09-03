@@ -106,7 +106,7 @@ const PromptTextarea = () => {
                 const lineClass = `collapsed-cond-line ${isSearchHighlight ? 'search-highlight-active' : ''}`;
                 
                 // Retorna o card premium inline completo que rola junto com o texto naturalmente
-                return `<div class="${lineClass}" id="prompt-header-${idx}">
+                return `<div class="${lineClass}" data-line-number="${idx + 1}" id="prompt-line-${idx + 1}">
                     <span class="editor-ln">${idx + 1}</span>
                     <div class="premium-cond-card">
                         <span style="opacity: 0.25; margin-right: 8px; font-size: 12px; pointer-events: none;">🔀</span>
@@ -129,13 +129,13 @@ const PromptTextarea = () => {
 
             let headerAttr = '';
             if (line.trim().startsWith('#')) {
-                headerAttr = `id="prompt-header-${idx}" class="prompt-header-mark"`;
+                headerAttr = `class="prompt-header-mark"`;
             }
 
             const isSearchHighlight = idx === currentSearchLine;
             const lineClass = `editor-line ${isSearchHighlight ? 'search-highlight-active' : ''}`;
 
-            return `<div class="${lineClass}" ${headerAttr}><span class="editor-ln">${idx + 1}</span>${processed || ' '}</div>`;
+            return `<div class="${lineClass}" data-line-number="${idx + 1}" id="prompt-line-${idx + 1}" ${headerAttr}><span class="editor-ln">${idx + 1}</span>${processed || ' '}</div>`;
         });
 
         return htmlLines.join('');

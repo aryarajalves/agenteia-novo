@@ -18,6 +18,7 @@ import UserManagement from './components/UserManagement';
 import PublicQuestionsView from './components/PublicQuestionsView';
 import WebhookManager from './components/WebhookManager/index';
 import LeadScoring from './components/LeadScoring/index';
+import CRM from './components/CRM/index';
 import ObjectionsDashboard from './components/ObjectionsDashboard';
 import Backups from './components/Backups';
 
@@ -88,6 +89,7 @@ function App() {
                         <Route path="/financeiro" element={<Financeiro />} />
                         <Route path="/integrations" element={<IntegrationsPanel />} />
                         <Route path="/webhooks" element={<WebhookManager />} />
+                        <Route path="/crm" element={<CRM />} />
                         <Route path="/lead-scoring" element={<LeadScoring />} />
                       </>
                     )}

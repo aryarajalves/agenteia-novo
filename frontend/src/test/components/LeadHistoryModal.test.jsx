@@ -210,4 +210,28 @@ describe('LeadHistoryModal Component', () => {
         expect(toastEvent).toBeDefined();
         expect(toastEvent.detail.type).toBe('success');
     });
+
+    it('deve renderizar todos os 4 botões de ação (🔄, ⚡, 💾, 🗑️) no evento elegível sem que nenhum botão fique oculto', async () => {
+        render(
+            <LeadHistoryModal
+                lead={mockLead}
+                webhook={mockWebhook}
+                onClose={() => {}}
+            />
+        );
+
+        // Aguardar o evento normal aparecer
+        expect(await screen.findByText('Olá, sou um lead comum')).toBeInTheDocument();
+
+        // Validar presença de todos os botões de ação para o evento
+        expect(screen.getByTitle('Reiniciar Automação')).toBeInTheDocument();
+        expect(screen.getByTitle('Ver Pipeline')).toBeInTheDocument();
+        expect(screen.getByTestId('save-cache-btn-1')).toBeInTheDocument();
+        const deleteButtons = screen.getAllByTitle('Excluir');
+        expect(deleteButtons.length).toBeGreaterThanOrEqual(1);
+
+        // Validar que o cabeçalho possui a coluna AÇÕES
+        expect(screen.getByText('AÇÕES')).toBeInTheDocument();
+    });
 });
+

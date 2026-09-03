@@ -13,6 +13,7 @@ from api.deps import get_db, verify_api_key, get_current_user
 from api.services.auth_service import (
     get_password_hash, 
     verify_password, 
+    needs_password_rehash,
     create_access_token
 )
 from api.limiter import limiter
@@ -113,8 +114,12 @@ async def login(request: Request, req: LoginRequest, db: AsyncSession = Depends(
         db_user = result.scalar_one_or_none()
         if db_user:
             is_valid = False
-            if db_user.password.startswith("$2b$") or db_user.password.startswith("$2a$"):
+            if db_user.password.startswith("$argon2") or db_user.password.startswith("$2b$") or db_user.password.startswith("$2a$"):
                 is_valid = verify_password(req.password, db_user.password)
+                if is_valid and needs_password_rehash(db_user.password):
+                    # Migração transparente automática para Argon2id + Pepper
+                    db_user.password = get_password_hash(req.password)
+                    await db.commit()
             else:
                 is_valid = (db_user.password == req.password)
                 if is_valid:

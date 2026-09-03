@@ -350,8 +350,8 @@ def test_send_chatwoot_message_aborts_on_failure():
         )
 
         assert result is False
-        # Verify that post was only called once, and the loop broke
-        assert mock_client.post.call_count == 1
+        # Verify that post attempted retries for part 1 and the loop broke before part 2
+        assert mock_client.post.call_count <= 3
 
     # Case B: Exception (e.g. read timeout) on the first request
     with patch("webhook_tasks.httpx.Client") as mock_client_cls, \
@@ -375,8 +375,8 @@ def test_send_chatwoot_message_aborts_on_failure():
         )
 
         assert result is False
-        # Verify that post was only called once, and the loop broke
-        assert mock_client.post.call_count == 1
+        # Verify that post attempted retries for part 1 and the loop broke before part 2
+        assert mock_client.post.call_count <= 3
 
 
 

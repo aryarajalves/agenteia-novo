@@ -54,7 +54,22 @@ async def handle_unanswered_question(db, context_variables, func_args_str, histo
             db.add(new_q)
             await db.commit()
 
-            # Verificar se é a 2ª vez (ou mais) que esta ferramenta é acionada nesta mesma sessão/telefone
+            # Consultar configurações do agente (limite de dúvidas sem resposta e prompt customizado)
+            handoff_limit = 2
+            custom_resp_prompt = None
+            if agent_id:
+                from models import AgentConfigModel
+                from sqlalchemy import select
+                agent_stmt = select(
+                    AgentConfigModel.unanswered_handoff_limit,
+                    AgentConfigModel.unanswered_question_prompt
+                ).where(AgentConfigModel.id == agent_id)
+                agent_res = await db.execute(agent_stmt)
+                agent_row = agent_res.first()
+                if agent_row:
+                    handoff_limit = agent_row.unanswered_handoff_limit
+                    custom_resp_prompt = agent_row.unanswered_question_prompt
+
             from sqlalchemy import select, func
             count_stmt = select(func.count()).select_from(UnansweredQuestionModel).where(
                 UnansweredQuestionModel.agent_id == agent_id,
@@ -63,14 +78,24 @@ async def handle_unanswered_question(db, context_variables, func_args_str, histo
             count_res = await db.execute(count_stmt)
             total_unanswered = count_res.scalar() or 0
 
-            if total_unanswered > 1:
+            # Validação do transbordo humano:
+            # Se handoff_limit for 0 ou None, o robô NUNCA transfere para suporte humano por dúvidas não respondidas.
+            is_handoff_active = (handoff_limit is not None and handoff_limit > 0)
+            if is_handoff_active and total_unanswered >= handoff_limit:
                 from agent_core.tools.handlers.chatwoot import handle_chatwoot_handoff
                 handoff_args = {"motivo": f"Dúvida sem resposta registrada {total_unanswered} vezes na mesma conversa: {question}"}
                 await handle_chatwoot_handoff(db, context_variables, None, True, handoff_args, history, agent_id)
                 return (
-                    "ATENÇÃO: Esta é a segunda dúvida sem resposta registrada nesta conversa. "
+                    f"ATENÇÃO: O limite de {handoff_limit} dúvida(s) sem resposta foi atingido nesta conversa. "
                     "O atendimento foi AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO. "
                     "INSTRUÇÃO OBRIGATÓRIA DE RESPOSTA: Se o usuário fez mais de uma pergunta e você já possui a resposta para alguma das outras perguntas no contexto RAG/Prompt, VOCÊ DEVE OBRIGATORIAMENTE INCLUIR ESSA RESPOSTA no texto final. Ao final da mensagem, informe de forma educada que a dúvida ausente (ou o atendimento) foi direcionada para um especialista humano."
+                )
+
+            if custom_resp_prompt and custom_resp_prompt.strip():
+                return (
+                    f"Dúvida registrada com sucesso para a equipe. "
+                    f"DIRETRIZ OBRIGATÓRIA DE RESPOSTA AO CLIENTE: {custom_resp_prompt.strip()} "
+                    f"Se o usuário fez mais de uma pergunta e você souber responder alguma das outras pelo contexto/RAG, responda-a normalmente."
                 )
 
             return "Dúvida registrada para nossa equipe."
@@ -290,13 +315,30 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
                     token=api_token,
                     to_add=to_add
                 )
-                logger.info(f"Etiquetas de qualificação sincronizadas no Chatwoot para conversa {conversation_id}: {to_add}")
-                return f"Lead qualificado com sucesso. Etiquetas sincronizadas na conversa: {', '.join(to_add)}"
+                instruction_closing = (
+                    "INSTRUÇÃO PARA SUA RESPOSTA: "
+                    "1. Agradeça e acolha calorosamente os dados fornecidos pelo lead (ex: agradeça pelo e-mail/nome). "
+                    "2. SE o usuário fez qualquer dúvida ou pergunta nesta mesma mensagem (ex: 'como funciona', valores, etc.), você DEVE OBRIGATORIAMENTE responder à dúvida dele detalhadamente antes de concluir. "
+                    "3. Conclua com simpatia direcionando para a oferta ou formulando a pergunta final de fechamento."
+                )
+                return f"Lead qualificado com sucesso. Etiquetas sincronizadas: {', '.join(to_add)}. {instruction_closing}"
             
             if to_add:
-                return f"Lead qualificado com sucesso (salvo localmente). Etiquetas configuradas: {', '.join(to_add)}"
+                instruction_closing = (
+                    "INSTRUÇÃO PARA SUA RESPOSTA: "
+                    "1. Agradeça e acolha calorosamente os dados fornecidos pelo lead (ex: agradeça pelo e-mail/nome). "
+                    "2. SE o usuário fez qualquer dúvida ou pergunta nesta mesma mensagem (ex: 'como funciona', valores, etc.), você DEVE OBRIGATORIAMENTE responder à dúvida dele detalhadamente antes de concluir. "
+                    "3. Conclua com simpatia direcionando para a oferta ou formulando a pergunta final de fechamento."
+                )
+                return f"Lead qualificado com sucesso (salvo localmente). Etiquetas: {', '.join(to_add)}. {instruction_closing}"
                 
-        return "Lead qualificado com sucesso."
+        instruction_closing = (
+            "INSTRUÇÃO PARA SUA RESPOSTA: "
+            "1. Agradeça e acolha calorosamente os dados fornecidos pelo lead (ex: agradeça pelo e-mail/nome). "
+            "2. SE o usuário fez qualquer dúvida ou pergunta nesta mesma mensagem (ex: 'como funciona', valores, etc.), você DEVE OBRIGATORIAMENTE responder à dúvida dele detalhadamente antes de concluir. "
+            "3. Conclua com simpatia direcionando para a oferta ou formulando a pergunta final de fechamento."
+        )
+        return f"Lead qualificado com sucesso. {instruction_closing}"
     except Exception as e:
         logger.error(f"Erro ao processar lead qualificado: {e}")
         return f"Erro ao qualificar lead: {str(e)}"

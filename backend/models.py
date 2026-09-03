@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, Boolean, ForeignKey, Table, JSON
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, Boolean, ForeignKey, Table, JSON, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone, timedelta
 from database import Base
@@ -36,6 +36,11 @@ class InteractionLog(Base):
     handoff_to = Column(String, nullable=True) # Ex: "suporte", "vendas", "humano"
     debug_info = Column(Text, nullable=True) # JSON stored as string
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    __table_args__ = (
+        Index("idx_interaction_logs_agent_time", "agent_id", "timestamp"),
+        Index("idx_interaction_logs_session_time", "session_id", "timestamp"),
+    )
 
 class SessionSummary(Base):
     __tablename__ = "session_summaries"
@@ -91,6 +96,11 @@ class KnowledgeItemModel(Base):
     knowledge_base = relationship("KnowledgeBaseModel", back_populates="items")
     children = relationship("KnowledgeItemModel", backref="parent", remote_side=[id])
 
+    __table_args__ = (
+        Index("idx_knowledge_items_kb_id", "knowledge_base_id"),
+        Index("idx_knowledge_items_parent_id", "parent_id"),
+    )
+
 class AgentConfigModel(Base):
     __tablename__ = "agent_config"
 
@@ -124,8 +134,11 @@ class AgentConfigModel(Base):
     rag_agentic_eval_enabled = Column(Boolean, default=True)
     rag_parent_expansion_enabled = Column(Boolean, default=True)
     rag_relevance_threshold = Column(Float, default=0.0)  # Relevância mínima (0-1) para um item ser enviado ao contexto do RAG. 0 = sem filtro.
-    tool_prompts = Column(JSON, nullable=True)  # Prompts customizados por ferramenta. Ex: { "tool_id": "prompt" }
-
+    # Semantic Cache Settings
+    semantic_cache_enabled = Column(Boolean, default=True)
+    semantic_cache_threshold = Column(Float, default=0.92)  # Similaridade mínima (0.70 a 0.99)
+    tool_prompts = Column(JSON, nullable=True)  # Prompts customizados por ferramenta
+    
     # Security Guardrails
     security_competitor_blacklist = Column(Text, nullable=True) # Ex: "Coca-Cola, Pepsi"
     security_forbidden_topics = Column(Text, nullable=True) # Ex: "Politics, Religion"
@@ -150,8 +163,8 @@ class AgentConfigModel(Base):
     initial_ignore_message = Column(Text, nullable=True) # Mensagem de anúncio para ignorar como pergunta
     inbox_capture_enabled = Column(Boolean, default=True)
     
-    # Greeting and dynamic flow modes: "panel" (default) or "prompt"
-    greeting_mode = Column(String, default="panel")
+    # Greeting and dynamic flow modes: "prompt" (default) or "panel"
+    greeting_mode = Column(String, default="prompt")
     question_mode = Column(String, default="panel")
     ad_mode = Column(String, default="panel")
 
@@ -185,6 +198,9 @@ class AgentConfigModel(Base):
     qualification_questions = Column(Text, nullable=True) # JSON array de perguntas para qualificação de lead
     qualification_labels = Column(Text, nullable=True) # JSON array de etiquetas a serem aplicadas no Chatwoot
     qualification_criteria = Column(Text, nullable=True) # Diretrizes e critérios do lead scoring
+    qualification_final_action = Column(Text, nullable=True) # Pergunta / Prompt final de fechamento após qualificação
+    unanswered_handoff_limit = Column(Integer, default=2, nullable=True) # Limite de dúvidas sem resposta antes de transferir para suporte humano (0 ou NULL desativa)
+    unanswered_question_prompt = Column(Text, nullable=True) # Diretriz personalizada de resposta ao chamar registrar_duvida_sem_resposta
 
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -228,6 +244,11 @@ class UserMemoryModel(Base):
     confidence = Column(Float, default=1.0) # Nível de certeza da IA
     source_message = Column(Text, nullable=True) # Trecho original para referência
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "key", name="uq_user_memory_session_key"),
+        Index("idx_user_memory_session_updated", "session_id", "updated_at"),
+    )
 
 class FeedbackLog(Base):
     """Armazena pares de treinamento para o pipeline de fine-tuning.
@@ -297,7 +318,7 @@ class UserModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    password = Column(String, nullable=False) # Nota: Em produção usar hashbcryt. Aqui mantemos simples conforme solicitado.
+    password = Column(String, nullable=False) # Armazena hash Argon2id (com Pepper global configurado no ambiente)
     role = Column(String, default="Usuário") # "Super Admin", "Admin", "Usuário"
     status = Column(String, default="ATIVO") # "ATIVO", "INATIVO"
     company_name = Column(String, nullable=True)
@@ -375,10 +396,13 @@ class WebhookConfigModel(Base):
     followup_enabled = Column(Boolean, default=False)    # Ativar follow-up automático
     followup_steps = Column(Text, nullable=True)         # JSON: [{delay_hours}, ...]
     followup_business_hours = Column(Text, nullable=True) # JSON: {enabled, start, end, weekdays, saturday, sunday}
-    followup_cancel_label = Column(String, nullable=True) # Etiqueta(s) no Chatwoot para desativar 100% o follow-up
-    followup_required_label = Column(String, nullable=True) # Etiqueta(s) no Chatwoot necessárias para ativar o follow-up
+    followup_cancel_label = Column(String, nullable=True) # Etiqueta(s) no ZapVoice para desativar 100% o follow-up/disparos
+    followup_required_label = Column(String, nullable=True) # Etiqueta(s) no ZapVoice necessárias para ativar o follow-up
     followup_add_label = Column(String, nullable=True) # Etiqueta no ZapVoice adicionada à conversa ao enviar follow-up
     followup_on_reply = Column(String, default="stop", nullable=True) # Comportamento ao responder: 'stop' (encerrar), 'continue_next' (avançar), 'restart' (reiniciar)
+    abandonment_delay_value = Column(Integer, default=24, nullable=True) # Tempo de inatividade após última tentativa para mover a 'Não Converteu'
+    abandonment_delay_unit = Column(String(20), default="hours", nullable=True) # 'minutes', 'hours', 'days'
+    purchased_label = Column(String, nullable=True) # Etiqueta no ZapVoice que indica compra realizada / aluno
     ignore_by_label = Column(String, nullable=True)     # Se o contato tiver essa etiqueta, a automação para
     negative_feedback_label = Column(String, nullable=True) # Etiqueta aplicada ao contato no primeiro emoji negativo
     
@@ -453,6 +477,12 @@ class WebhookEventModel(Base):
 
     webhook_config = relationship("WebhookConfigModel", back_populates="events")
 
+    __table_args__ = (
+        Index("idx_webhook_events_config_created", "webhook_config_id", "created_at"),
+        Index("idx_webhook_events_config_phone", "webhook_config_id", "telefone"),
+        Index("idx_webhook_events_config_status_event", "webhook_config_id", "status", "event_type"),
+    )
+
 
 class TranscriptionFolder(Base):
     """Pastas para organizar as transcrições."""
@@ -514,6 +544,11 @@ class ScheduledTrigger(Base):
     # Metadados
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_scheduled_triggers_status_created", "status", "created_at"),
+        Index("idx_scheduled_triggers_phone", "contact_phone"),
+    )
 
 class MessageStatus(Base):
     """Status detalhado de cada mensagem enviada vinculada a um trigger."""
@@ -650,6 +685,73 @@ class SentTestimonialModel(Base):
     testimonial_id = Column(Integer, ForeignKey("testimonials.id", ondelete="CASCADE"), nullable=False)
     sent_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class LeadModel(Base):
+    """Modelo ORM unificado para a tabela oficial de leads."""
+    __tablename__ = "leads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    webhook_config_id = Column(Integer, ForeignKey("webhook_configs.id", ondelete="SET NULL"), nullable=True, index=True)
+    qualified_by_agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="SET NULL"), nullable=True)
+    conta_id = Column(String, nullable=True)
+    inbox_id = Column(String, nullable=True)
+    inbox_nome = Column(String, nullable=True)
+    conversa_id = Column(String, nullable=True, index=True)
+    mensagem_id = Column(String, nullable=True)
+    contato_id = Column(String, nullable=True)
+    telefone = Column(String, nullable=True, index=True)
+    labels = Column(Text, nullable=True)
+    contato_nome = Column(String, nullable=True)
+    mensagem = Column(Text, nullable=True)
+    message_type = Column(String(50), default="text", nullable=True)
+    link = Column(Text, nullable=True)
+    pode_enviar_mensagem = Column(Boolean, default=True)
+    ultima_mensagem_em = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
+    window_close_processed = Column(Boolean, default=False)
+    followup_step = Column(Integer, default=0)
+    ultima_resposta_agente = Column(Text, nullable=True)
+    ultima_resposta_agente_em = Column(DateTime(timezone=True), nullable=True)
+    respostas_qualificacao = Column(Text, nullable=True)
+    lead_score = Column(Integer, nullable=True)
+    lead_classification = Column(String(50), nullable=True)
+    lead_justification = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_leads_webhook_config_id", "webhook_config_id"),
+        Index("idx_leads_telefone", "telefone"),
+        Index("idx_leads_ultima_msg", "ultima_mensagem_em"),
+        Index("idx_leads_score", "lead_score"),
+    )
+
+
+class SemanticCacheModel(Base):
+    """Modelo para armazenar pares de Pergunta -> Resposta Aprovada com Embedding para respostas instantâneas a Custo Zero."""
+    __tablename__ = "semantic_caches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, nullable=True, index=True)
+    agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_query = Column(Text, nullable=False)
+    approved_response = Column(Text, nullable=False)
+    embedding = Column(JSON, nullable=True)
+    alternate_queries = Column(JSON, default=list, nullable=True)
+    alternate_embeddings = Column(JSON, default=list, nullable=True)
+    usage_count = Column(Integer, default=0)
+    similarity_threshold = Column(Float, nullable=True) # Similaridade mínima individual (None usa o padrão do agente)
+    category_tag = Column(String(120), nullable=True, index=True) # Tag ou Produto vinculado (ex: 'Método Laser Day', None para Geral)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_semantic_cache_agent_id", "agent_id"),
+        Index("idx_semantic_cache_client_id", "client_id"),
+    )
+
+
 
 
 

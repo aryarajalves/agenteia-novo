@@ -67,6 +67,21 @@ No ambiente de testes `ChatPlayground`, o usuário pode utilizar o microfone par
 ### 9. Consulta de Pipeline em Produção
 - Consulte o guia completo em [`COMO_CONSULTAR_PIPELINE_PRODUCAO.md`](COMO_CONSULTAR_PIPELINE_PRODUCAO.md) para inspecionar passo a passo via API REST (`GET /webhooks/{webhook_id}/events/{event_id}`) cada etapa de execução do agente (Debounce, Bot Defense, Pre-Router, RAG, Tool Calls e Resposta Final).
 
+### 10. Segurança e Hashing de Senhas (Argon2id + Pepper)
+- **Proteção Anti-GPU (Memory-Hard):** As senhas dos usuários utilizam o algoritmo **Argon2id** (padrão ouro RFC 9106 / OWASP), exigindo 64 MB de memória RAM por cálculo para inviabilizar ataques de força bruta paralelos via GPU/ASIC.
+- **Pepper Global no `.env` (`PASSWORD_PEPPER`):** Aplicação de HMAC-SHA256 com chave secreta mantida fora do banco de dados, blindando as credenciais mesmo em caso de vazamento completo do banco.
+- **Migração Transparente:** Usuários antigos em Bcrypt são validados com retrocompatibilidade e promovidos automaticamente para Argon2id + Pepper no momento do login.
+
+### 11. Cache Semântico de Respostas Aprovadas (Custo Zero & Multi-Query)
+- **Respostas Instantâneas a Custo R$ 0,00:** Armazena pares de Perguntas e Respostas Aprovadas com vetores de embedding. Dúvidas recorrentes dos clientes são respondidas diretamente pelo cache em milissegundos, com 0 tokens consumidos de LLM.
+- **Central de Mineração de Dúvidas dos Leads:** Aba inteligente que lista em tempo real as dúvidas reais enviadas pelos leads nos webhooks, separando entre `💡 Sem Cache (Candidatas)` e `⚡ No Cache`, permitindo cadastrar novas respostas ou vincular dúvidas como variações de respostas existentes em 1 clique.
+- **Sincronização em Tempo Real:** Ao adicionar ou vincular uma dúvida ao cache, o sistema a reconhece dinamicamente e remove-a imediatamente da fila de pendências.
+- **Descarte de Dúvidas Irrelevantes (Não Vale a Pena):** Botão para marcar perguntas como descartadas para o cache, com popup centralizado de confirmação (backdrop escuro, bloqueio de clique externo e confirmação segura).
+- **Popup Gigante de Edição em Tela Cheia (⛶ Maximizar Campo):** Editor amplo em modal de tela cheia (95vw x 88vh) com contadores de caracteres e palavras para formular respostas ricas e confortáveis.
+- **Limiar de Similaridade Individual por Pergunta:** Além da sensibilidade padrão configurada no agente (ex: 85% ou 92%), cada pergunta cadastrada pode ter um limiar individual personalizado (ex: 98% para respostas que exigem mensagem quase idêntica).
+- **Suporte a Múltiplas Perguntas no Mesmo Envio (Multi-Query Cache):** Mensagens que contêm mais de uma dúvida (ex: *"Olá, quais valores? Como funciona o curso? É online ou presencial?"*) são desmembradas automaticamente. Quando todas as dúvidas possuem respostas no cache, as respostas aprovadas são combinadas e entregues de forma harmoniosa com Custo Zero. Se apenas parte das dúvidas estiver no cache, as respostas homologadas entram como respostas pré-resolvidas no prompt para o LLM apenas complementar o que falta, economizando tokens e tempo.
+- **Transparência de Custos no Histórico (De Graça vs Paga):** A tabela de histórico de conversas dos leads e webhooks destaca claramente com badges se cada mensagem foi entregue **⚡ De Graça (Cache Semântico · R$ 0,00)**, **⚡ Cache Parcial + IA**, **💳 Paga (IA · R$ 0,22)** ou **🔄 Follow-Up**, trazendo controle financeiro em tempo real.
+
 ---
 
 ---
@@ -144,6 +159,15 @@ Esta versão traz melhorias críticas de desempenho e segurança de contatos na 
 - **Ordenação por Interações Recentes**: Contatos agora são exibidos na lista ordenados pela data da última mensagem (`ultima_mensagem_em DESC`), trazendo as conversas ativas no momento para o topo de forma dinâmica.
 - **Suíte de Testes 100% Homologada**: Correção de tipagens de data no PostgreSQL (`datetime` em substituição de strings de mock) e URLs de endpoints de testes, garantindo que toda a suíte de testes de webhooks passe perfeitamente.
 
+## ✨ Novidades da Versão (v2.5.0)
+
+Esta versão traz a reformulação completa e observabilidade avançada do **Pipeline de Automação do AgenteFlow**, estruturada e implementada por Aryaraj:
+- **Métricas de Latência e Performance por Etapa**: Exibição da duração individual em milissegundos/segundos de cada etapa da timeline (`⚡ 350ms`, `⚡ 1.8s`) e barra superior consolidada (`PipelineSummaryBar`) com Duração Total, Tokens Consumidos (com indicador de % de Cache), Custo Total em BRL e Status da Execução.
+- **Diagnóstico Inteligente de Falhas (Smart Troubleshooting)**: Motor semântico que detecta automaticamente padrões de erro (`Connection refused`, `401 Unauthorized`, `429 Rate Limit`, `Timeout`) e exibe cards visuais com a causa raiz e sugestão prática de resolução (ex: orientando o uso de `http://host.docker.internal:8000` em ambiente Docker).
+- **Barra de Ações Rápidas (`PipelineActionToolbar`)**: Botões de 1 clique para **Reprocessar / Reenviar Evento** (acionando a rota `/retry` do backend sem necessitar de nova mensagem do lead) e **Copiar Pipeline JSON** formatado para a área de transferência.
+- **Filtros por Categorias (`PipelineFilterBar`)**: Abas com contadores dinâmicos para alternar rapidamente entre `Todos`, `🧠 IA & Decisões`, `🛠️ Ferramentas & Mídia` e `❌ Erros & Alertas`.
+- **Suíte de Testes Automatizados Expandida**: Cobertura estrita no Vitest (`AutomationPipelineModal.test.jsx`) com 13 testes aprovados e no Pytest (`test_webhook_retry.py`) com 100% de aprovação.
+
 ## ✨ Novidades da Versão (v2.4.0)
 
 Esta versão introduz a separação do prompt de instruções do sistema do agente em duas partes (Estático e Dinâmico), otimizando custos e latência por meio de **Prompt Caching**:
@@ -191,9 +215,72 @@ Esta versão traz estabilidade a nível de ecossistema, verificação de integri
 - **Suíte de Testes Dedicada**: Criação de cobertura de testes automatizados com o Pytest em `backend/tests/test_status_page.py` para certificar a saúde e as respostas esperadas na raiz da API.
 - **Evolução de Orquestração Docker**: Provisionamento e rebuild com `--force-recreate` garantindo resiliência e estabilidade total no boot dos containers do projeto localmente.
 
+## ✨ Novidades da Versão (v1.9.2)
+
+Esta versão traz a modularização completa do Visualizador de Logs (`LogsViewer.jsx`), estruturada e implementada por Aryaraj:
+- **Refatoração e Limites de Código**: Quebra do componente monolítico de 658 linhas em módulos desacoplados e especializados (< 500 linhas cada), garantindo alta manutenibilidade, Clean Code e conformidade com as regras de desenvolvimento do projeto.
+- **Estrutura Modular (`LogsViewerModules/`)**:
+  - `constants.js`: Constantes globais (níveis, cores, opções de tail/paginação) e funções de estilo reutilizáveis.
+  - `LogsActionBar.jsx`: Barra de ações principal com seletor de dia (dropdown dinâmico com dias reais), linhas por container, botão Carregar Logs, Colar Manualmente, Limpar e contador de linhas totais.
+  - `LogsFilterBar.jsx`: Seletor de containers (chips com status 🟢/⚪), filtros rápidos por tag, campos de horário (De/Até), busca com badges fixados (Enter) e chips de nível (CRITICAL/ERROR/WARNING/INFO/DEBUG) com contadores.
+  - `LogsTable.jsx`: Tabela de logs com linhas coloridas por nível, seletor de linhas por vez, botões Atualizar/Copiar/Download e paginação (Anterior/Próxima).
+  - `LogsPasteModal.jsx`: Modal para colar e analisar logs manualmente (parsing local sem chamar servidor).
+- **Backup de Segurança**: Backup integral da versão legada preservado em `codigo_obsoleto/frontend/LogsViewer.backup.jsx`.
+- **Suíte de Testes Unitários**: Cobertura completa de testes automatizados em `frontend/src/test/components/LogsViewer.test.jsx` com 100% de aprovação (6 de 6 testes passando).
+
 ---
 
-## ✨ Novidades da Versão (v1.8.7)
+## ✨ Novidades da Versão (v1.9.1)
+
+Esta versão traz a modularização completa da interface de Gerenciamento de Backups (`Backups.jsx`), estruturada e implementada por Aryaraj:
+- **Refatoração e Limites de Código**: Quebra do componente monolítico de quase 1.000 linhas em módulos desacoplados e especializados (< 500 linhas cada), garantindo alta manutenibilidade, Clean Code e conformidade com as regras de desenvolvimento do projeto.
+- **Estrutura Modular (`BackupsModules/`)**:
+  - `BackupStatsCards.jsx`: Métricas superiores (Último Backup, Próximo Backup e Retenção).
+  - `BackupActionCards.jsx`: Painéis de ação rápida (Backup Manual e Importação/Upload de Backups Externos).
+  - `BackupScheduleForm.jsx`: Formulário de Agendamento Automático com interruptor liga/desliga, seletor de frequência (horas/dias), valor de intervalo, pasta no Backblaze S3 e contagem de retenção.
+  - `BackupHistoryList.jsx`: Tabela completa de histórico de backups no S3 (itens por página, botão refresh, barra de seleção e exclusão em lote, checkbox selecionar todos, itens com status/fixar/restaurar/download/excluir, e controles de paginação).
+  - `BackupModals.jsx`: Modais de confirmação de exclusão individual, restauração do banco de dados e exclusão em lote.
+- **Backup de Segurança**: Backup integral da versão legada preservado em `codigo_obsoleto/frontend/Backups.backup.jsx`.
+- **Suíte de Testes Unitários**: Cobertura completa de testes automatizados em `frontend/src/test/components/Backups.test.jsx` com 100% de aprovação (6 de 6 testes passando).
+
+---
+
+## ✨ Novidades da Versão (v1.9.0)
+
+Esta versão traz a modularização completa da arquitetura do balão de mensagens do playground (`MessageBubble.jsx`), estruturada e implementada por Aryaraj:
+- **Refatoração e Limites de Código**: Quebra do componente monolítico de mais de 1.300 linhas em módulos desacoplados e especializados (< 500 linhas cada), garantindo alta manutenibilidade, Clean Code e conformidade com as regras de desenvolvimento do projeto.
+- **Estrutura Modular (`MessageBubbleModules/`)**:
+  - `UserMessageBubble.jsx`: Renderização otimizada das mensagens do usuário (fotos, mídias, formatação de texto e timestamp).
+  - `LinkMessageBubble.jsx`: Exibição visual de links disparados pelo robô com detecção automática.
+  - `MessageMetaBar.jsx`: Barra com estatísticas de consumo de tokens (IN/OUT/CACHED/TOTAL), cálculo dinâmico de custo em BRL, tempo de resposta, pílulas de modelo/fallback/segurança, botões de feedback e botão de alternância do Raio-X.
+  - `ExplainResponseSection.jsx`: Seção "Por que essa resposta?", análise detalhada de fatores de influência de prompt, resumo explicativo, custos da auditoria e chat de debate em tempo real com a IA Auditora.
+  - `PromptModal.jsx`: Modal flutuante para visualização de decisões do classificador Pre-Router e do Resolved Prompt do Sistema com botão de cópia.
+  - `PreRouterDecisionView.jsx`: Sub-aba com filtros booleanos, intenções do lead, perguntas extraídas e histórico de memórias.
+  - `ResolvedPromptView.jsx`: Sub-aba com divisão em blocos (Estático, Dinâmico, Injetado pelo Código, Variáveis de Contexto e Completo).
+  - `DebugPanel.jsx`: Painel expansível de Raio-X que orquestra a TimelineView, Fontes RAG recuperadas, Prompt Final, ExplainResponseSection e Tradução automática.
+- **Backup de Segurança**: Backup integral da versão legada preservado em `codigo_obsoleto/frontend/MessageBubble.backup.jsx`.
+- **Suíte de Testes Unitários**: Cobertura completa de testes automatizados em `frontend/src/test/components/ChatPlayground/MessageBubble.test.jsx` com 100% de aprovação.
+
+---
+
+## ✨ Novidades da Versão (v1.8.9)
+
+Esta versão traz a modularização completa da arquitetura do modal de edição e criação de integrações de Webhook (`EditWebhookModal.jsx`), estruturada e implementada por Aryaraj:
+- **Refatoração e Limites de Código**: Quebra do componente monolítico de mais de 2.000 linhas em módulos desacoplados e especializados (< 500 linhas cada), garantindo alta manutenibilidade, Clean Code e conformidade com as regras de desenvolvimento do projeto.
+- **Estrutura Modular (`EditWebhookTabs/`)**:
+  - `GeralTab.jsx`: Sub-abas de identificação de instâncias, slugs de URL, tabela de leads e configurações de comportamento e envio (áudio, visão, debounce, delay de resposta e divisão de mensagens).
+  - `FollowupTab.jsx`: Orquestrador completo de réguas de follow-up automático com passos sequenciais de atraso.
+  - `FollowupStepCard.jsx`, `FollowupStepWhatsAppTemplate.jsx` e `FollowupStepMedia.jsx`: Submódulos dedicados à configuração detalhada de passos com suporte a IA Contextual, Templates Oficiais Meta/WhatsApp (ZapVoice) e Upload de Mídias/Áudios humanizados PTT.
+  - `FollowupBusinessHours.jsx`: Proteção "Não Perturbe" e janela comercial inteligente com seleção de dias da semana.
+  - `FollowupSmartTriggers.jsx`: Gatilhos inteligentes de etiquetas do ZapVoice (cancelamento, ativação obrigatória e aplicação pós-disparo).
+  - `SegurancaTab.jsx`: Gestão de contatos autorizados, mensagens bloqueadas e palavras-chave de exclusão de dados (LGPD).
+  - `ZapvoiceTab.jsx`: Gerenciamento de credenciais, sincronização automática de etiquetas, transbordo/suporte humano e assistente de projeto.
+- **Backup de Segurança**: Backup integral da versão legada preservado em `codigo_obsoleto/frontend/EditWebhookModal.backup.jsx`.
+- **Suíte de Testes Automatizados**: Inclusão de testes unitários no Vitest em `frontend/src/test/components/EditWebhookModal.test.jsx` cobrindo a renderização, navegação de abas e interação com subcomponentes.
+
+---
+
+## ✨ Novidades da Versão (v1.8.8)
 
 Esta versão traz o recurso completo de análise semântica e treinamento de RAG a partir das dúvidas de clientes:
 - **Ranking Semântico de Dúvidas e Objeções (Clustering DBSCAN)**: Agrupamento automático e matemático local de mensagens dos usuários em grupos semânticos de dúvidas parecidas utilizando similaridade de cosseno nos embeddings armazenados, sem consumo de tokens de API.
@@ -278,6 +365,16 @@ Esta versão consolida grandes evoluções no sistema, incluindo o controle fina
 - **Flexibilização de Dúvidas Sem Resposta**: Regra de Ouro otimizada no Agente principal para permitir respostas contextuais ricas baseadas no prompt de sistema antes de recorrer à inbox de dúvidas sem resposta.
 - **Fluxo Premium de Convites de Usuários**: Substituição do cadastro direto por convites expiráveis (7h, 14h, 24h e 48h) com tabela de gestão, revogação manual e tela de registro com Glassmorphism e tratamento de e-mail duplicado.
 - **Tratamento e Descarte de Mensagens de Anúncio**: A pipeline de IA agora intercepta contatos cujo primeiro envio corresponda a um anúncio cadastrado. Se for anúncio puro (sem pergunta acoplada), o robô não envia resposta no Chatwoot, define o status do evento de webhook como `'ignored'`, limpa a coluna de mensagem na tabela local de leads e limpa o debounce de mensagens no Redis. Se a mensagem for mista (anúncio + pergunta), a pipeline remove a parte de anúncio e responde apenas à pergunta limpa, gravando no histórico local apenas a pergunta tratada.
+
+---
+
+## ✨ Novidades da Versão (v1.9.1)
+
+Esta versão traz o controle visual e funcional da pergunta/mensagem de continuação após a primeira dúvida do usuário:
+- **Card de Continuação após 1ª Dúvida Respondida (1ª Mensagem)**: Na aba `Editor Prompt` → sub-aba `👋 Saudação & Consciência Temporal`, o gestor pode configurar exatamente qual pergunta ou mensagem de sondagem (`initial_question_message`) o agente enviará logo após responder à primeira dúvida do usuário (quando a primeira mensagem do contato já for uma pergunta direta).
+- **Modos Prompt (IA) vs Painel (Texto Fixo)**: Alternância simplificada entre o modo dinâmico (onde a IA conduz pelo funil) e o modo fixo (onde anexa a pergunta definida no painel, limpando automaticamente perguntas genéricas redundantes da LLM).
+- **Sugestões Rápidas de Sondagem**: Atalhos de 1 clique para perguntas clássicas de qualificação (*"Qual é o seu nome?"*, *"Você já trabalha na área ou está começando do zero?"*, etc.).
+- **Modularização Arquitetural e Limites de Código**: Extração limpa do componente `TemporalSection.jsx`, mantendo todos os arquivos do módulo de configuração com menos de 300 linhas de código.
 
 ---
 

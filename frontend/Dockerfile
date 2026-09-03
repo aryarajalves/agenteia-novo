@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Copia e prepara o entrypoint logo no início (disponível para todos os estágios baseados em node)
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 COPY package*.json ./
 RUN npm install
@@ -53,7 +53,7 @@ COPY --from=builder /app/dist .
 
 # Re-copia o entrypoint aqui pois o Nginx não herda do estágio 'base'
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 EXPOSE 80
 

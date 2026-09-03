@@ -166,7 +166,20 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                             WHEN contato_nome IS NOT NULL AND contato_nome != '' AND contato_nome != 'Contato Desconhecido' AND contato_nome NOT LIKE 'Lead_%' THEN contato_nome
                             ELSE COALESCE(CAST(:valid_name AS VARCHAR), contato_nome, CAST(:fallback_name AS VARCHAR))
                         END,
-                        message_type = :message_type, link = :link,
+                        message_type = CASE 
+                            WHEN CAST(:message_type AS VARCHAR) IS NOT NULL 
+                                 AND CAST(:message_type AS VARCHAR) != '' 
+                                 AND CAST(:message_type AS VARCHAR) != 'text' 
+                            THEN CAST(:message_type AS VARCHAR) 
+                            ELSE message_type 
+                        END,
+                        link = CASE 
+                            WHEN CAST(:link AS VARCHAR) IS NOT NULL 
+                                 AND CAST(:link AS VARCHAR) != '' 
+                                 AND CAST(:link AS VARCHAR) != 'None' 
+                            THEN CAST(:link AS VARCHAR) 
+                            ELSE link 
+                        END,
                         ultima_resposta_agente = CASE 
                             WHEN ultima_resposta_agente_em IS NOT NULL AND ultima_resposta_agente_em > :two_min_ago
                                  AND LENGTH(ultima_resposta_agente) > LENGTH(:mensagem)
@@ -199,7 +212,17 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                             WHEN contato_nome IS NOT NULL AND contato_nome != '' AND contato_nome != 'Contato Desconhecido' AND contato_nome NOT LIKE 'Lead_%' THEN contato_nome
                             ELSE COALESCE(CAST(:valid_name AS VARCHAR), contato_nome, CAST(:fallback_name AS VARCHAR))
                         END,
-                        mensagem = :mensagem, message_type = :message_type, link = :link,
+                        mensagem = :mensagem,
+                        message_type = CASE 
+                            WHEN CAST(:message_type AS VARCHAR) IS NOT NULL AND CAST(:message_type AS VARCHAR) != '' 
+                            THEN CAST(:message_type AS VARCHAR) 
+                            ELSE COALESCE(message_type, 'text') 
+                        END,
+                        link = CASE 
+                            WHEN CAST(:link AS VARCHAR) IS NOT NULL AND CAST(:link AS VARCHAR) != '' AND CAST(:link AS VARCHAR) != 'None' 
+                            THEN CAST(:link AS VARCHAR) 
+                            ELSE link 
+                        END,
                         ultima_mensagem_em = CASE 
                             WHEN :is_memory = TRUE THEN ultima_mensagem_em
                             ELSE CAST(:now_utc AS TIMESTAMP)

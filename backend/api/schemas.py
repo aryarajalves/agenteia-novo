@@ -44,6 +44,20 @@ class UserRegister(BaseModel):
     email: str
     password: str
 
+    @field_validator('password')
+    @classmethod
+    def validate_password_strength(cls, v: str) -> str:
+        import re
+        if len(v) < 10:
+            raise ValueError("A senha deve ter no mínimo 10 caracteres.")
+        if not re.search(r'[A-Za-z]', v):
+            raise ValueError("A senha deve conter pelo menos uma letra.")
+        if not re.search(r'[0-9]', v):
+            raise ValueError("A senha deve conter pelo menos um número.")
+        if not re.search(r'[^A-Za-z0-9]', v):
+            raise ValueError("A senha deve conter pelo menos um caractere especial (!@#$%^&* etc).")
+        return v
+
 
 # --- KNOWLEDGE BASE SCHEMAS ---
 
@@ -125,7 +139,9 @@ class AgentConfig(BaseModel):
     knowledge_base: list = []
     knowledge_base_id: Optional[int] = None
     knowledge_base_ids: List[int] = []
-    knowledge_bases: List[Any] = []
+    semantic_cache_enabled: Optional[bool] = True
+    semantic_cache_threshold: Optional[float] = 0.92
+    knowledge_bases: List[Dict[str, Any]] = []
     rag_retrieval_count: int = 5
     rag_translation_enabled: bool = False
     rag_multi_query_enabled: bool = False
@@ -153,12 +169,15 @@ class AgentConfig(BaseModel):
     initial_question_message: Optional[str] = None
     initial_ignore_message: Optional[str] = None
     inbox_capture_enabled: bool = True
-    greeting_mode: str = "panel"
+    greeting_mode: str = "prompt"
     question_mode: str = "panel"
     ad_mode: str = "panel"
     qualification_questions: Optional[str] = None
     qualification_labels: Optional[str] = None
     qualification_criteria: Optional[str] = None
+    qualification_final_action: Optional[str] = None
+    unanswered_handoff_limit: Optional[int] = 2
+    unanswered_question_prompt: Optional[str] = None
     router_enabled: bool = False
     router_simple_model: str = "gpt-5-mini"
     router_simple_fallback_model: Optional[str] = None
@@ -192,6 +211,9 @@ class MessageResponse(BaseModel):
     debug: Optional[Dict[str, Any]] = None
     response_time_ms: Optional[int] = None
     model_used: Optional[str] = None
+    from_semantic_cache: Optional[bool] = False
+    cached_similarity: Optional[float] = None
+    cached_original_query: Optional[str] = None
     error: bool = False
     system_error: Optional[str] = None
 
@@ -364,6 +386,9 @@ class SessionMessage(BaseModel):
     cached_tokens: Optional[int] = 0
     model: Optional[str] = None
     debug: Optional[Dict[str, Any]] = None
+    from_semantic_cache: Optional[bool] = False
+    cached_similarity: Optional[float] = None
+    cached_original_query: Optional[str] = None
 
 # --- FEEDBACK & FINE-TUNING SCHEMAS ---
 
@@ -496,3 +521,40 @@ class ExplainDebateResponse(BaseModel):
     cost_usd: float
     cost_brl: float
     debate_history: List[ChatMessage]
+
+
+# --- SOURCE ATTRIBUTION SCHEMAS ---
+
+class SourceLink(BaseModel):
+    type: str  # 'knowledge_base' | 'agent_prompt' | 'dynamic_prompt' | 'context_variable' | 'general'
+    url: Optional[str] = None
+    label: str
+
+class SourceSegment(BaseModel):
+    segment_index: int
+    text: str
+    source_type: str  # 'knowledge_base' | 'system_prompt' | 'dynamic_prompt' | 'context_variable' | 'general_reasoning'
+    source_title: str
+    source_snippet: Optional[str] = None
+    kb_id: Optional[int] = None
+    kb_item_id: Optional[int] = None
+    agent_id: Optional[int] = None
+    confidence: Optional[float] = 1.0
+    explanation: Optional[str] = None
+    link: Optional[SourceLink] = None
+
+class SourceAttributionRequest(BaseModel):
+    user_message: str
+    agent_response: str
+    agent_id: Optional[int] = None
+    resolved_prompt: Optional[str] = None
+    rag_items: Optional[List[Dict[str, Any]]] = None
+    context_variables: Optional[Dict[str, Any]] = None
+    pre_router: Optional[Dict[str, Any]] = None
+
+class SourceAttributionResponse(BaseModel):
+    segments: List[SourceSegment]
+    summary: str
+    cost_usd: Optional[float] = 0.0
+    cost_brl: Optional[float] = 0.0
+

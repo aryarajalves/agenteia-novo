@@ -18,6 +18,7 @@ import TabHabilidades from './components/TabHabilidades';
 import TabSeguranca from './components/TabSeguranca';
 import TabWhitelabel from './components/TabWhitelabel';
 import TabVersoes from './components/TabVersoes';
+import TabSemanticCache from './components/TabSemanticCache';
 
 const ConfigPanelContent = ({ agentId, onClose, onSaveSuccess }) => {
     const {
@@ -31,16 +32,12 @@ const ConfigPanelContent = ({ agentId, onClose, onSaveSuccess }) => {
     useConfigData(agentId);
     const { handleSave } = useConfigSave(onClose, onSaveSuccess);
 
-    // Toast local para eventos do ConfigPanel (ex: copiar snippet)
-
-
-
-
     const tabs = [
         { id: 'geral', label: 'Geral', icon: '⚙️' },
         { id: 'prompts', label: 'Editor Prompt', icon: '💬' },
         { id: 'habilidades', label: 'Habilidades', icon: '⚡' },
         { id: 'seguranca', label: 'Segurança', icon: '🛡️' },
+        { id: 'cache', label: 'Respostas Aprovadas (Cache)', icon: '⚡' },
         { id: 'whitelabel', label: 'Whitelabel', icon: '🎨' },
         { id: 'versoes', label: 'Versões', icon: '🕒' }
     ];
@@ -102,6 +99,7 @@ const ConfigPanelContent = ({ agentId, onClose, onSaveSuccess }) => {
                 {activeTab === 'prompts' && <TabPrompts />}
                 {activeTab === 'habilidades' && <TabHabilidades />}
                 {activeTab === 'seguranca' && <TabSeguranca />}
+                {activeTab === 'cache' && <TabSemanticCache />}
                 {activeTab === 'whitelabel' && <TabWhitelabel />}
                 {activeTab === 'versoes' && <TabVersoes />}
             </div>

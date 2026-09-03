@@ -1,19 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { useRegisterValidation } from './Register/useRegisterValidation';
+import { PasswordStrengthChecklist } from './Register/PasswordStrengthChecklist';
+import '../styles/Base/Register.css';
 
 const Register = () => {
     const { token } = useParams();
     const navigate = useNavigate();
+
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
     const [loading, setLoading] = useState(false);
     const [validating, setValidating] = useState(true);
     const [inviteInfo, setInviteInfo] = useState(null);
     const [validationError, setValidationError] = useState('');
     const [submitError, setSubmitError] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
+
+    const rules = useRegisterValidation(password, confirmPassword);
 
     useEffect(() => {
         validateToken();
@@ -40,6 +49,16 @@ const Register = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        if (!rules.isValid) {
+            if (!rules.hasMinLength || !rules.hasLetter || !rules.hasNumber || !rules.hasSpecial) {
+                setSubmitError('A senha deve ter no mínimo 10 caracteres e conter letras, números e caracteres especiais.');
+            } else if (!rules.isMatched) {
+                setSubmitError('As senhas não coincidem.');
+            }
+            return;
+        }
+
         setLoading(true);
         setSubmitError('');
 
@@ -68,423 +87,152 @@ const Register = () => {
 
     if (validating) {
         return (
-            <div className="login-page">
-                <div className="login-box fade-in">
-                    <div className="login-header">
-                        <div className="brand-logo">🤖</div>
+            <div className="register-page">
+                <div className="register-box fade-in">
+                    <div className="register-header">
+                        <div className="register-brand-logo">🤖</div>
                         <h1>Validando...</h1>
                         <p>Por favor, aguarde enquanto validamos o seu convite.</p>
                     </div>
                     <div className="loading-spinner"></div>
                 </div>
-                <style>{`
-                    .login-page {
-                        height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        background: radial-gradient(circle at top left, #1e293b, #0f172a);
-                        color: white;
-                        overflow: hidden;
-                    }
-                    .login-box {
-                        width: 100%;
-                        max-width: 420px;
-                        padding: 2.5rem;
-                        background: rgba(30, 41, 59, 0.4);
-                        backdrop-filter: blur(20px);
-                        border: 1px solid rgba(255, 255, 255, 0.1);
-                        border-radius: 30px;
-                        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-                        text-align: center;
-                    }
-                    .brand-logo {
-                        font-size: 3.5rem;
-                        margin-bottom: 1rem;
-                        display: inline-block;
-                        background: rgba(99, 102, 241, 0.1);
-                        width: 80px;
-                        height: 80px;
-                        line-height: 80px;
-                        border-radius: 20px;
-                        border: 1px solid rgba(99, 102, 241, 0.2);
-                        box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
-                    }
-                    .login-header h1 {
-                        font-size: 2rem;
-                        font-weight: 800;
-                        margin: 0;
-                        background: linear-gradient(135deg, #fff, #94a3b8);
-                        -webkit-background-clip: text;
-                        -webkit-text-fill-color: transparent;
-                    }
-                    .login-header p {
-                        color: #94a3b8;
-                        font-size: 0.95rem;
-                        margin-top: 8px;
-                    }
-                    .loading-spinner {
-                        border: 4px solid rgba(255, 255, 255, 0.1);
-                        width: 50px;
-                        height: 50px;
-                        border-radius: 50%;
-                        border-left-color: #6366f1;
-                        animation: spin 1s linear infinite;
-                        margin: 2rem auto 0 auto;
-                    }
-                    @keyframes spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
-                    }
-                `}</style>
             </div>
         );
     }
 
     if (validationError) {
         return (
-            <div className="login-page">
-                <div className="login-box fade-in">
-                    <div className="login-header">
-                        <div className="brand-logo">⚠️</div>
-                        <h1>Convite Inválido</h1>
-                        <p className="error-description">{validationError}</p>
+            <div className="register-page">
+                <div className="register-box fade-in">
+                    <div className="register-header">
+                        <div className="register-brand-logo" style={{ background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>⚠️</div>
+                        <h1 style={{ background: 'linear-gradient(135deg, #fff, #f87171)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Convite Inválido</h1>
+                        <p style={{ color: '#f87171', marginTop: '12px' }}>{validationError}</p>
                     </div>
-                    <div className="error-actions">
-                        <button onClick={() => navigate('/login')} className="login-btn-primary">
-                            Ir para Login
-                        </button>
-                    </div>
+                    <button onClick={() => navigate('/login')} className="register-btn-primary">
+                        Ir para Login
+                    </button>
                 </div>
-                <style>{`
-                    .login-page {
-                        height: 100vh;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        background: radial-gradient(circle at top left, #1e293b, #0f172a);
-                        color: white;
-                        overflow: hidden;
-                    }
-                    .login-box {
-                        width: 100%;
-                        max-width: 420px;
-                        padding: 2.5rem;
-                        background: rgba(30, 41, 59, 0.4);
-                        backdrop-filter: blur(20px);
-                        border: 1px solid rgba(255, 255, 255, 0.1);
-                        border-radius: 30px;
-                        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-                        text-align: center;
-                    }
-                    .brand-logo {
-                        font-size: 3.5rem;
-                        margin-bottom: 1rem;
-                        display: inline-block;
-                        background: rgba(239, 68, 68, 0.1);
-                        width: 80px;
-                        height: 80px;
-                        line-height: 80px;
-                        border-radius: 20px;
-                        border: 1px solid rgba(239, 68, 68, 0.2);
-                        box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);
-                    }
-                    .login-header h1 {
-                        font-size: 2rem;
-                        font-weight: 800;
-                        margin: 0;
-                        background: linear-gradient(135deg, #fff, #f87171);
-                        -webkit-background-clip: text;
-                        -webkit-text-fill-color: transparent;
-                    }
-                    .error-description {
-                        color: #f87171 !important;
-                        font-size: 1rem !important;
-                        margin-top: 12px;
-                        line-height: 1.5;
-                    }
-                    .login-btn-primary {
-                        width: 100%;
-                        padding: 14px;
-                        background: linear-gradient(135deg, #6366f1, #4f46e5);
-                        color: white;
-                        border: none;
-                        border-radius: 16px;
-                        font-weight: 700;
-                        font-size: 1rem;
-                        cursor: pointer;
-                        transition: all 0.3s;
-                        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
-                        margin-top: 1rem;
-                    }
-                    .login-btn-primary:hover {
-                        transform: translateY(-2px);
-                        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.5);
-                    }
-                `}</style>
             </div>
         );
     }
 
     return (
-        <div className="login-page">
-            <div className="login-box fade-in">
-                <div className="login-header">
-                    <div className="brand-logo">👋</div>
+        <div className="register-page">
+            <div className="register-box fade-in">
+                <div className="register-header">
+                    <div className="register-brand-logo">👋</div>
                     <h1>Criar Conta</h1>
-                    <p>Você foi convidado como <strong>{inviteInfo?.role}</strong></p>
+                    <p>
+                        Você foi convidado como <span className="role-highlight-badge">{inviteInfo?.role || 'Usuário'}</span>
+                    </p>
                 </div>
 
-                <form onSubmit={handleSubmit} className="login-form">
+                <form onSubmit={handleSubmit} className="register-form" autoComplete="off">
+                    {/* Bloqueio de preenchimento automático indevido do navegador */}
+                    <input type="text" name="fakeusernameremembered" style={{ display: 'none' }} tabIndex="-1" autoComplete="off" />
+                    <input type="password" name="fakepasswordremembered" style={{ display: 'none' }} tabIndex="-1" autoComplete="off" />
+
                     <div className="form-group">
-                        <label>Nome Completo</label>
-                        <div className="input-wrapper">
-                            <span className="input-icon">👤</span>
+                        <label htmlFor="register-name">Nome Completo</label>
+                        <div className="register-input-wrapper">
+                            <span className="register-input-icon">👤</span>
                             <input
+                                id="register-name"
                                 type="text"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 placeholder="Seu nome completo"
+                                autoComplete="off"
                                 required
                             />
                         </div>
                     </div>
 
                     <div className="form-group">
-                        <label>E-mail</label>
-                        <div className="input-wrapper">
-                            <span className="input-icon">✉️</span>
+                        <label htmlFor="register-email">E-mail</label>
+                        <div className="register-input-wrapper">
+                            <span className="register-input-icon">✉️</span>
                             <input
+                                id="register-email"
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 placeholder="seu@email.com"
+                                autoComplete="off"
                                 required
                             />
                         </div>
                     </div>
 
                     <div className="form-group">
-                        <label>Senha</label>
-                        <div className="input-wrapper">
-                            <span className="input-icon">🔑</span>
+                        <label htmlFor="register-password">Senha</label>
+                        <div className="register-input-wrapper">
+                            <span className="register-input-icon">🔑</span>
                             <input
+                                id="register-password"
                                 type={showPassword ? "text" : "password"}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 placeholder="Crie uma senha forte"
+                                autoComplete="new-password"
                                 required
                             />
                             <button
                                 type="button"
-                                className="toggle-password"
+                                className="register-toggle-password"
                                 onClick={() => setShowPassword(!showPassword)}
+                                title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                             >
                                 {showPassword ? '👁️' : '👁️‍🗨️'}
                             </button>
                         </div>
                     </div>
 
-                    {submitError && <div className="login-error-msg">{submitError}</div>}
+                    <div className="form-group">
+                        <label htmlFor="register-confirm-password">Confirmar Senha</label>
+                        <div className="register-input-wrapper">
+                            <span className="register-input-icon">🔒</span>
+                            <input
+                                id="register-confirm-password"
+                                type={showConfirmPassword ? "text" : "password"}
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                placeholder="Digite a senha novamente"
+                                autoComplete="new-password"
+                                required
+                            />
+                            <button
+                                type="button"
+                                className="register-toggle-password"
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                title={showConfirmPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                            >
+                                {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
+                            </button>
+                        </div>
+                    </div>
 
-                    <button type="submit" className="login-btn-primary" disabled={loading}>
+                    <PasswordStrengthChecklist
+                        rules={rules}
+                        showMatch={confirmPassword.length > 0 || password.length > 0}
+                    />
+
+                    {submitError && <div className="register-error-msg">{submitError}</div>}
+
+                    <button
+                        type="submit"
+                        className="register-btn-primary"
+                        disabled={loading || !rules.isValid}
+                    >
                         {loading ? 'Cadastrando...' : 'Finalizar Cadastro'}
                     </button>
                 </form>
 
-                <div className="login-footer">
+                <div className="register-footer">
                     &copy; 2024 Agent Flow &bull; Automação Sem Limites
                 </div>
             </div>
-
-            <style>{`
-                .login-page {
-                    height: 100vh;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: radial-gradient(circle at top left, #1e293b, #0f172a);
-                    color: white;
-                    overflow: hidden;
-                }
-
-                .login-box {
-                    width: 100%;
-                    max-width: 420px;
-                    padding: 2.5rem;
-                    background: rgba(30, 41, 59, 0.4);
-                    backdrop-filter: blur(20px);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    border-radius: 30px;
-                    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-                    text-align: center;
-                }
-
-                .login-header { margin-bottom: 2.5rem; }
-                
-                .brand-logo {
-                    font-size: 3.5rem;
-                    margin-bottom: 1rem;
-                    display: inline-block;
-                    background: rgba(99, 102, 241, 0.1);
-                    width: 80px;
-                    height: 80px;
-                    line-height: 80px;
-                    border-radius: 20px;
-                    border: 1px solid rgba(99, 102, 241, 0.2);
-                    box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
-                }
-
-                .login-header h1 {
-                    font-size: 2rem;
-                    font-weight: 800;
-                    margin: 0;
-                    background: linear-gradient(135deg, #fff, #94a3b8);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                }
-
-                .login-header p {
-                    color: #94a3b8;
-                    font-size: 0.95rem;
-                    margin-top: 8px;
-                }
-
-                .login-form { text-align: left; }
-
-                .form-group { margin-bottom: 1.5rem; }
-                
-                .form-group label {
-                    display: block;
-                    font-size: 0.85rem;
-                    font-weight: 600;
-                    color: #e2e8f0;
-                    margin-bottom: 8px;
-                    margin-left: 12px;
-                }
-
-                .input-wrapper {
-                    position: relative;
-                    width: 100%;
-                }
-
-                .input-icon {
-                    position: absolute;
-                    left: 16px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    z-index: 2;
-                    opacity: 0.8;
-                    color: #6366f1;
-                    pointer-events: none;
-                }
-
-                .input-wrapper input {
-                    width: 100%;
-                    padding: 14px 16px 14px 48px !important; /* Espaço para o ícone */
-                    background: rgba(15, 23, 42, 0.7) !important;
-                    border: 2px solid rgba(255, 255, 255, 0.2) !important;
-                    border-radius: 16px;
-                    color: white !important;
-                    font-size: 1rem;
-                    outline: none;
-                    transition: all 0.3s;
-                    caret-color: #6366f1;
-                }
-
-                .input-wrapper input:focus {
-                    border-color: #6366f1 !important;
-                    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.2) !important;
-                    background: rgba(30, 41, 59, 0.8) !important;
-                }
-
-                .toggle-password {
-                    position: absolute;
-                    right: 12px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    z-index: 2;
-                    background: transparent;
-                    border: none;
-                    color: #94a3b8;
-                    cursor: pointer;
-                    padding: 8px;
-                    font-size: 1.2rem;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                }
-
-                /* Garante que ícones do navegador (como a chavinha ou o 'x') fiquem visíveis */
-                .input-wrapper input::-webkit-calendar-picker-indicator,
-                .input-wrapper input::-webkit-credentials-auto-fill-button {
-                    filter: invert(1) brightness(2);
-                    cursor: pointer;
-                    margin-right: 35px; /* Evita sobrepor o botão de olho */
-                }
-
-                /* Limpa estilos chatos de preenchimento automático do Chrome/Edge */
-                .input-wrapper input:-webkit-autofill,
-                .input-wrapper input:-webkit-autofill:hover, 
-                .input-wrapper input:-webkit-autofill:focus {
-                    -webkit-text-fill-color: white !important;
-                    -webkit-box-shadow: 0 0 0px 1000px #1e293b inset !important;
-                    transition: background-color 5000s ease-in-out 0s !important;
-                    border-radius: 16px;
-                }
-
-                .login-error-msg {
-                    background: rgba(239, 68, 68, 0.1);
-                    color: #f87171;
-                    padding: 12px;
-                    border-radius: 12px;
-                    font-size: 0.85rem;
-                    margin-bottom: 1.5rem;
-                    border: 1px solid rgba(239, 68, 68, 0.2);
-                    text-align: center;
-                }
-
-                .login-btn-primary {
-                    width: 100%;
-                    padding: 14px;
-                    background: linear-gradient(135deg, #6366f1, #4f46e5);
-                    color: white;
-                    border: none;
-                    border-radius: 16px;
-                    font-weight: 700;
-                    font-size: 1rem;
-                    cursor: pointer;
-                    transition: all 0.3s;
-                    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
-                    margin-top: 1rem;
-                }
-
-                .login-btn-primary:hover:not(:disabled) {
-                    transform: translateY(-2px);
-                    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.5);
-                }
-
-                .login-btn-primary:disabled {
-                    opacity: 0.6;
-                    cursor: not-allowed;
-                }
-
-                .login-footer {
-                    margin-top: 2rem;
-                    font-size: 0.75rem;
-                    color: #64748b;
-                    letter-spacing: 0.05em;
-                }
-
-                .fade-in {
-                    animation: fadeIn 0.8s ease-out;
-                }
-
-                @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(20px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-            `}</style>
         </div>
     );
 };

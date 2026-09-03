@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 
-const ConfigContext = createContext();
+export const ConfigContext = createContext();
 
 export const useConfig = () => {
     const context = useContext(ConfigContext);
@@ -66,6 +66,8 @@ export const ConfigProvider = ({ children }) => {
     const [ragAgenticEvalEnabled, setRagAgenticEvalEnabled] = useState(true);
     const [ragParentExpansionEnabled, setRagParentExpansionEnabled] = useState(true);
     const [ragRelevanceThreshold, setRagRelevanceThreshold] = useState(0); // Percentual (0-100) exibido na UI
+    const [semanticCacheEnabled, setSemanticCacheEnabled] = useState(true);
+    const [semanticCacheThreshold, setSemanticCacheThreshold] = useState(92); // Percentual (70-99) exibido na UI
     const [inboxCaptureEnabled, setInboxCaptureEnabled] = useState(true);
     const [toolPrompts, setToolPrompts] = useState({});
 
@@ -76,9 +78,10 @@ export const ConfigProvider = ({ children }) => {
     const [qualificationQuestions, setQualificationQuestions] = useState([]);
     const [qualificationLabels, setQualificationLabels] = useState([]);
     const [qualificationCriteria, setQualificationCriteria] = useState('');
+    const [qualificationFinalAction, setQualificationFinalAction] = useState('');
     
     // Greeting, Question, and Ad Modes
-    const [greetingMode, setGreetingMode] = useState('panel');
+    const [greetingMode, setGreetingMode] = useState('prompt');
     const [questionMode, setQuestionMode] = useState('panel');
     const [adMode, setAdMode] = useState('panel');
     
@@ -101,6 +104,9 @@ export const ConfigProvider = ({ children }) => {
     const [routerComplexModel, setRouterComplexModel] = useState('gpt-4o');
     const [routerComplexFallbackModel, setRouterComplexFallbackModel] = useState('');
     const [handoffEnabled, setHandoffEnabled] = useState(false);
+    const [unansweredHandoffEnabled, setUnansweredHandoffEnabled] = useState(true);
+    const [unansweredHandoffLimit, setUnansweredHandoffLimit] = useState(2);
+    const [unansweredQuestionPrompt, setUnansweredQuestionPrompt] = useState('');
     const [responseTranslationEnabled, setResponseTranslationEnabled] = useState(false);
     const [responseTranslationFallbackLang, setResponseTranslationFallbackLang] = useState('pt-br');
 
@@ -162,6 +168,8 @@ export const ConfigProvider = ({ children }) => {
         ragAgenticEvalEnabled, setRagAgenticEvalEnabled,
         ragParentExpansionEnabled, setRagParentExpansionEnabled,
         ragRelevanceThreshold, setRagRelevanceThreshold,
+        semanticCacheEnabled, setSemanticCacheEnabled,
+        semanticCacheThreshold, setSemanticCacheThreshold,
         inboxCaptureEnabled, setInboxCaptureEnabled,
         toolPrompts, setToolPrompts,
         initialMessage, setInitialMessage,
@@ -170,6 +178,7 @@ export const ConfigProvider = ({ children }) => {
         qualificationQuestions, setQualificationQuestions,
         qualificationLabels, setQualificationLabels,
         qualificationCriteria, setQualificationCriteria,
+        qualificationFinalAction, setQualificationFinalAction,
         greetingMode, setGreetingMode,
         questionMode, setQuestionMode,
         adMode, setAdMode,
@@ -189,6 +198,9 @@ export const ConfigProvider = ({ children }) => {
         routerComplexModel, setRouterComplexModel,
         routerComplexFallbackModel, setRouterComplexFallbackModel,
         handoffEnabled, setHandoffEnabled,
+        unansweredHandoffEnabled, setUnansweredHandoffEnabled,
+        unansweredHandoffLimit, setUnansweredHandoffLimit,
+        unansweredQuestionPrompt, setUnansweredQuestionPrompt,
         responseTranslationEnabled, setResponseTranslationEnabled,
         responseTranslationFallbackLang, setResponseTranslationFallbackLang,
         uiPrimaryColor, setUiPrimaryColor,

@@ -12,11 +12,12 @@ from models import AgentConfigModel
 
 from .clients import get_openai_client, get_anthropic_client
 from .models.usage import UsageLog
-from .utils import INTERNAL_CTX_KEYS, sanitize_phone_number
+from .utils import INTERNAL_CTX_KEYS, sanitize_phone_number, format_whatsapp_message
 from .logic.classification import classify_message_complexity
 from .logic.substitution import resolve_conditional_blocks
 from .logic.history import generate_handoff_summary
 from .logic.pre_router import run_pre_router_ai
+from .logic.cache_handler import handle_semantic_cache_check
 from .security import verify_output_safety, validate_response_ai
 from .memory import fetch_user_memory, update_user_memory
 from .tools.handlers.chatwoot import handle_chatwoot_handoff
@@ -112,6 +113,22 @@ async def process_message(
 
     performed_tool_calls = performed_tool_calls if performed_tool_calls is not None else []
     
+    # 0.1 CACHE SEMÂNTICO DE RESPOSTAS APROVADAS (CUSTO ZERO OU PARCIAL)
+    cache_result, pre_executed_rag_context = await handle_semantic_cache_check(
+        config=config,
+        message=message,
+        history=history,
+        context_variables=context_variables,
+        db=db,
+        image_url=image_url,
+        performed_tool_calls=performed_tool_calls,
+        pre_executed_tool_calls=pre_executed_tool_calls,
+        pre_executed_rag_context=pre_executed_rag_context,
+        on_step=on_step
+    )
+    if cache_result:
+        return cache_result
+
     pre_router_tokens = {"prompt": 0, "completion": 0, "model": None}
     pre_router_result = {}
 
@@ -181,15 +198,22 @@ async def process_message(
 
     # 1. Cost Router
     if getattr(config, 'router_enabled', False):
-        complexity = "COMPLEX" if image_url else await classify_message_complexity(message, config, history)
-        active_role = "router_simple" if complexity == "SIMPLE" else "main"
+        has_cache_resolved = bool(pre_executed_rag_context and "RESPOSTA OFICIAL PRÉ-APROVADA DO CACHE SEMÂNTICO" in pre_executed_rag_context)
         
-        # Seleção de modelo baseada no papel (Role) e complexidade
-        if complexity == "SIMPLE":
+        if has_cache_resolved:
+            complexity = "SIMPLE"
+            active_role = "router_simple"
             config.model = getattr(config, 'router_simple_model', None) or config.model
         else:
-            # Para perguntas complexas, usamos o router_complex_model (que é o 5.2 gpt configurado pelo usuário)
-            config.model = getattr(config, 'router_complex_model', None) or config.model
+            complexity = "COMPLEX" if image_url else await classify_message_complexity(message, config, history)
+            active_role = "router_simple" if complexity == "SIMPLE" else "main"
+            
+            # Seleção de modelo baseada no papel (Role) e complexidade
+            if complexity == "SIMPLE":
+                config.model = getattr(config, 'router_simple_model', None) or config.model
+            else:
+                # Para perguntas complexas sem cache, usamos o router_complex_model configurado
+                config.model = getattr(config, 'router_complex_model', None) or config.model
             
         print(f"🚀 [ROTEAMENTO DE CUSTO] Complexidade: {complexity}. Modelo selecionado: {config.model} (Papel: {active_role})")
 
@@ -242,7 +266,7 @@ async def process_message(
     strict_rules = (
         "\n\n### REGRA DE OURO (COMPORTAMENTO OBRIGATÓRIO):\n"
         "1. Seu 'CONHECIMENTO OFICIAL' é composto por: (a) SEU PRÓPRIO PROMPT DE SISTEMA (instruções/informações de produtos descritas acima neste prompt), (b) CONTEXTO RAG e (c) INSTRUÇÕES ADICIONAIS (Inbox). Se a informação estiver em QUALQUER um desses lugares, ou se houver informação correlacionada no prompt (como explicar sobre o aluguel quando questionado sobre compra do equipamento), você DEVE responder com confiança de forma contextual e informativa.\n"
-        "2. A ferramenta 'registrar_duvida_sem_resposta' DEVE ser chamada APENAS quando o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre dados ausentes e desconhecidos (ex: preços específicos ausentes, endereços não cadastrados, regras de negócio totalmente omissas). É PROIBIDO chamá-la para lidar com objeções, medos, inseguranças ou relatos do usuário — nesses casos, responda com empatia e com o conhecimento disponível.\n"
+        "2. A ferramenta 'registrar_duvida_sem_resposta' DEVE ser chamada APENAS quando o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre dados ausentes e desconhecidos (ex: preços específicos ausentes, endereços não cadastrados, regras de negócio totalmente omissas). É TERMINANTEMENTE PROIBIDO chamá-la para lidar com objeções, medos, inseguranças, relatos do usuário OU QUANDO O USUÁRIO ESTIVER APENAS RESPONDENDO A UMA PERGUNTA QUE VOCÊ FEZ (como fornecer seu e-mail, nome, telefone, cidade ou respostas de qualificação) — nesses casos, acolha o dado fornecido e prossiga com o atendimento/qualificação normalmente SEM acionar a ferramenta.\n"
         "3. É PROIBIDO inventar nomes, prazos ou políticas que não constem no seu PROMPT DE SISTEMA, RAG ou Inbox.\n"
         "4. **PROTOCOLO DE RESPOSTA DA FERRAMENTA 'registrar_duvida_sem_resposta' (OBRIGATÓRIO QUANDO ACIONADA):**\n"
         "   - **Dúvidas Múltiplas:** Se o usuário fez mais de uma pergunta na mesma mensagem e a Base de Conhecimento RAG ou o Prompt possui a resposta para uma delas, você DEVE OBRIGATORIAMENTE RESPONDER a essa dúvida no seu texto. É TERMINANTEMENTE PROIBIDO apagar, omitir ou ignorar a resposta existente só porque chamou a ferramenta para a outra dúvida!\n"
@@ -262,11 +286,34 @@ async def process_message(
         "   - O usuário pode simplesmente não ter tido tempo de tentar acessar ainda. Responda apenas de forma acolhedora parabenizando a compra/aviso (ex: \"Perfeito! Obrigado por avisar. Quando puder acessar, as aulas já estarão te esperando. Qualquer dúvida, estou à disposição! 😊\").\n"
         "   - A transferência para suporte humano só deve ocorrer se o usuário relatar um erro técnico explícito (ex: \"dá erro na senha\", \"link quebrado\", \"não recebi o e-mail\") OU se pedir explicitamente por atendente humano.\n"
         "9. 🚨 **TRANSFERÊNCIA AUTOMÁTICA POR DIFICULDADE RECORRENTE DE PAGAMENTO (TENTATIVAS >= 3):**\n"
-        "   - Se a mensagem atual ou o histórico do usuário indicar que ele já relatou 3 ou mais vezes que está enfrentando problemas para pagar ou comprar (ex: \"não consigo pagar\", \"erro no cartão\", \"consigo pagar por outro link?\", \"estou tentando pagar\", \"recusou o cartão\"), você DEVE OBRIGATORIAMENTE acionar a ferramenta `transferir_suporte_humano` com o motivo \"Dificuldade de pagamento\" para que o suporte humano o ajude a finalizar."
+        "   - Se a mensagem atual ou o histórico do usuário indicar que ele já relatou 3 ou mais vezes que está enfrentando problemas para pagar ou comprar (ex: \"não consigo pagar\", \"erro no cartão\", \"consigo pagar por outro link?\", \"estou tentando pagar\", \"recusou o cartão\"), você DEVE OBRIGATORIAMENTE acionar a ferramenta `transferir_suporte_humano` com o motivo \"Dificuldade de pagamento\" para que o suporte humano o ajude a finalizar.\n"
+        "10. 🚨 **POSTURA DIRETA EM 1ª PESSOA (PROIBIÇÃO ABSOLUTA DE MODO COPILOTO / 3ª PESSOA):**\n"
+        "   - Você é o ATENDENTE OFICIAL DA EMPRESA conversando DIRETAMENTE em 1ª pessoa com o cliente pelo WhatsApp.\n"
+        "   - É TERMINANTEMENTE PROIBIDO falar como um copiloto ou assistente interno que cria sugestões para um atendente humano copiar e colar (proibido usar prefixos como: 'Segue sugestão de resposta para enviar a...', 'Você pode responder:', 'Sugestão:', 'Diga a ele(a):').\n"
+        "   - Responda sempre diretamente para quem está falando com você: 'Olá! Tudo bem? Vi que você enviou...', 'Posso te ajudar com isso!', 'Como posso te ajudar?'.\n"
+        "11. 🖼️ **INTERPRETAÇÃO DE IMAGENS, COMPROVANTES E MÍDIAS ENVIADAS PELO CLIENTE:**\n"
+        "   - Quando o cliente enviar uma imagem (comprovante, foto de produto/defeito, print de erro ou criativo):\n"
+        "   - **Se for Comprovante de Pagamento (PIX / Transferência / Cartão):** Agradeça o envio, confirme de forma transparente os dados identificados no comprovante (ex: 'Recebi seu comprovante de R$ 197,00 em nome de [Favorecido]! Muito obrigado.') e informe que o pagamento está sendo validado para a liberação do acesso/pedido. NUNCA reenvie links de checkout se o cliente já enviou o comprovante de pagamento!\n"
+        "   - **Se for Foto de Produto / Equipamento / Defeito:** Acolha o cliente com empatia e postura consultiva, confirme o produto ou detalhe observado e pergunte como pode ajudá-lo com aquele item.\n"
+        "   - **Se for Print de Erro / Dúvida Técnica:** Explique de maneira clara o que a mensagem de erro significa e forneça a orientação passo a passo para resolução.\n"
+        "   - **Se for Anúncio / Criativo de Marketing:** Reconheça o tema principal da imagem de forma simpática, acolhedora e consultiva (ex: 'Olá! Vi que você enviou o print do nosso post sobre [tema do anúncio]. Quer entender como funciona a nossa solução para isso?'). NUNCA envie links de pagamento agressivos de supetão sem antes acolher e qualificar o interesse do lead.\n"
+        "12. 📱 **FORMATAÇÃO E ESPAÇAMENTO OBRIGATÓRIO PARA WHATSAPP (PROIBIDO TEXTÃO AMONTOADO):**\n"
+        "   - **PROIBIDO BLOCOS DENSOS COLADOS:** É TERMINANTEMENTE PROIBIDO enviar respostas amontoadas, cheias de tópicos colados sem quebras duplas de linha (ex: colar 8 linhas seguidas com Formato, Conteúdo, Bônus, Plataforma, Professora, Equipamento tudo num bloco maciço).\n"
+        "   - **ESPAÇAMENTO DUPLO ENTRE PARÁGRAFOS:** Sempre que você mudar de assunto, tópico, listar benefícios ou adicionar uma saudação/conclusão, você DEVE OBRIGATORIAMENTE pular uma linha em branco dupla (`\\n\\n`) entre os blocos.\n"
+        "   - **ESTILO NATURAL E LEVE:** Escreva como um humano de verdade conversa no WhatsApp: parágrafos curtos, fluidos, fáceis de ler no celular e direto ao ponto do que o cliente perguntou.\n"
+        "13. ☀️ **SAUDAÇÃO CORRESPONDENTE AO USUÁRIO (BOM DIA, BOA TARDE, BOA NOITE):**\n"
+        "   - Quando o usuário enviar uma saudação como 'Bom dia', 'Boa tarde', 'Boa noite', 'Oi' ou 'Olá', responda OBRIGATORIAMENTE correspondendo com a saudação temporal exata enviada ('Bom dia!', 'Boa tarde!' ou 'Boa noite!').\n"
+        "   - Em seguida, na mesma resposta, prossiga com a sua mensagem de apresentação, resposta de acolhimento ou pergunta de condução do atendimento.\n"
+        "   - É PROIBIDO responder com frases secas ou genéricas como 'Olá! Como posso te ajudar?' quando o usuário cumprimentar com 'Bom dia', 'Boa tarde' ou 'Boa noite'."
     )
     system_prompt += strict_rules
 
-    # --- INJEÇÃO DE PERGUNTAS DE QUALIFICAÇÃO DE LEAD ---
+    # --- DIRETRIZ PERSONALIZADA DE RESPOSTA PARA registrar_duvida_sem_resposta ---
+    custom_unanswered_prompt = getattr(config, 'unanswered_question_prompt', None)
+    if custom_unanswered_prompt and str(custom_unanswered_prompt).strip():
+        system_prompt += f"\n\n### 📝 DIRETRIZ PERSONALIZADA DE RESPOSTA AO REGISTRAR DÚVIDA:\nQuando você acionar a ferramenta `registrar_duvida_sem_resposta`, você DEVE OBRIGATORIAMENTE seguir esta instrução para formular sua resposta ao cliente:\n\"{str(custom_unanswered_prompt).strip()}\"\n"
+
+    # --- INJEÇÃO DE PERGUNTAS DE QUALIFICAÇÃO DE LEAD & SONDAÇÃO ESTRATÉGICA ---
     has_lead_qualified = any(t.name == "lead_qualificado" for t in tools) if tools else False
     raw_qq = getattr(config, 'qualification_questions', None)
     if raw_qq and has_lead_qualified:
@@ -276,27 +323,51 @@ async def process_message(
                 qq_lines = []
                 for i, q in enumerate(qq_list):
                     if isinstance(q, dict):
-                        text = q.get("text", "")
-                        instruction = q.get("instruction", "")
-                        line = f"{i+1}. {text}"
+                        title = q.get("title") or q.get("text") or f"Etapa {i+1}"
+                        instruction = q.get("prompt") or q.get("prompt_instruction") or q.get("instruction") or ""
+                        criteria = q.get("criteria") or q.get("completion_criteria") or ""
+                        line = f"{i+1}. [ETAPA: {title}]"
                         if instruction:
-                            line += f"\n   ↳ Instrução de validação para esta pergunta: {instruction}"
+                            line += f"\n   ↳ Objetivo / Prompt de Sondagem: {instruction}"
+                        if criteria:
+                            line += f"\n   ↳ Critério de Conclusão: {criteria}"
                     else:
                         line = f"{i+1}. {q}"
                     qq_lines.append(line)
                 qq_formatted = "\n".join(qq_lines)
                 system_prompt += (
-                    "\n\n🎯 **QUALIFICAÇÃO DE LEAD — PROTOCOLO OBRIGATÓRIO:**\n"
-                    "Você DEVE coletar as seguintes informações em sequência com o usuário:\n"
+                    "\n\n🎯 **QUALIFICAÇÃO DE LEAD & SONDAÇÃO ESTRATÉGICA — PROTOCOLO OBRIGATÓRIO:**\n"
+                    "Você deve conduzir o atendimento através do funil de qualificação abaixo, alcançando cada objetivo de forma 100% natural, fluida e consultiva:\n"
                     f"{qq_formatted}\n\n"
-                    "REGRAS INVIOLÁVEIS:\n"
-                    "- Faça UMA pergunta de qualificação por vez, aguarde a resposta antes de fazer a próxima.\n"
-                    "- Só avance para a próxima pergunta após receber a resposta da anterior.\n"
-                    "- Quando TODAS as respostas forem coletadas, chame IMEDIATAMENTE a ferramenta `lead_qualificado` passando todas as respostas.\n"
-                    "- Você PODE (e deve) responder a qualquer dúvida do usuário sobre o produto/serviço brevemente se ele perguntar, mas você deve OBRIGATORIAMENTE incluir a pergunta qualificatória pendente logo em seguida na mesma resposta.\n"
-                    "- Se o usuário tentar desviar do assunto sem fazer perguntas, redirecione de forma simpática e envie a pergunta de qualificação pendente.\n"
-                    "- Após chamar a ferramenta `lead_qualificado` e receber o retorno de sucesso, sua resposta final deve ser estritamente de conclusão e agradecimento simpático, sem repetir respostas ou detalhes sobre dúvidas que você já respondeu ou explicou em turnos anteriores do histórico."
+                    "REGRAS INVIOLÁVEIS DE ATENDIMENTO & TRATAMENTO DOS FLUXOS DO LEAD:\n"
+                    "1. 🧩 MENSAGEM COMPOSTA (O lead respondeu à pergunta anterior E fez uma nova dúvida):\n"
+                    "   - Você DEVE primeiro acolher a resposta dele e responder à nova dúvida com total clareza e precisão (usando a base de conhecimento/RAG).\n"
+                    "   - Em seguida, no mesmo turno, avance para a próxima etapa do funil conectando de forma fluida a pergunta do próximo objetivo.\n"
+                    "2. 💬 O LEAD APENAS RESPONDEU À SUA PERGUNTA ANTERIOR:\n"
+                    "   - Acolha e valide a resposta dele de forma simpática, e em seguida faça a pergunta da próxima etapa pendente.\n"
+                    "3. ❓ O LEAD FEZ UMA DÚVIDA / PERGUNTA TÉCNICA OU DE PREÇO ISOLADA:\n"
+                    "   - Priorize responder à dúvida do cliente com clareza para gerar confiança, e faça uma ponte natural para a etapa de qualificação pendente.\n"
+                    "4. 🚫 PROIBIDO USAR FRASES ROBÓTICAS OU ENGESSADAS:\n"
+                    "   - Não repita textos literais. Leia o 'Objetivo / Prompt de Sondagem' da etapa e formule a pergunta com suas próprias palavras, adaptando ao contexto exato do que foi conversado até agora.\n"
+                    "5. ⏳ UMA ETAPA POR VEZ:\n"
+                    "   - Trabalhe um objetivo de cada vez. Só avance para o próximo quando o lead tiver respondido à etapa atual.\n"
+                    "6. 🏁 FINALIZAÇÃO & ACIONAMENTO DA FERRAMENTA `lead_qualificado`:\n"
+                    "   - Quando TODAS as etapas forem respondidas, chame IMEDIATAMENTE a ferramenta `lead_qualificado` passando os dados coletados.\n"
+                    "   - ⚠️ TRATAMENTO OBRIGATÓRIO NA RESPOSTA FINAL:\n"
+                    "     a) Acolha e agradeça pelas informações enviadas pelo lead de forma calorosa e humana (ex: 'Perfeito, Aryaraj! Muito obrigado pelo seu e-mail.').\n"
+                    "     b) SE O LEAD FEZ UMA DÚVIDA NESTA MESMA MENSAGEM (ex: 'Como funciona?', preço, etc.): você DEVE OBRIGATORIAMENTE responder à dúvida dele com total clareza e detalhamento usando a base de conhecimento.\n"
+                    "     c) Conclua com entusiasmo e direcionamento para a oferta/fechamento.\n"
+                    "     d) 🚫 PROIBIDO dar respostas secas ou genéricas como 'Entendi. Qualquer dúvida, estou aqui.' quando o lead acabou de se qualificar ou fez uma pergunta."
                 )
+
+                final_action = getattr(config, 'qualification_final_action', None)
+                if final_action and final_action.strip():
+                    system_prompt += (
+                        f"\n7. 🎯 **AÇÃO / PERGUNTA FINAL DE FECHAMENTO PÓS-QUALIFICAÇÃO (OBRIGATÓRIO):**\n"
+                        f"   - Assim que TODAS as etapas de qualificação forem respondidas pelo lead (e a ferramenta `lead_qualificado` for acionada), você DEVE OBRIGATORIAMENTE formular a seguinte pergunta ou ação final de fechamento:\n"
+                        f"   ↳ DIRETRIZ DE FECHAMENTO / CTA: \"{final_action.strip()}\"\n"
+                        f"   - Conduza essa pergunta final de forma natural, calorosa e consultiva para converter o atendimento (ex: perguntando se pode enviar o link do curso, convidando para matrícula ou agendamento)."
+                    )
         except Exception as e:
             logger.error(f"Erro ao injetar perguntas de qualificação no prompt: {e}")
 
@@ -873,9 +944,9 @@ async def process_message(
             logger.error(f"Erro ao processar auditoria de IA no core: {e_audit}")
 
     # 7.1 Mensagem de Primeira Pergunta (Append)
-    # Se for a primeira mensagem da história e houver uma mensagem de pergunta configurada,
+    # Se for a primeira mensagem/resposta do assistente e houver uma mensagem de pergunta configurada,
     # anexamos ela ao final da resposta.
-    is_first_msg = not history or len(history) == 0
+    is_first_msg = not history or len(history) == 0 or not any((h.get('role') if isinstance(h, dict) else getattr(h, 'role', '')) == 'assistant' for h in history)
     init_q_msg = getattr(config, 'initial_question_message', None)
     question_mode = getattr(config, 'question_mode', 'panel')
     is_handoff = handoff_data.get("handoff", False) if isinstance(handoff_data, dict) else False
@@ -892,6 +963,10 @@ async def process_message(
             
         if not final_content.endswith(init_q_msg):
             final_content = f"{final_content}\n\n{init_q_msg}"
+
+    # 7.2 Formatação inteligente para WhatsApp (Garante espaçamento duplo limpo e impede texto amontoado)
+    if final_content and not is_handoff:
+        final_content = format_whatsapp_message(final_content)
     
     # 8. Memória (Auto-update se configurado)
     if db and session_id and last_response:

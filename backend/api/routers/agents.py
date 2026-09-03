@@ -87,13 +87,18 @@ async def create_agent(config: AgentConfig, db: AsyncSession = Depends(get_db), 
         qualification_questions=config.qualification_questions,
         qualification_labels=config.qualification_labels,
         qualification_criteria=config.qualification_criteria,
+        qualification_final_action=config.qualification_final_action,
+        unanswered_handoff_limit=config.unanswered_handoff_limit if config.unanswered_handoff_limit is not None else 2,
+        unanswered_question_prompt=config.unanswered_question_prompt,
         router_enabled=config.router_enabled,
         router_simple_model=config.router_simple_model,
         router_complex_model=config.router_complex_model,
         handoff_enabled=config.handoff_enabled,
         response_translation_enabled=config.response_translation_enabled,
         response_translation_fallback_lang=config.response_translation_fallback_lang or "portuguese",
-        tool_prompts=config.tool_prompts
+        tool_prompts=config.tool_prompts,
+        semantic_cache_enabled=config.semantic_cache_enabled if config.semantic_cache_enabled is not None else True,
+        semantic_cache_threshold=config.semantic_cache_threshold or 0.92
     )
 
     if config.tool_ids:
@@ -158,6 +163,8 @@ async def get_agent(agent_id: int, db: AsyncSession = Depends(get_db), _: None =
         rag_agentic_eval_enabled=a.rag_agentic_eval_enabled,
         rag_parent_expansion_enabled=a.rag_parent_expansion_enabled,
         rag_relevance_threshold=a.rag_relevance_threshold or 0.0,
+        semantic_cache_enabled=a.semantic_cache_enabled if a.semantic_cache_enabled is not None else True,
+        semantic_cache_threshold=a.semantic_cache_threshold or 0.92,
         tool_ids=[t.id for t in a.tools],
         simulated_time=a.simulated_time,
         security_competitor_blacklist=a.security_competitor_blacklist,
@@ -178,12 +185,13 @@ async def get_agent(agent_id: int, db: AsyncSession = Depends(get_db), _: None =
         initial_question_message=a.initial_question_message,
         initial_ignore_message=a.initial_ignore_message,
         inbox_capture_enabled=a.inbox_capture_enabled,
-        greeting_mode=a.greeting_mode or "panel",
+        greeting_mode=a.greeting_mode or "prompt",
         question_mode=a.question_mode or "panel",
         ad_mode=a.ad_mode or "panel",
         qualification_questions=a.qualification_questions,
         qualification_labels=a.qualification_labels,
         qualification_criteria=a.qualification_criteria,
+        qualification_final_action=a.qualification_final_action,
         router_enabled=a.router_enabled,
         router_simple_model=a.router_simple_model,
         router_complex_model=a.router_complex_model,
@@ -254,6 +262,10 @@ async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = De
     db_config.qualification_questions = config.qualification_questions
     db_config.qualification_labels = config.qualification_labels
     db_config.qualification_criteria = config.qualification_criteria
+    db_config.qualification_final_action = config.qualification_final_action
+    if config.unanswered_handoff_limit is not None:
+        db_config.unanswered_handoff_limit = config.unanswered_handoff_limit
+    db_config.unanswered_question_prompt = config.unanswered_question_prompt
     db_config.router_enabled = config.router_enabled
     db_config.router_simple_model = config.router_simple_model
     db_config.router_complex_model = config.router_complex_model
@@ -261,6 +273,10 @@ async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = De
     db_config.response_translation_enabled = config.response_translation_enabled
     db_config.response_translation_fallback_lang = config.response_translation_fallback_lang or "portuguese"
     db_config.tool_prompts = config.tool_prompts
+    if config.semantic_cache_enabled is not None:
+        db_config.semantic_cache_enabled = config.semantic_cache_enabled
+    if config.semantic_cache_threshold is not None:
+        db_config.semantic_cache_threshold = config.semantic_cache_threshold
 
     # Sync Tools
     if config.tool_ids is not None:
@@ -581,7 +597,7 @@ async def get_chatwoot_labels(
     agent_id: int,
     db: AsyncSession = Depends(get_db)
 ):
-    """Busca a lista de etiquetas disponíveis no Chatwoot associado ao agente, com fallback global."""
+    """Busca a lista de etiquetas disponíveis no ZapVoice/Chatwoot associado ao agente, com fallback."""
     from models import WebhookConfigModel, WebhookEventModel
     import httpx
     import os
@@ -593,7 +609,7 @@ async def get_chatwoot_labels(
         .limit(1)
     )
     wh = result.scalars().first()
-    if not wh or not wh.chatwoot_url or not wh.chatwoot_api_token:
+    if not wh or not wh.zapvoice_url:
         # Se não achou por agent_id, tentar buscar no secondary_agent_ids
         result_sec = await db.execute(
             select(WebhookConfigModel)
@@ -602,69 +618,79 @@ async def get_chatwoot_labels(
         )
         wh = result_sec.scalars().first()
 
-    # 2. Definir URL, Token e conta_id com fallback global
-    cw_url = None
-    api_token = None
-    account_id = None
+    # Se ainda não achou, pegar qualquer webhook configurado no banco com URL e Token como fallback global
+    if not wh or not wh.zapvoice_url:
+        result_any = await db.execute(
+            select(WebhookConfigModel)
+            .where(
+                WebhookConfigModel.zapvoice_url.isnot(None) & (WebhookConfigModel.zapvoice_url != "")
+            )
+            .order_by(WebhookConfigModel.id.desc())
+            .limit(1)
+        )
+        wh = result_any.scalars().first()
 
-    if wh and wh.chatwoot_url and wh.chatwoot_api_token:
-        cw_url = wh.chatwoot_url.rstrip("/")
-        api_token = wh.chatwoot_api_token
-    else:
-        cw_url = os.getenv("CHATWOOT_URL")
-        api_token = os.getenv("CHATWOOT_API_TOKEN")
-        account_id = os.getenv("CHATWOOT_ACCOUNT_ID")
-        if cw_url:
-            cw_url = cw_url.rstrip("/")
+    zv_url = None
+    zv_token = None
+    zv_client_id = None
 
-    if not cw_url or not api_token:
+    if wh:
+        zv_url = wh.zapvoice_url
+        zv_token = wh.zapvoice_api_token
+        zv_client_id = str(wh.zapvoice_client_id) if wh.zapvoice_client_id else None
+
+    # Fallback para variáveis de ambiente
+    if not zv_url:
+        zv_url = os.getenv("ZAPVOICE_URL") or os.getenv("CHATWOOT_URL")
+    if not zv_token:
+        zv_token = os.getenv("ZAPVOICE_API_TOKEN") or os.getenv("CHATWOOT_API_TOKEN")
+
+    if not zv_url or not zv_token:
         return []
 
-    # 3. Determinar account_id (último evento ou perfil ou padrão)
-    if not account_id:
-        if wh:
-            evt_result = await db.execute(
-                select(WebhookEventModel.conta_id)
-                .where(WebhookEventModel.webhook_config_id == wh.id)
-                .where(WebhookEventModel.conta_id.isnot(None))
-                .order_by(WebhookEventModel.created_at.desc())
-                .limit(1)
-            )
-            db_account_id = evt_result.scalar()
-            if db_account_id:
-                account_id = db_account_id
+    zv_url = zv_url.rstrip("/")
 
-        if not account_id:
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    prof_resp = await client.get(f"{cw_url}/api/v1/profile", headers={"api_access_token": api_token})
-                    if prof_resp.status_code == 200:
-                        profile_data = prof_resp.json()
-                        accounts = profile_data.get("accounts", [])
-                        if accounts:
-                            account_id = accounts[0].get("id")
-            except Exception as e:
-                logger.error(f"Erro ao buscar profile no Chatwoot para account_id: {e}")
-
-    if not account_id:
-        account_id = "1"
-
-    # 4. Buscar etiquetas
-    labels_url = f"{cw_url}/api/v1/accounts/{account_id}/labels"
+    # 1. Tentar ZapVoice primeiro (endpoint padrão /api/chat/labels)
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(labels_url, headers={"api_access_token": api_token})
+        zap_api_url = zv_url
+        if not zap_api_url.endswith("/api"):
+            zap_api_url = f"{zap_api_url}/api"
+
+        headers = {"Authorization": f"Bearer {zv_token}"}
+        if zv_client_id:
+            headers["X-Client-ID"] = zv_client_id
+
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+            resp = await client.get(f"{zap_api_url}/chat/labels", headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    labels = []
+                    for item in data:
+                        if isinstance(item, dict):
+                            title = item.get("name") or item.get("title") or item.get("label")
+                            if title:
+                                labels.append(title)
+                        elif isinstance(item, str):
+                            labels.append(item)
+                    if labels:
+                        return labels
+    except Exception as e:
+        logger.warning(f"Tentativa ZapVoice falhou ao buscar labels: {e}")
+
+    # 2. Fallback para Chatwoot nativo (/api/v1/accounts/{account_id}/labels)
+    try:
+        account_id = os.getenv("CHATWOOT_ACCOUNT_ID") or "1"
+        labels_url = f"{zv_url}/api/v1/accounts/{account_id}/labels"
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+            resp = await client.get(labels_url, headers={"api_access_token": zv_token})
             if resp.status_code == 200:
                 payload = resp.json()
-                # O Chatwoot retorna ou array direto ou objeto com "payload"
                 labels_data = payload.get("payload", payload) if isinstance(payload, dict) else payload
                 if isinstance(labels_data, list):
                     return [l.get("title") for l in labels_data if isinstance(l, dict) and l.get("title")]
-                return []
-            else:
-                logger.error(f"Erro ao buscar labels do Chatwoot: Status {resp.status_code} - {resp.text}")
-                return []
     except Exception as e:
-        logger.error(f"Exceção ao buscar labels do Chatwoot: {e}")
-        return []
+        logger.error(f"Erro ao buscar labels no Chatwoot fallback: {e}")
+
+    return []
 

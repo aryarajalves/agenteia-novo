@@ -10,9 +10,9 @@ import sys
 # Adicionar o diretório backend ao path para importar nossos módulos
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# Importar Base e models para autogenerate funcionar
+# Importar Base e models para autogenerate funcionar com 100% dos modelos
 from database import Base
-from models import InteractionLog, AgentConfigModel, ToolModel
+import models  # Garante o carregamento de todas as entidades ORM no Base.metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -23,8 +23,12 @@ from dotenv import load_dotenv
 load_dotenv()
 database_url = os.getenv('DATABASE_URL')
 if database_url:
-    # Alembic precisa de driver síncrono, converter asyncpg para psycopg2
-    database_url = database_url.replace('postgresql+asyncpg://', 'postgresql+psycopg2://')
+    # Alembic precisa de driver síncrono, converter drivers assíncronos
+    database_url = (
+        database_url
+        .replace('postgresql+asyncpg://', 'postgresql+psycopg2://')
+        .replace('sqlite+aiosqlite://', 'sqlite://')
+    )
     config.set_main_option('sqlalchemy.url', database_url)
 
 # Interpret the config file for Python logging.

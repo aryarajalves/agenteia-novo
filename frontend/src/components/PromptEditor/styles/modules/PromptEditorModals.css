@@ -1,0 +1,209 @@
+/* PromptEditor Fullscreen Overrides and Draft Modal */
+n/* Global Fullscreen Overrides */
+:global(body.prompt-fullscreen-active) .sidebar,
+:global(body.prompt-fullscreen-active) .config-header,
+:global(body.prompt-fullscreen-active) .tab-navigation,
+:global(body.prompt-fullscreen-active) .config-footer {
+    display: none !important;
+}
+
+:global(body.prompt-fullscreen-active) .main-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+}
+
+:global(body.prompt-fullscreen-active) .content-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* For non-CSS-Modules environments */
+body.prompt-fullscreen-active .sidebar,
+body.prompt-fullscreen-active .config-header,
+body.prompt-fullscreen-active .tab-navigation,
+body.prompt-fullscreen-active .config-footer,
+body.prompt-fullscreen-active .section-label,
+body.prompt-fullscreen-active .guide-btn,
+body.prompt-fullscreen-active .temporal-config-box,
+body.prompt-fullscreen-active .prompt-subtabs {
+    display: none !important;
+}
+
+body.prompt-fullscreen-active .main-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+}
+
+body.prompt-fullscreen-active .content-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+body.prompt-fullscreen-active .config-panel-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    height: 100vh !important;
+}
+
+/* Modal Open - Blur & Sidebar Hide */
+
+
+
+body.modal-open-blur .guide-modal-overlay {
+    background: rgba(0, 0, 0, 0.8) !important;
+    backdrop-filter: blur(8px);
+    z-index: 2147483647 !important;
+}
+
+/* Draft Modal Styles - Full Screen Coverage */
+.draft-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(2, 6, 23, 0.85);
+    backdrop-filter: blur(15px);
+    z-index: 999999999; /* Higher than system sidebar */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+/* Hide Advisor when saving draft to focus */
+body.modal-open-blur .prompt-advisor-wrapper {
+    display: none !important;
+}
+
+.draft-modal-card {
+    background: #0f172a;
+    width: 100%;
+    max-width: 500px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: modalSlideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalSlideUp {
+    from { opacity: 0; transform: translateY(20px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.draft-modal-card .modal-header {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.draft-modal-card .modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: white;
+}
+
+.draft-modal-card .modal-header .close-x {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 1.5rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.draft-modal-card .modal-header .close-x:hover {
+    color: white;
+}
+
+.draft-modal-card .modal-body {
+    padding: 2rem;
+}
+
+.draft-modal-card .modal-footer {
+    padding: 1.5rem 2rem;
+    background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+}
+
+.draft-modal-card .form-group label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #94a3b8;
+    margin-bottom: 0.5rem;
+}
+
+.draft-modal-card .form-group input,
+.draft-modal-card .form-group textarea {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    color: white;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+}
+
+.draft-modal-card .form-group input:focus,
+.draft-modal-card .form-group textarea:focus {
+    border-color: #6366f1;
+    background: rgba(0, 0, 0, 0.3);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.draft-modal-card .secondary-btn {
+    padding: 0.75rem 1.5rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #cbd5e1;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.draft-modal-card .secondary-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.draft-modal-card .primary-btn {
+    padding: 0.75rem 2rem;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    border: none;
+    color: white;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.draft-modal-card .primary-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 15px rgba(99, 102, 241, 0.4);
+}
+
+.draft-modal-card .primary-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+

@@ -1,0 +1,92 @@
+/* === Training Loading Overlay (Bloqueante) === */
+.training-loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.95);
+    backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20000;
+    animation: fadeIn 0.2s ease;
+}
+
+.training-loading-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 40px;
+    text-align: center;
+}
+
+/* Anel de loading (4 bordas animadas) */
+.training-loading-ring {
+    display: inline-block;
+    position: relative;
+    width: 72px;
+    height: 72px;
+}
+
+.training-loading-ring div {
+    box-sizing: border-box;
+    display: block;
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    margin: 6px;
+    border: 5px solid transparent;
+    border-radius: 50%;
+    animation: ring-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+    border-top-color: #a855f7;
+}
+
+.training-loading-ring div:nth-child(1) { animation-delay: -0.45s; border-top-color: #d946ef; }
+.training-loading-ring div:nth-child(2) { animation-delay: -0.3s;  border-top-color: #8b5cf6; }
+.training-loading-ring div:nth-child(3) { animation-delay: -0.15s; border-top-color: #6366f1; }
+
+@keyframes ring-spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.training-loading-title {
+    color: white;
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.training-loading-desc {
+    color: #64748b;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    max-width: 380px;
+    margin: 0;
+}
+
+/* Dots pulsantes */
+.training-loading-dots {
+    display: flex;
+    gap: 8px;
+}
+
+.training-loading-dots span {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #a855f7;
+    animation: dot-pulse 1.4s ease-in-out infinite;
+}
+
+.training-loading-dots span:nth-child(2) { animation-delay: 0.2s; background: #8b5cf6; }
+.training-loading-dots span:nth-child(3) { animation-delay: 0.4s; background: #6366f1; }
+
+@keyframes dot-pulse {
+    0%, 80%, 100% { transform: scale(0.7); opacity: 0.5; }
+    40%            { transform: scale(1.1); opacity: 1; }
+}

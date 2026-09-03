@@ -1,21 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from agent_core.core import process_message
+from agent_core.logic.pre_router import run_pre_router_ai
 from config_store import AgentConfig
-
-class MockMessage:
-    def __init__(self, content):
-        self.content = content
-        self.tool_calls = None
-
-class MockChoice:
-    def __init__(self, content):
-        self.message = MockMessage(content)
-
-class MockResponse:
-    def __init__(self, content):
-        self.choices = [MockChoice(content)]
-        self.usage = MagicMock(prompt_tokens=5, completion_tokens=5)
 
 @pytest.fixture
 def mock_config():
@@ -24,102 +10,46 @@ def mock_config():
         name="Test Agent",
         system_prompt="You are a test agent.",
         model="gpt-4o-mini",
-        router_enabled=False,
+        router_enabled=True,
         date_awareness=False,
-        handoff_enabled=False
+        handoff_enabled=False,
+        context_window=3
     )
 
 @pytest.mark.asyncio
-async def test_process_message_uses_pre_router_memory(mock_config):
-    message = "Hello"
-    history = []
+async def test_pre_router_formats_mensagens_origem_memorias_respecting_context_window(mock_config):
+    history = [
+        {"role": "user", "content": "msg 1"},
+        {"role": "assistant", "content": "resp 1"},
+        {"role": "user", "content": "msg 2"},
+        {"role": "assistant", "content": "resp 2"},
+        {"role": "user", "content": "msg 3"},
+        {"role": "assistant", "content": "resp 3"},
+        {"role": "user", "content": "msg 4"},
+        {"role": "assistant", "content": "resp 4"}
+    ]
     
-    # Simula o pre-router retornando resumo_memorias
-    mock_pre_router_result = {
-        "eh_saudacao": False,
-        "id_agente_alvo": 1,
-        "perguntas_extraidas": "Hello",
-        "resumo_memorias": "Usuario gosta de cafe. Agente sugeriu expresso."
-    }
-    
-    with patch("agent_core.core.get_openai_client") as mock_get_client, \
-         patch("agent_core.core.run_pre_router_ai", new_callable=AsyncMock) as mock_pre_router:
-         
-        mock_pre_router.return_value = mock_pre_router_result
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        
-        mock_client.chat.completions.create = AsyncMock(return_value=MockResponse("Hi there!"))
-        
-        # Mock do DB session
-        mock_db = MagicMock()
-        
-        # Executa a função passando o db e session_id
-        await process_message(
-            message=message,
-            history=history,
-            config=mock_config,
-            context_variables={"session_id": "session_123"},
-            db=mock_db
-        )
-        
-        # Verifica se o OpenAI client foi chamado e o messages contém a memória injetada do pre-router
-        mock_client.chat.completions.create.assert_called_once()
-        called_args = mock_client.chat.completions.create.call_args[1]
-        called_messages = called_args["messages"]
-        
-        # O segundo elemento (index 1) deve conter a memória injetada do pre-router
-        assert any(
-            "RESUMO DAS MEMÓRIAS DO USUÁRIO E AGENTE" in msg.get("content", "") and 
-            "Usuario gosta de cafe. Agente sugeriu expresso." in msg.get("content", "")
-            for msg in called_messages if isinstance(msg, dict) and msg.get("role") == "system"
-        )
+    mock_llm_json = '{"eh_saudacao": false, "eh_agradecimento": false, "eh_mensagem_automatica": false, "precisa_esclarecimento": false, "resposta_esclarecimento": null, "id_agente_alvo": 1, "perguntas_extraidas": "msg 5", "lista_perguntas_extraidas": ["msg 5"], "precisa_rag": true, "chamada_ferramenta": null}'
+    mock_choice = MagicMock()
+    mock_choice.message.content = mock_llm_json
+    mock_response = MagicMock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
 
-@pytest.mark.asyncio
-async def test_process_message_uses_db_fallback_memory(mock_config):
-    message = "Hello"
-    history = []
-    
-    with patch("agent_core.core.get_openai_client") as mock_get_client, \
-         patch("agent_core.core.run_pre_router_ai", new_callable=AsyncMock) as mock_pre_router:
-         
-        mock_pre_router.return_value = {
-            "eh_saudacao": False,
-            "id_agente_alvo": 1,
-            "perguntas_extraidas": "Hello",
-            "resumo_memorias": None
-        }
-        
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        mock_client.chat.completions.create = AsyncMock(return_value=MockResponse("Hi there!"))
-        
-        # Usamos spec=AsyncSession para que isinstance(mock_db, AsyncSession) seja True
-        from sqlalchemy.ext.asyncio import AsyncSession as RealAsyncSession
-        mock_db = AsyncMock(spec=RealAsyncSession)
-        mock_summary = MagicMock()
-        mock_summary.summary_text = "Resumo persistido do banco."
-        
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.first.return_value = mock_summary
-        mock_db.execute.return_value = mock_result
-        
-        await process_message(
-            message=message,
-            history=history,
-            config=mock_config,
-            context_variables={"session_id": "session_123"},
-            db=mock_db
-        )
-        
-        mock_client.chat.completions.create.assert_called_once()
-        called_args = mock_client.chat.completions.create.call_args[1]
-        called_messages = called_args["messages"]
-        print("DEBUG CALLED MESSAGES:", called_messages)
-        
-        assert any(
-            "RESUMO DAS MEMÓRIAS DO USUÁRIO E AGENTE (BANCO DE DADOS)" in msg.get("content", "") and 
-            "Resumo persistido do banco." in msg.get("content", "")
-            for msg in called_messages if isinstance(msg, dict) and msg.get("role") == "system"
-        )
+    with patch("openai.AsyncOpenAI") as mock_openai:
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+        mock_openai.return_value = mock_client
 
+        with patch("os.getenv", return_value="fake-api-key"):
+            res = await run_pre_router_ai("msg 5", history, mock_config, [])
+            
+            # Deve respeitar context_window=3 (máximo 3 do usuário e 3 do assistente mais recentes)
+            memorias = res.get("mensagens_origem_memorias", [])
+            assert len(memorias) == 6
+            assert "Usuário: msg 2" in memorias[0]
+            assert "Agente: resp 2" in memorias[1]
+            assert "Usuário: msg 3" in memorias[2]
+            assert "Agente: resp 3" in memorias[3]
+            assert "Usuário: msg 4" in memorias[4]
+            assert "Agente: resp 4" in memorias[5]

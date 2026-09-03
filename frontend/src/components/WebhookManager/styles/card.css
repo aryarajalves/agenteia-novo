@@ -133,15 +133,16 @@
 
 .info-item {
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .info-label {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--wh-text-muted);
   text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .info-value-code {

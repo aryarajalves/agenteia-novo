@@ -1,0 +1,149 @@
+/* KnowledgeBaseManager Edit Item Modal and Vector Section */
+
+.kb-edit-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(7, 10, 19, 0.85);
+    backdrop-filter: blur(16px);
+    z-index: 10000000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: modalFadeInKb 0.25s ease-out;
+}
+
+.kb-edit-modal-card {
+    background: linear-gradient(145deg, #161d2f 0%, #0f172a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 28px;
+    width: 100%;
+    max-width: 760px;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 50px 120px -30px rgba(0, 0, 0, 0.9);
+    animation: modalPopKb 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.kb-edit-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.75rem 2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kb-edit-modal-header h3 {
+    margin: 0;
+    color: white;
+    font-size: 1.2rem;
+    font-weight: 800;
+}
+
+.kb-edit-modal-body {
+    padding: 1.75rem 2rem;
+    overflow-y: auto;
+}
+
+.kb-edit-modal-footer {
+    display: flex;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kb-edit-modal-cancel-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #94a3b8;
+    padding: 0.9rem 1.5rem;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.kb-edit-modal-cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: white;
+}
+
+@keyframes modalFadeInKb { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalPopKb { from { opacity: 0; transform: scale(0.95) translateY(30px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+.kb-vector-section {
+    margin-top: 1.75rem;
+    padding: 1.25rem 1.5rem;
+    background: rgba(99, 102, 241, 0.04);
+    border: 1px solid rgba(99, 102, 241, 0.15);
+    border-radius: 14px;
+}
+
+.kb-vector-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+}
+
+.kb-vector-badge {
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+    font-size: 0.7rem;
+    font-weight: 800;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.kb-vector-empty {
+    color: #64748b;
+    font-size: 0.8rem;
+    font-style: italic;
+}
+
+.kb-vector-preview {
+    background: #020617;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    color: #94a3b8;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    line-height: 1.6;
+    max-height: 180px;
+    overflow-y: auto;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.kb-vector-toggle {
+    background: none;
+    border: none;
+    color: #818cf8;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    margin-top: 0.6rem;
+}
+
+.kb-vector-toggle:hover {
+    color: #a5b4fc;
+    text-decoration: underline;
+}
+
+.kb-vector-note {
+    margin: 0.85rem 0 0;
+    color: #64748b;
+    font-size: 0.75rem;
+    line-height: 1.5;
+}
+

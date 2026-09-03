@@ -208,13 +208,46 @@ async def process_media_content(url: str, message_type: str, api_key: str, chatw
             # Codificar imagem em base64
             image_b64 = base64.b64encode(media_data).decode('utf-8')
             
+            vision_prompt = (
+                "Você é um especialista em análise visual para um assistente inteligente de atendimento, suporte e vendas no WhatsApp.\n"
+                "Sua função é analisar a imagem enviada pelo cliente e extrair os dados e o contexto de forma estruturada e precisa, "
+                "permitindo que o assistente de IA converse diretamente com o cliente em 1ª pessoa no WhatsApp com total clareza.\n\n"
+                "Classifique e formate a descrição no seguinte padrão:\n\n"
+                "- TIPO DE IMAGEM: [Comprovante de Pagamento/PIX, Foto de Produto/Equipamento/Defeito, Print de Erro/Dúvida Técnica, Anúncio/Criativo de Marketing, ou Imagem Geral]\n\n"
+                "Se for COMPROVANTE DE PAGAMENTO / PIX / TRANSFERÊNCIA:\n"
+                "  • VALOR: [R$ Valor identificado no comprovante]\n"
+                "  • FAVORECIDO / BENEFICIÁRIO: [Nome de quem recebeu o pagamento]\n"
+                "  • PAGADOR: [Nome do pagador, se visível]\n"
+                "  • DATA E HORA: [Data e horário da transação]\n"
+                "  • AUTENTICAÇÃO / ID: [Código de autenticação, ID da transação ou protocolo]\n"
+                "  • STATUS VISÍVEL: [Confirmado / Processando / Agendado / Falha]\n"
+                "  • ORIENTAÇÃO AO AGENTE: Confirmar o recebimento do comprovante com o cliente, citar o valor/favorecido de forma transparente e informar que o pagamento está sendo validado/liberado.\n\n"
+                "Se for FOTO DE PRODUTO / EQUIPAMENTO / DEFEITO:\n"
+                "  • PRODUTO / PEÇA: [Identificação do produto ou equipamento visível]\n"
+                "  • MARCA / MODELO: [Marca ou modelo se estiver visível no rótulo/chassi]\n"
+                "  • ESTADO / DEFEITO VISÍVEL: [Descrição visual do estado, avaria, desgaste ou peça em questão]\n"
+                "  • ORIENTAÇÃO AO AGENTE: Acolher o cliente de forma consultiva, confirmar o produto/problema observado e perguntar como pode ajudar.\n\n"
+                "Se for PRINT DE ERRO / DÚVIDA TÉCNICA:\n"
+                "  • MENSAGEM DE ERRO EXATA: [Transcreva o texto exato da mensagem de erro ou aviso exibido na tela]\n"
+                "  • SISTEMA / TELA: [Qual sistema, aplicativo ou tela está aberta]\n"
+                "  • ORIENTAÇÃO AO AGENTE: Explicar o motivo do erro com empatia e fornecer o passo a passo ou orientação de suporte para resolução.\n\n"
+                "Se for ANÚNCIO / CRIATIVO DE MARKETING:\n"
+                "  • TEMA / HEADLINE PRINCIPAL: [O texto, manchete ou gancho em destaque no anúncio]\n"
+                "  • OFERTA / PROMESSA: [Resumo do produto/serviço ofertado]\n"
+                "  • ORIENTAÇÃO AO AGENTE: Puxar conversa amigável e consultiva sobre o tema do criativo em 1ª pessoa, sem forçar venda imediata.\n\n"
+                "Se for IMAGEM GERAL:\n"
+                "  • DESCRIÇÃO DOS ELEMENTOS: [Resumo objetivo do que está visível]\n"
+                "  • ORIENTAÇÃO AO AGENTE: Responder com cordialidade referenciando a imagem recebida.\n\n"
+                "NUNCA fale em 3ª pessoa ou aja como copiloto/assistente interno. O assistente usará esses dados para falar diretamente com o cliente."
+            )
+            
             response = await client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": "Descreva o que você vê nesta imagem de forma detalhada para que um assistente de IA possa entender o contexto da conversa."},
+                            {"type": "text", "text": vision_prompt},
                             {
                                 "type": "image_url",
                                 "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}

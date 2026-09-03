@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useConfig } from '../ConfigContext';
 import HabilidadesGuideModal from './Modals/HabilidadesGuideModal';
+import UnansweredQuestionsConfigSection from './UnansweredQuestionsConfigSection';
 
 const TabHabilidades = () => {
     const {
@@ -391,6 +392,9 @@ const TabHabilidades = () => {
                             </div>
                         </div>
                     )}
+
+                    {/* Configuração de Dúvidas Sem Resposta & Transbordo Humano */}
+                    <UnansweredQuestionsConfigSection />
                 </div>
             )}
         </div>

@@ -6,7 +6,10 @@ import ConfigPanel from '../../components/ConfigPanel';
 // Mocking dependencies to focus on style rendering
 vi.mock('../../api/client', () => ({
     api: {
-        get: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
+        get: vi.fn(() => Promise.resolve({ 
+            ok: true, 
+            json: () => Promise.resolve({ id: '1', name: 'Agente Teste', model: 'gpt-4o' }) 
+        })),
         post: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
         put: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
     }
@@ -22,7 +25,7 @@ describe('ConfigPanel Alignment', () => {
             </MemoryRouter>
         );
         
-        const promptsTab = screen.getByText(/Prompts & Identidade/i);
+        const promptsTab = await screen.findByRole('button', { name: /Editor Prompt/i });
         expect(promptsTab).toBeDefined();
     });
 });

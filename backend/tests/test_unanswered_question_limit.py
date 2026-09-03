@@ -82,9 +82,16 @@ async def test_process_message_with_unanswered_question_handoff_generates_respon
         "session_id": "session_loop_test_456"
     }
 
+    # Criar agente no banco de teste para satisfazer a chave estrangeira
+    agent_db_1 = AgentConfigModel(name="Agente Teste Loop", is_active=True)
+    db_session.add(agent_db_1)
+    await db_session.commit()
+    await db_session.refresh(agent_db_1)
+    agent_cfg.id = agent_db_1.id
+
     # Pré-criar 1 dúvida no banco para que a chamada no teste seja a 2ª (ativando o handoff)
     new_q = UnansweredQuestionModel(
-        agent_id=99,
+        agent_id=agent_db_1.id,
         session_id="5511988882222",
         question="Primeira dúvida não respondida",
         context="contexto prévio",
@@ -176,9 +183,16 @@ async def test_process_message_with_unanswered_question_fallback_on_empty(db_ses
         "session_id": "session_fallback_test_789"
     }
 
+    # Criar agente no banco de teste para satisfazer a chave estrangeira
+    agent_db_2 = AgentConfigModel(name="Agente Teste Fallback", is_active=True)
+    db_session.add(agent_db_2)
+    await db_session.commit()
+    await db_session.refresh(agent_db_2)
+    agent_cfg.id = agent_db_2.id
+
     # Pré-criar 1 dúvida no banco
     new_q = UnansweredQuestionModel(
-        agent_id=99,
+        agent_id=agent_db_2.id,
         session_id="5511977773333",
         question="Dúvida prévia 1",
         context="contexto prévio",
@@ -245,3 +259,74 @@ async def test_process_message_with_unanswered_question_fallback_on_empty(db_ses
         assert result["content"] != ""
         assert "transferi seu atendimento para nossa equipe especializada" in result["content"]
         assert result["handoff_data"]["handoff"] is True
+
+
+@pytest.mark.asyncio
+async def test_unanswered_question_disabled_handoff_never_transfers(db_session: AsyncSession):
+    """Testa que quando unanswered_handoff_limit=0 (ou None/desativado), NUNCA ocorre transferência automática para suporte humano."""
+    agent = AgentConfigModel(name="Agente Sem Handoff", is_active=True, unanswered_handoff_limit=0)
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    context_vars = {
+        "contact_phone": "5511911112222",
+        "contact_name": "Cliente Sem Handoff",
+        "session_id": "session_no_handoff_001"
+    }
+    history = [{"role": "user", "content": "Pergunta 1?"}]
+
+    # Simular 4 dúvidas não respondidas consecutivas
+    for i in range(1, 5):
+        args = json.dumps({"pergunta": f"Pergunta sem resposta {i}?"})
+        res = await handle_unanswered_question(db_session, context_vars, args, history, agent.id)
+        assert "AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO" not in res
+        assert "Dúvida registrada" in res
+
+    # Verificar que 4 dúvidas foram salvas mas NENHUM SupportRequestModel foi criado
+    q_count = await db_session.execute(
+        select(UnansweredQuestionModel).where(UnansweredQuestionModel.session_id == "5511911112222")
+    )
+    assert len(q_count.scalars().all()) == 4
+
+    support_count = await db_session.execute(
+        select(SupportRequestModel).where(SupportRequestModel.contact_phone == "5511911112222")
+    )
+    assert len(support_count.scalars().all()) == 0
+
+
+@pytest.mark.asyncio
+async def test_unanswered_question_custom_limit_and_prompt(db_session: AsyncSession):
+    """Testa que quando unanswered_handoff_limit=3, transfere apenas na 3ª vez e injeta unanswered_question_prompt."""
+    agent = AgentConfigModel(
+        name="Agente Limite 3",
+        is_active=True,
+        unanswered_handoff_limit=3,
+        unanswered_question_prompt="Avise que a coordenação pedagógica responderá por aqui em breve."
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    context_vars = {
+        "contact_phone": "5511933334444",
+        "contact_name": "Cliente Limite 3",
+        "session_id": "session_limit_3_001"
+    }
+    history = [{"role": "user", "content": "Pergunta teste"}]
+
+    # 1ª chamada: deve conter a diretriz personalizada e não transferir
+    res_1 = await handle_unanswered_question(db_session, context_vars, json.dumps({"pergunta": "Dúvida 1"}), history, agent.id)
+    assert "Avise que a coordenação pedagógica responderá por aqui em breve." in res_1
+    assert "AUTOMATICAMENTE TRANSFERIDO" not in res_1
+
+    # 2ª chamada: deve conter a diretriz e ainda não transferir
+    res_2 = await handle_unanswered_question(db_session, context_vars, json.dumps({"pergunta": "Dúvida 2"}), history, agent.id)
+    assert "Avise que a coordenação pedagógica responderá por aqui em breve." in res_2
+    assert "AUTOMATICAMENTE TRANSFERIDO" not in res_2
+
+    # 3ª chamada: atingiu o limite de 3 -> deve acionar o transbordo para suporte humano!
+    res_3 = await handle_unanswered_question(db_session, context_vars, json.dumps({"pergunta": "Dúvida 3"}), history, agent.id)
+    assert "O limite de 3 dúvida(s) sem resposta foi atingido nesta conversa" in res_3
+    assert "AUTOMATICAMENTE TRANSFERIDO PARA O SUPORTE HUMANO" in res_3
+

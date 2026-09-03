@@ -11,12 +11,14 @@ def test_followup_respects_label_pause():
     """
     mock_db = MagicMock()
     
-    # 1. Mock das configs
-    # id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_bh, agent_id, ignore_label
-    mock_config = (1, "leads_test", "https://cw.test", "token", json.dumps([{"delay_minutes": 30}]), "{}", 1, "humano")
+    # 1. Mock das configs (15 colunas esperadas)
+    mock_config = (
+        1, "leads_test", "https://cw.test", "token", json.dumps([{"delay_minutes": 30, "type": "fixed", "fixed_message": "Followup"}]),
+        "{}", 1, "humano", None, None, None, None, None, None, None
+    )
     
-    # Due leads: id, conta_id, conversa_id, telefone, nome, ultima_msg_em
-    mock_lead = (10, "1", "100", "5511999999999", "Cliente", datetime.utcnow() - timedelta(minutes=40))
+    # Due leads: id, conta_id, conversa_id, telefone, nome, ref_time, lead_msg, agent_resp, lead_labels_raw
+    mock_lead = (10, "1", "100", "5511999999999", "Cliente", datetime.utcnow() - timedelta(minutes=40), None, None, "[]")
 
     mock_db.execute.return_value.fetchall.side_effect = [
         [mock_config], # Configs

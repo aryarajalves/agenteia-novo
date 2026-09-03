@@ -19,8 +19,8 @@ async def create_config(db: AsyncSession, token: str):
         leads_table="leads",
         is_active=True,
         delay_seconds=0,
-        chatwoot_url=None,
-        chatwoot_api_token=None,
+        zapvoice_url=None,
+        zapvoice_api_token=None,
     )
     db.add(config)
     await db.commit()
@@ -34,8 +34,8 @@ async def create_config_with_table(db: AsyncSession, token: str, table_name: str
         leads_table=table_name,
         is_active=True,
         delay_seconds=0,
-        chatwoot_url=None,
-        chatwoot_api_token=None,
+        zapvoice_url=None,
+        zapvoice_api_token=None,
     )
     db.add(config)
     await db.commit()
@@ -155,12 +155,14 @@ async def test_receive_webhook_outgoing_extracts_correct_sender(client, db_sessi
         await conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
 
 @pytest.mark.asyncio
-async def test_webhook_debounce_grouping_only_if_waiting(client, db_session, monkeypatch, respx_mock: MockRouter):
+async def test_webhook_debounce_grouping_only_if_waiting(client, db_session, monkeypatch, respx_mock: MockRouter, mocker):
     # Descartar conexões do pool global da aplicação para garantir snapshots limpos
     try:
         await global_engine.dispose()
     except TypeError:
         global_engine.dispose()
+
+    mocker.patch("webhooks.receiver.process_webhook_automation.apply_async")
 
     # Set environment variables
     monkeypatch.setenv("CHATWOOT_URL", "https://example.chatwoot.com")
@@ -173,9 +175,18 @@ async def test_webhook_debounce_grouping_only_if_waiting(client, db_session, mon
 
     # Limpar qualquer debounce residual no Redis para o número de teste
     import redis as redis_lib
-    _redis = redis_lib.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"), decode_responses=True)
-    _redis.delete("webhook:debounce:id:999:+5511999999999")
-    _redis.delete("webhook:debounce:text:999:+5511999999999")
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6382/0")
+    try:
+        _redis = redis_lib.from_url(redis_url, decode_responses=True)
+        _redis.ping()
+    except Exception:
+        _redis = redis_lib.from_url("redis://localhost:6382/0", decode_responses=True)
+        
+    try:
+        _redis.delete("webhook:debounce:id:999:+5511999999999")
+        _redis.delete("webhook:debounce:text:999:+5511999999999")
+    except Exception:
+        pass
 
     # Criar uma config de webhook com delay_seconds = 10 para ativar agrupamento
     from models import WebhookConfigModel
@@ -186,8 +197,8 @@ async def test_webhook_debounce_grouping_only_if_waiting(client, db_session, mon
         leads_table="leads",
         is_active=True,
         delay_seconds=10,
-        chatwoot_url=None,
-        chatwoot_api_token=None,
+        zapvoice_url=None,
+        zapvoice_api_token=None,
     )
     db_session.add(config)
     await db_session.commit()

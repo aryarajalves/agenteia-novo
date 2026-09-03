@@ -1,15 +1,48 @@
-venv/
+# Cache do Python e Compilação
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
+
+# Ambientes Virtuais
+venv/
 env/
-bin/
-lib/
-include/
-dist/
-build/
+ENV/
+.venv/
+
+# Testes e Cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Variáveis de Ambiente e Segredos (NUNCA entrar na imagem)
 .env
-api_test_output.txt
-gunicorn.ctl
+.env.*
+!.env.example
+
+# Bancos de Dados Locais
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs e Arquivos Temporários
+*.log
+logs/
+tmp/
+debug/
+
+# Documentação e Markdown
+*.md
+*.txt
+!requirements.txt
+!.gitkeep
+
+# Git e IDEs
+.git/
+.gitignore
+.cursor/
+.cursorrules
+.vscode/
+.idea/

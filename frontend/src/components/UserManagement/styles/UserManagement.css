@@ -35,14 +35,14 @@
   text-align: left;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
-.user-row {
+.users-table .user-row {
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   transition: background 0.2s;
 }
-.user-row:hover {
+.users-table .user-row:hover {
   background: rgba(255, 255, 255, 0.015);
 }
-.user-row td {
+.users-table .user-row td {
   padding: 1.5rem;
   vertical-align: middle;
 }

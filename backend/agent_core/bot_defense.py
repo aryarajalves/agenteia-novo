@@ -42,7 +42,10 @@ async def verify_bot_defense(db, event, config, agent_config, session_id, messag
     import webhook_tasks
     
     # 1. Checagem de limite máximo de mensagens por sessão
-    max_msgs = getattr(agent_config, 'security_max_messages_per_session', 20) or 20
+    max_msgs = getattr(agent_config, 'security_max_messages_per_session', 20)
+    if not isinstance(max_msgs, int) or max_msgs <= 0:
+        max_msgs = 20
+        
     try:
         total_session_msgs = db.query(InteractionLog).filter(
             InteractionLog.session_id == session_id
@@ -60,11 +63,13 @@ async def verify_bot_defense(db, event, config, agent_config, session_id, messag
         logger.error(f"Erro ao verificar limite de mensagens no Bot Defense: {e_limit}")
 
     # 2. Checagem de loop semântico (mensagens repetitivas do usuário)
-    loop_count = getattr(agent_config, 'security_loop_count', 3) or 3
-    if loop_count <= 1:
+    loop_count = getattr(agent_config, 'security_loop_count', 3)
+    if not isinstance(loop_count, int) or loop_count <= 1:
         return False
         
-    threshold = getattr(agent_config, 'security_semantic_threshold', 0.85) or 0.85
+    threshold = getattr(agent_config, 'security_semantic_threshold', 0.85)
+    if not isinstance(threshold, (int, float)):
+        threshold = 0.85
     
     try:
         # Obter os logs de interação anteriores da mesma sessão

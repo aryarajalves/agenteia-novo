@@ -53,3 +53,53 @@ async def test_pre_router_negative_doubt_no_clarification():
             result2 = await run_pre_router_ai("Não tenho dúvida", history, main_agent, [])
             assert result2["precisa_esclarecimento"] is False
             assert result2["eh_mensagem_automatica"] is False
+
+
+@pytest.mark.asyncio
+async def test_pre_router_closing_nao_era_so_isso_mesmo():
+    main_agent = MagicMock(spec=AgentConfigModel)
+    main_agent.id = 1
+    main_agent.name = "Tarcira"
+    main_agent.description = "Especialista"
+    main_agent.router_simple_model = "gpt-4o-mini"
+    main_agent.initial_message = "Olá! Seja bem-vindo."
+    main_agent.initial_ignore_message = None
+    main_agent.system_prompt = ""
+    main_agent.dynamic_prompt = ""
+    main_agent.pre_router_prompt = ""
+    main_agent.date_awareness = False
+    main_agent.context_window = 5
+
+    history = [
+        {"role": "assistant", "content": "O link do curso é esse: https://pay.kiwify.com.br/VVme7C2\n\nPosso ajudar você com mais alguma dúvida sobre o Método Laser Day?"}
+    ]
+
+    # Teste 1: "Não era só isso mesmo" -> Deve encerrar educadamente e NUNCA pedir esclarecimento
+    result1 = await run_pre_router_ai("Não era só isso mesmo", history, main_agent, [])
+    assert result1["precisa_esclarecimento"] is False
+    assert result1["resposta_esclarecimento"] is None
+    assert result1["eh_saudacao"] is True
+    assert result1["eh_agradecimento"] is True
+    assert "disposição" in result1["resposta_direta"].lower() or "perfeito" in result1["resposta_direta"].lower()
+
+    # Teste 2: "Era só isso mesmo"
+    result2 = await run_pre_router_ai("Era só isso mesmo", history, main_agent, [])
+    assert result2["precisa_esclarecimento"] is False
+    assert result2["eh_saudacao"] is True
+    assert result2["eh_agradecimento"] is True
+
+    # Teste 3: "Só isso mesmo"
+    result3 = await run_pre_router_ai("Só isso mesmo", history, main_agent, [])
+    assert result3["precisa_esclarecimento"] is False
+    assert result3["eh_saudacao"] is True
+
+    # Teste 4: "Não preciso de mais nada"
+    result4 = await run_pre_router_ai("Não preciso de mais nada", history, main_agent, [])
+    assert result4["precisa_esclarecimento"] is False
+    assert result4["eh_saudacao"] is True
+
+    # Teste 5: "Por enquanto é só"
+    result5 = await run_pre_router_ai("Por enquanto é só", history, main_agent, [])
+    assert result5["precisa_esclarecimento"] is False
+    assert result5["eh_saudacao"] is True
+

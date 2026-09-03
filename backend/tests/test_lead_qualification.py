@@ -155,7 +155,7 @@ async def test_handler_lead_qualified():
         )
         
         assert "sucesso" in result.lower()
-        assert "Etiquetas sincronizadas na conversa: Lead-Qualificado, Interessado, qualificado" in result
+        assert "Etiquetas sincronizadas: Lead-Qualificado, Interessado, qualificado" in result
         
         mock_sync_labels.assert_called_once_with(
             cw_url="https://chatwoot.example.com",
@@ -242,6 +242,7 @@ async def test_pre_router_greeting_without_qualification_questions(qualification
     from agent_core.logic.pre_router import run_pre_router_ai
     
     # Configurar mensagem inicial específica no config mock
+    qualification_config.greeting_mode = "panel"
     qualification_config.initial_message = "Olá! Seja bem-vindo ao suporte."
     
     message = "oi"
@@ -320,7 +321,7 @@ async def test_handler_lead_qualified_env_fallback():
         )
         
         assert "sucesso" in result.lower()
-        assert "Etiquetas sincronizadas na conversa: Lead-Qualificado, Interessado, qualificado" in result
+        assert "Etiquetas sincronizadas: Lead-Qualificado, Interessado, qualificado" in result
         
         mock_sync_labels.assert_called_once_with(
             cw_url="https://chatwoot-env.example.com",
@@ -376,16 +377,16 @@ async def test_qualification_prompt_injection_with_structured_questions(qualific
         messages = called_kwargs["messages"]
         system_msg = next(m for m in messages if m["role"] == "system")
         
-        assert "QUALIFICAÇÃO DE LEAD" in system_msg["content"]
+        assert "QUALIFICAÇÃO DE LEAD & SONDAÇÃO ESTRATÉGICA" in system_msg["content"]
         assert "Qual seu nome?" in system_msg["content"]
-        assert "↳ Instrução de validação para esta pergunta: Validar se possui pelo menos sobrenome" in system_msg["content"]
+        assert "↳ Objetivo / Prompt de Sondagem: Validar se possui pelo menos sobrenome" in system_msg["content"]
         assert "Qual seu email?" in system_msg["content"]
 
 
 @pytest.mark.asyncio
 async def test_qualification_prompt_injection_mixed_questions(qualification_config, lead_qualificado_tool):
-    # Mistura de string simples antiga e dicionário estruturado novo
-    qualification_config.qualification_questions = '["Qual sua empresa?", {"text": "Qual seu cargo?", "instruction": "Exigir cargo de gerência"}]'
+    # Mistura de string simples antiga e dicionário estruturado novo com prompt e critérios
+    qualification_config.qualification_questions = '["Qual sua empresa?", {"title": "Experiência", "prompt": "Descobrir se já atua na área", "criteria": "Ter respondido sim ou não"}]'
     
     message = "Olá"
     history = []
@@ -404,10 +405,12 @@ async def test_qualification_prompt_injection_mixed_questions(qualification_conf
         messages = called_kwargs["messages"]
         system_msg = next(m for m in messages if m["role"] == "system")
         
-        assert "QUALIFICAÇÃO DE LEAD" in system_msg["content"]
+        assert "QUALIFICAÇÃO DE LEAD & SONDAÇÃO ESTRATÉGICA" in system_msg["content"]
         assert "Qual sua empresa?" in system_msg["content"]
-        assert "Qual seu cargo?" in system_msg["content"]
-        assert "↳ Instrução de validação para esta pergunta: Exigir cargo de gerência" in system_msg["content"]
+        assert "[ETAPA: Experiência]" in system_msg["content"]
+        assert "↳ Objetivo / Prompt de Sondagem: Descobrir se já atua na área" in system_msg["content"]
+        assert "↳ Critério de Conclusão: Ter respondido sim ou não" in system_msg["content"]
+        assert "MENSAGEM COMPOSTA" in system_msg["content"]
 
 @pytest.mark.asyncio
 async def test_no_qualification_injection_when_tool_absent(qualification_config):
@@ -439,5 +442,30 @@ async def test_no_qualification_injection_when_tool_absent(qualification_config)
         openai_tools = called_kwargs.get("tools", [])
         tool_names = [t["function"]["name"] for t in openai_tools]
         assert "lead_qualificado" not in tool_names
+
+@pytest.mark.asyncio
+async def test_qualification_final_action_injection(qualification_config, lead_qualificado_tool):
+    """Valida que qualification_final_action é injetado como regra de fechamento pós-qualificação."""
+    qualification_config.qualification_final_action = "Pergunte pro usuário se eu posso enviar o link do curso para ele."
+    message = "Olá"
+    history = []
+    
+    with patch("agent_core.core.get_openai_client") as mock_get_client, \
+         patch("agent_core.core.run_pre_router_ai", new_callable=AsyncMock) as mock_pre_router:
+        
+        mock_pre_router.return_value = {"eh_saudacao": False, "id_agente_alvo": 1, "perguntas_extraidas": "Olá"}
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(return_value=MockResponse("Olá!"))
+        
+        await process_message(message, history, qualification_config, tools=[lead_qualificado_tool])
+        
+        called_args, called_kwargs = mock_client.chat.completions.create.call_args
+        messages = called_kwargs["messages"]
+        system_msg = next(m for m in messages if m["role"] == "system")
+        
+        assert "AÇÃO / PERGUNTA FINAL DE FECHAMENTO PÓS-QUALIFICAÇÃO" in system_msg["content"]
+        assert "Pergunte pro usuário se eu posso enviar o link do curso para ele." in system_msg["content"]
+
 
 

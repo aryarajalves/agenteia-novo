@@ -37,6 +37,10 @@ app.conf.update(
             'task': 'tasks.rescue_stuck_waiting_events',
             'schedule': 60.0,
         },
+        'cleanup-old-logs-daily': {
+            'task': 'tasks.cleanup_old_logs',
+            'schedule': 86400.0, # Executa 1 vez ao dia (a cada 24 horas)
+        },
     },
 )
 

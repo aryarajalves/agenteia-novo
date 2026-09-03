@@ -21,6 +21,8 @@ export const useTester = ({
     const [testerKnowsPrompt, setTesterKnowsPrompt] = useState(false);
     const [testerIsDynamic, setTesterIsDynamic] = useState(false);
     const [customPersona, setCustomPersona] = useState('');
+    const [customQuestionsMode, setCustomQuestionsMode] = useState(false);
+    const [customQuestions, setCustomQuestions] = useState('');
     const [isTesterAutoRunning, setIsTesterAutoRunning] = useState(false);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     
@@ -114,13 +116,45 @@ export const useTester = ({
         setIsTesterAutoRunning(true);
         autoTesterActiveRef.current = true;
 
-        let turns = 0;
-        while (autoTesterActiveRef.current && turns < testerMessageCount) {
-            await runTesterSingleTurn();
-            turns++;
+        if (customQuestionsMode) {
+            const questionsList = customQuestions
+                .split('\n')
+                .map(q => q.trim())
+                .filter(q => q.length > 0);
 
-            if (turns < testerMessageCount && autoTesterActiveRef.current) {
-                await new Promise(r => setTimeout(r, testerDelay * 1000));
+            if (questionsList.length === 0) {
+                showToast("Por favor, digite ao menos uma pergunta no roteiro personalizado.", "warning");
+                setIsTesterAutoRunning(false);
+                autoTesterActiveRef.current = false;
+                return;
+            }
+
+            for (let i = 0; i < questionsList.length; i++) {
+                if (!autoTesterActiveRef.current) break;
+                const question = questionsList[i];
+                setIsTesterRunning(true);
+                try {
+                    await handleSendMessage(null, question);
+                } catch (err) {
+                    console.error("Erro ao enviar pergunta customizada:", err);
+                    showToast(`Erro ao enviar pergunta #${i + 1}`, "error");
+                } finally {
+                    setIsTesterRunning(false);
+                }
+
+                if (i < questionsList.length - 1 && autoTesterActiveRef.current) {
+                    await new Promise(r => setTimeout(r, testerDelay * 1000));
+                }
+            }
+        } else {
+            let turns = 0;
+            while (autoTesterActiveRef.current && turns < testerMessageCount) {
+                await runTesterSingleTurn();
+                turns++;
+
+                if (turns < testerMessageCount && autoTesterActiveRef.current) {
+                    await new Promise(r => setTimeout(r, testerDelay * 1000));
+                }
             }
         }
 
@@ -142,6 +176,8 @@ export const useTester = ({
         testerIsDynamic, setTesterIsDynamic,
         testerSentiment, setTesterSentiment,
         customPersona, setCustomPersona,
+        customQuestionsMode, setCustomQuestionsMode,
+        customQuestions, setCustomQuestions,
         testerReport, setTesterReport,
         isTesterAutoRunning,
         isGeneratingReport,

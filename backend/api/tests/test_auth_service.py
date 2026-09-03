@@ -12,11 +12,14 @@ from jose import jwt
 from api.services.auth_service import (
     verify_password,
     get_password_hash,
+    needs_password_rehash,
     create_access_token,
     mask_sensitive_data,
     SECRET_KEY,
+    PASSWORD_PEPPER,
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    pwd_context,
 )
 
 
@@ -33,15 +36,46 @@ class TestPasswordHashing:
         hashed = get_password_hash("senha123")
         assert verify_password("outrasenha", hashed) is False
 
-    def test_hash_format_bcrypt(self):
+    def test_hash_format_argon2id(self):
         hashed = get_password_hash("qualquer")
-        assert hashed.startswith("$2b$") or hashed.startswith("$2a$")
+        assert hashed.startswith("$argon2id$") or hashed.startswith("$argon2")
 
     def test_same_password_produces_different_hashes(self):
         h1 = get_password_hash("senha")
         h2 = get_password_hash("senha")
-        # bcrypt gera salt diferente a cada vez
+        # Argon2id gera salt aleatório a cada chamada
         assert h1 != h2
+
+    def test_pepper_affects_hash(self):
+        with patch("api.services.auth_service.PASSWORD_PEPPER", "pepper_a"):
+            h_a = get_password_hash("senha_teste")
+        with patch("api.services.auth_service.PASSWORD_PEPPER", "pepper_b"):
+            h_b = get_password_hash("senha_teste")
+        # Hashes com peppers diferentes não devem validar entre si
+        with patch("api.services.auth_service.PASSWORD_PEPPER", "pepper_b"):
+            assert verify_password("senha_teste", h_a) is False
+            assert verify_password("senha_teste", h_b) is True
+
+    def test_legacy_bcrypt_compatibility(self):
+        # Hash Bcrypt legítimo gerado sem pepper (legado)
+        legacy_bcrypt_hash = "$2b$12$e86gJ03q9A1vQv3oO65h..iH0bMvDkWyMpv1gK0e5l7s0n8V5Zz8q"
+        # Testamos gerando um hash bcrypt direto pelo contexto para garantir validade
+        from passlib.hash import bcrypt
+        real_bcrypt_hash = bcrypt.hash("senha_legada_123")
+        assert verify_password("senha_legada_123", real_bcrypt_hash) is True
+        assert verify_password("senha_errada", real_bcrypt_hash) is False
+
+    def test_needs_password_rehash(self):
+        from passlib.hash import bcrypt
+        bcrypt_hash = bcrypt.hash("senha123")
+        argon2_hash = get_password_hash("senha123")
+        
+        # Hash bcrypt precisa ser rehasheado para o novo padrão Argon2id
+        assert needs_password_rehash(bcrypt_hash) is True
+        # Hash Argon2id atual não precisa de rehash
+        assert needs_password_rehash(argon2_hash) is False
+        assert needs_password_rehash("") is True
+        assert needs_password_rehash(None) is True
 
 
 class TestJWTTokenCreation:
@@ -71,14 +105,14 @@ class TestJWTTokenCreation:
         assert (exp - before).total_seconds() <= 300 + 2
         assert (exp - after).total_seconds() >= 298
 
-    def test_default_expiration_is_24_hours(self):
+    def test_default_expiration_is_configured_correctly(self):
         token = create_access_token(data={"sub": "u@test.com"})
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
         now = datetime.now(timezone.utc)
         diff_minutes = (exp - now).total_seconds() / 60
-        # Deve ser próximo de 1440 minutos (24h)
-        assert 1430 <= diff_minutes <= 1441
+        # Deve ser próximo de 43200 minutos (30 dias)
+        assert (ACCESS_TOKEN_EXPIRE_MINUTES - 10) <= diff_minutes <= (ACCESS_TOKEN_EXPIRE_MINUTES + 10)
 
     def test_extra_data_preserved_in_token(self):
         token = create_access_token(data={"sub": "u@test.com", "role": "admin"})
@@ -115,8 +149,8 @@ class TestConstants:
     def test_algorithm_is_hs256(self):
         assert ALGORITHM == "HS256"
 
-    def test_expire_minutes_is_24h(self):
-        assert ACCESS_TOKEN_EXPIRE_MINUTES == 60 * 24
+    def test_expire_minutes_is_configured(self):
+        assert ACCESS_TOKEN_EXPIRE_MINUTES == 60 * 24 * 30
 
     def test_secret_key_not_empty(self):
         assert len(SECRET_KEY) > 0

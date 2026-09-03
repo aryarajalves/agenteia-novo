@@ -39,7 +39,7 @@ const WebhookList = ({
                 <div className="empty-icon" style={{ fontSize: '3.5rem', marginBottom: '1.5rem', opacity: 0.5 }}>🔗</div>
                 <h3 style={{ margin: '0 0 0.5rem', color: '#fff' }}>Nenhuma integração encontrada</h3>
                 <p style={{ color: 'var(--wh-text-secondary)', maxWidth: '400px', margin: '0' }}>
-                    Conecte o Chatwoot ou WhatsApp criando seu primeiro Webhook de entrada.
+                    Conecte o ZapVoice ou WhatsApp criando seu primeiro Webhook de entrada.
                 </p>
             </div>
         );

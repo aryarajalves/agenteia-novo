@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatDate } from '../../../utils/helpers';
+import EventCostBadge from './EventCostBadge';
 
 const renderAiStatusBadge = (event, isGrouped) => {
     if (isGrouped || event.status === 'grouped') {
@@ -86,6 +87,7 @@ const LeadHistoryTableRow = ({
     setSelectedPipelineEvent, 
     handleDeleteEvent,
     handleRetryEvent,
+    onSaveToCache,
     isRetrying
 }) => {
     const isAgent = event.dono === 'agente' || event.dono === 'bot' || event.dono === 'Agente' || event.dono === 'Agente de IA';
@@ -93,6 +95,12 @@ const LeadHistoryTableRow = ({
     const message = event.mensagem || event.conteudo || event.agent_response || '—';
     const isStuck = event.status === 'processing' && (new Date() - new Date(event.updated_at || event.created_at) > 120000);
     const isProcessingAndNotStuck = event.status === 'processing' && !isStuck;
+    const isFollowUp = Boolean(
+        event.event_type === 'followup' || 
+        event.is_followup || 
+        (typeof event.mensagem === 'string' && event.mensagem.toLowerCase().includes('follow-up')) ||
+        (typeof event.message_type === 'string' && event.message_type.toLowerCase() === 'followup')
+    );
 
     return (
         <tr 
@@ -106,7 +114,7 @@ const LeadHistoryTableRow = ({
             onMouseOut={e => !isGrouped && (e.currentTarget.style.background = 'transparent')}
         >
             {/* ID Interno */}
-            <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>{event.id}</td>
+            <td style={{ padding: '1rem 0.5rem 1rem 1rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>{event.id}</td>
             
             {/* Mensagem do Usuário / Trigger */}
             <td style={{ padding: '1rem', fontSize: '0.85rem', color: isAgent && event.event_type !== 'followup' ? 'rgba(255,255,255,0.2)' : '#e2e8f0', maxWidth: '250px' }}>
@@ -151,7 +159,7 @@ const LeadHistoryTableRow = ({
             </td>
             
             {/* Origem e Tipo */}
-            <td style={{ padding: '1rem', textAlign: 'center' }}>
+            <td style={{ padding: '1rem 0.5rem', textAlign: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
                     {event.event_type === 'followup' ? (
                         <span style={{ 
@@ -190,6 +198,7 @@ const LeadHistoryTableRow = ({
                     }}>
                         {getMessageTypeLabel(event.message_type)}
                     </span>
+                    <EventCostBadge event={event} compact={true} style={{ marginTop: '2px' }} />
                 </div>
             </td>
             
@@ -197,6 +206,9 @@ const LeadHistoryTableRow = ({
             <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#818cf8', maxWidth: '250px' }}>
                 {event.event_type === 'followup' ? (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ marginBottom: '4px' }}>
+                            <EventCostBadge event={event} />
+                        </div>
                         <div style={{ maxHeight: '60px', overflowY: 'auto', lineHeight: '1.4', paddingRight: (event.agent_response || '').length > 50 ? '24px' : '0' }}>
                             {event.agent_response || '—'}
                         </div>
@@ -229,6 +241,9 @@ const LeadHistoryTableRow = ({
                     </div>
                 ) : (isAgent || event.agent_response) && !isGrouped ? (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ marginBottom: '4px' }}>
+                            <EventCostBadge event={event} />
+                        </div>
                         <div style={{ maxHeight: '60px', overflowY: 'auto', lineHeight: '1.4', paddingRight: (isAgent ? message : event.agent_response).length > 50 ? '24px' : '0' }}>
                             {isAgent ? message : event.agent_response}
                         </div>
@@ -265,11 +280,11 @@ const LeadHistoryTableRow = ({
             </td>
             
             {/* Data/Hora */}
-            <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#64748b', whiteSpace: 'nowrap' }}>{formatDate(event.created_at)}</td>
+            <td style={{ padding: '1rem 0.5rem', fontSize: '0.8rem', color: '#64748b', whiteSpace: 'nowrap' }}>{formatDate(event.created_at)}</td>
             
             {/* Ações */}
-            <td style={{ padding: '1rem', textAlign: 'center' }}>
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+            <td style={{ padding: '0.85rem 1.25rem 0.85rem 0.5rem', textAlign: 'center' }}>
+                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center', flexWrap: 'nowrap' }}>
                     {!isAgent && event.event_type !== 'memory' && !isGrouped && (
                         <>
                             <button
@@ -282,25 +297,111 @@ const LeadHistoryTableRow = ({
                                     border: 'none', 
                                     color: '#a5b4fc', 
                                     borderRadius: '6px', 
-                                    padding: '6px', 
+                                    width: '28px',
+                                    height: '28px',
+                                    minWidth: '28px',
+                                    padding: 0, 
                                     cursor: (isRetrying || isProcessingAndNotStuck) ? 'not-allowed' : 'pointer',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    fontSize: '0.85rem'
+                                    fontSize: '0.85rem',
+                                    flexShrink: 0
                                 }}
                             >🔄</button>
                             <button
                                 onClick={() => setSelectedPipelineEvent(event)}
                                 title="Ver Pipeline"
-                                style={{ background: 'rgba(99, 102, 241, 0.1)', border: 'none', color: '#818cf8', borderRadius: '6px', padding: '6px', cursor: 'pointer' }}
+                                style={{ 
+                                    background: 'rgba(99, 102, 241, 0.1)', 
+                                    border: 'none', 
+                                    color: '#818cf8', 
+                                    borderRadius: '6px', 
+                                    width: '28px',
+                                    height: '28px',
+                                    minWidth: '28px',
+                                    padding: 0, 
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: '0.85rem',
+                                    flexShrink: 0
+                                }}
                             >⚡</button>
+                            {!isFollowUp && (event.agent_response || message) && (
+                                <button
+                                    onClick={() => onSaveToCache ? onSaveToCache(event) : null}
+                                    data-testid={`save-cache-btn-${event.id}`}
+                                    title="Aprovar e Salvar no Cache Semântico (Custo Zero)"
+                                    style={{
+                                        background: 'rgba(16, 185, 129, 0.15)',
+                                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                                        color: '#34d399',
+                                        borderRadius: '6px',
+                                        width: '28px',
+                                        height: '28px',
+                                        minWidth: '28px',
+                                        padding: 0,
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '0.85rem',
+                                        flexShrink: 0,
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseOver={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.3)'}
+                                    onMouseOut={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)'}
+                                >💾</button>
+                            )}
                         </>
+                    )}
+                    {isAgent && !isGrouped && !isFollowUp && (
+                        <button
+                            onClick={() => onSaveToCache ? onSaveToCache(event) : null}
+                            data-testid={`save-cache-btn-${event.id}`}
+                            title="Aprovar e Salvar no Cache Semântico (Custo Zero)"
+                            style={{
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                border: '1px solid rgba(16, 185, 129, 0.35)',
+                                color: '#34d399',
+                                borderRadius: '6px',
+                                width: '28px',
+                                height: '28px',
+                                minWidth: '28px',
+                                padding: 0,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.85rem',
+                                flexShrink: 0,
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseOver={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.3)'}
+                            onMouseOut={e => e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)'}
+                        >💾</button>
                     )}
                     <button
                         onClick={() => handleDeleteEvent(event.id)}
                         title="Excluir"
-                        style={{ background: 'rgba(239, 68, 68, 0.1)', border: 'none', color: '#ef4444', borderRadius: '6px', padding: '6px', cursor: 'pointer' }}
+                        style={{ 
+                            background: 'rgba(239, 68, 68, 0.1)', 
+                            border: 'none', 
+                            color: '#ef4444', 
+                            borderRadius: '6px', 
+                            width: '28px',
+                            height: '28px',
+                            minWidth: '28px',
+                            padding: 0, 
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.85rem',
+                            flexShrink: 0
+                        }}
                     >🗑️</button>
                 </div>
             </td>

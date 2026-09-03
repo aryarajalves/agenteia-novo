@@ -4,6 +4,7 @@ import { api } from '../../../api/client';
 import ChatwootLabelMultiSelect from './Shared/ChatwootLabelMultiSelect';
 import LeadScoringCriteriaModal from './Modals/LeadScoringCriteriaModal';
 import DeleteMessageModal from './Modals/DeleteMessageModal';
+import QualificationFinalActionSection from './QualificationFinalActionSection';
 
 const QualificationSection = () => {
     const {
@@ -11,19 +12,28 @@ const QualificationSection = () => {
         qualificationQuestions, setQualificationQuestions,
         qualificationLabels, setQualificationLabels,
         qualificationCriteria, setQualificationCriteria,
+        qualificationFinalAction, setQualificationFinalAction,
         toolsList, selectedTools
     } = useConfig();
 
     const [isCriteriaModalOpen, setIsCriteriaModalOpen] = useState(false);
     const [editingIndex, setEditingIndex] = useState(null);
-    const [editingText, setEditingText] = useState('');
-    const [editingInstruction, setEditingInstruction] = useState('');
+    const [editingTitle, setEditingTitle] = useState('');
+    const [editingPrompt, setEditingPrompt] = useState('');
+    const [editingCriteria, setEditingCriteria] = useState('');
+    
+    // Estados para o formulário de nova etapa
+    const [newTitle, setNewTitle] = useState('');
+    const [newPrompt, setNewPrompt] = useState('');
+    const [newCriteria, setNewCriteria] = useState('');
+    const [showAddForm, setShowAddForm] = useState(false);
+
     const [deleteQModal, setDeleteQModal] = useState({ isOpen: false, index: null, text: '' });
     const [availableLabels, setAvailableLabels] = useState([]);
     const [isLoadingLabels, setIsLoadingLabels] = useState(false);
 
     const isLeadQualificadoActive = toolsList.some(
-        t => selectedTools.includes(t.id) && t.name === 'lead_qualificado'
+        t => (selectedTools.includes(t.id) || selectedTools.includes(String(t.id)) || selectedTools.includes(Number(t.id))) && t.name === 'lead_qualificado'
     );
 
     useEffect(() => {
@@ -53,27 +63,39 @@ const QualificationSection = () => {
 
     if (!isLeadQualificadoActive) return null;
 
-    const handleAddQualificationQuestion = () => {
-        const input = document.getElementById('new-qualification-question');
-        const val = input.value?.trim();
-        if (val) {
-            setQualificationQuestions([...qualificationQuestions, { text: val, instruction: '' }]);
-            input.value = '';
-        }
+    const handleAddStage = () => {
+        const titleVal = newTitle.trim();
+        const promptVal = newPrompt.trim();
+        if (!titleVal && !promptVal) return;
+
+        const newStage = {
+            title: titleVal || `Etapa ${qualificationQuestions.length + 1}`,
+            prompt: promptVal || titleVal,
+            criteria: newCriteria.trim(),
+            // compatibilidade retroativa
+            text: titleVal || promptVal,
+            instruction: promptVal
+        };
+
+        setQualificationQuestions([...qualificationQuestions, newStage]);
+        setNewTitle('');
+        setNewPrompt('');
+        setNewCriteria('');
+        setShowAddForm(false);
     };
 
-    const handleRemoveQualificationQuestionClick = (index, text) => {
+    const handleRemoveStageClick = (index, text) => {
         setDeleteQModal({ isOpen: true, index, text });
     };
 
-    const confirmDeleteQualificationQuestion = () => {
+    const confirmDeleteStage = () => {
         if (deleteQModal.index !== null) {
             setQualificationQuestions(qualificationQuestions.filter((_, i) => i !== deleteQModal.index));
             setDeleteQModal({ isOpen: false, index: null, text: '' });
         }
     };
 
-    const handleMoveQuestion = (index, direction) => {
+    const handleMoveStage = (index, direction) => {
         const next = [...qualificationQuestions];
         const target = index + direction;
         if (target < 0 || target >= next.length) return;
@@ -84,31 +106,39 @@ const QualificationSection = () => {
     const handleStartEdit = (index, q) => {
         setEditingIndex(index);
         if (typeof q === 'string') {
-            setEditingText(q);
-            setEditingInstruction('');
+            setEditingTitle(q);
+            setEditingPrompt(q);
+            setEditingCriteria('');
         } else {
-            setEditingText(q.text || '');
-            setEditingInstruction(q.instruction || '');
+            setEditingTitle(q.title || q.text || '');
+            setEditingPrompt(q.prompt || q.prompt_instruction || q.instruction || q.text || '');
+            setEditingCriteria(q.criteria || q.completion_criteria || '');
         }
     };
 
     const handleSaveEdit = (index) => {
-        if (!editingText.trim()) return;
+        if (!editingTitle.trim() && !editingPrompt.trim()) return;
         const next = [...qualificationQuestions];
         next[index] = { 
-            text: editingText.trim(), 
-            instruction: editingInstruction.trim() 
+            title: editingTitle.trim() || `Etapa ${index + 1}`,
+            prompt: editingPrompt.trim() || editingTitle.trim(),
+            criteria: editingCriteria.trim(),
+            // compatibilidade
+            text: editingTitle.trim() || editingPrompt.trim(),
+            instruction: editingPrompt.trim()
         };
         setQualificationQuestions(next);
         setEditingIndex(null);
-        setEditingText('');
-        setEditingInstruction('');
+        setEditingTitle('');
+        setEditingPrompt('');
+        setEditingCriteria('');
     };
 
     const handleCancelEdit = () => {
         setEditingIndex(null);
-        setEditingText('');
-        setEditingInstruction('');
+        setEditingTitle('');
+        setEditingPrompt('');
+        setEditingCriteria('');
     };
 
     return (
@@ -116,8 +146,8 @@ const QualificationSection = () => {
             <DeleteMessageModal 
                 isOpen={deleteQModal.isOpen} 
                 messageText={deleteQModal.text}
-                descriptionText="Você tem certeza que deseja apagar esta pergunta qualificatória?"
-                onConfirm={confirmDeleteQualificationQuestion}
+                descriptionText="Você tem certeza que deseja apagar esta etapa de qualificação?"
+                onConfirm={confirmDeleteStage}
                 onCancel={() => setDeleteQModal({ isOpen: false, index: null, text: '' })}
             />
             <LeadScoringCriteriaModal
@@ -127,28 +157,109 @@ const QualificationSection = () => {
                 onChange={(val) => setQualificationCriteria(val)}
             />
 
-            <span className="section-label">🎯 Lead Qualificado — Perguntas de Qualificação</span>
-            <p className="subtab-tip" style={{ marginBottom: '1rem' }}>
-                O agente enviará essas perguntas em sequência ao usuário. Quando todas forem respondidas, a ferramenta <strong>lead_qualificado</strong> será acionada.
-            </p>
-            <div className="ignore-msg-input-group">
-                <input
-                    id="new-qualification-question"
-                    placeholder="Ex: Qual é o seu nome completo?"
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddQualificationQuestion()}
-                    style={{ color: '#fff' }}
-                />
-                <button type="button" onClick={handleAddQualificationQuestion} className="add-btn">
-                    <span>➕</span> Adicionar
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span className="section-label" style={{ margin: 0 }}>🎯 Funil de Qualificação & Sondagem Estratégica</span>
+                <button
+                    type="button"
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    style={{
+                        background: showAddForm ? 'rgba(239, 68, 68, 0.15)' : 'rgba(99, 102, 241, 0.2)',
+                        border: showAddForm ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid rgba(99, 102, 241, 0.4)',
+                        color: showAddForm ? '#fca5a5' : '#a5b4fc',
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '8px',
+                        fontSize: '0.8rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    {showAddForm ? '✕ Fechar Formulário' : '➕ Nova Etapa / Prompt'}
                 </button>
             </div>
-            <div className="ignore-msg-list" style={{ marginTop: '1rem' }}>
+            
+            <p className="subtab-tip" style={{ marginBottom: '1rem' }}>
+                A IA conduzirá o lead por cada objetivo de forma natural e consultiva. Você não precisa escrever perguntas fixas: forneça uma <strong>diretriz / prompt</strong> e a IA formulará a pergunta ideal adaptada à conversa.
+            </p>
+
+            {/* Formulário de Adicionar Nova Etapa */}
+            {showAddForm && (
+                <div style={{
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    border: '1px solid rgba(99, 102, 241, 0.25)',
+                    borderRadius: '10px',
+                    padding: '1rem',
+                    marginBottom: '1rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                    animation: 'fadeIn 0.2s ease'
+                }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#c7d2fe' }}>
+                        ✨ Cadastrar Etapa de Sondagem do Lead
+                    </span>
+                    
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>
+                            🏷️ Nome da Etapa (Ex: Experiência Prévia, Aparelho, Orçamento):
+                        </label>
+                        <input
+                            id="new-stage-title"
+                            value={newTitle}
+                            onChange={(e) => setNewTitle(e.target.value)}
+                            placeholder="Ex: Experiência do Lead"
+                            style={{ width: '100%', background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0.5rem', color: '#fff', fontSize: '0.85rem' }}
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>
+                            🤖 Prompt / Diretriz da Pergunta (O que a IA deve descobrir e como perguntar):
+                        </label>
+                        <textarea
+                            id="new-stage-prompt"
+                            value={newPrompt}
+                            onChange={(e) => setNewPrompt(e.target.value)}
+                            placeholder="Ex: Descubra se ela já atua com estética ou se está começando do absoluto zero, mantendo um tom encorajador e acolhedor."
+                            style={{ width: '100%', background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0.5rem', color: '#fff', fontSize: '0.85rem', minHeight: '60px' }}
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'block', marginBottom: '0.25rem' }}>
+                            ✅ Critério de Conclusão (Opcional - Quando considerar esta etapa respondida):
+                        </label>
+                        <input
+                            id="new-stage-criteria"
+                            value={newCriteria}
+                            onChange={(e) => setNewCriteria(e.target.value)}
+                            placeholder="Ex: Considerar concluído quando o lead disser se já atende clientes ou se é iniciante."
+                            style={{ width: '100%', background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '0.5rem', color: '#fff', fontSize: '0.85rem' }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.25rem' }}>
+                        <button type="button" onClick={() => setShowAddForm(false)} className="delete-btn" style={{ padding: '0.4rem 0.8rem' }}>
+                            Cancelar
+                        </button>
+                        <button type="button" onClick={handleAddStage} className="add-btn" style={{ padding: '0.4rem 1rem' }}>
+                            <span>💾</span> Salvar Etapa no Funil
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Listagem de Etapas do Funil */}
+            <div className="ignore-msg-list" style={{ marginTop: '0.5rem' }}>
                 {qualificationQuestions.length === 0 ? (
-                    <div className="empty-state">Nenhuma pergunta cadastrada. Adicione a primeira acima.</div>
+                    <div className="empty-state">
+                        Nenhuma etapa cadastrada. Clique em "➕ Nova Etapa / Prompt" para criar o funil de sondagem.
+                    </div>
                 ) : (
                     qualificationQuestions.map((q, idx) => {
-                        const qText = typeof q === 'string' ? q : (q.text || '');
-                        const qInstruction = typeof q === 'string' ? '' : (q.instruction || '');
+                        const title = typeof q === 'string' ? q : (q.title || q.text || `Etapa ${idx + 1}`);
+                        const prompt = typeof q === 'string' ? '' : (q.prompt || q.prompt_instruction || q.instruction || '');
+                        const criteria = typeof q === 'string' ? '' : (q.criteria || q.completion_criteria || '');
                         const isEditing = editingIndex === idx;
 
                         return (
@@ -156,45 +267,44 @@ const QualificationSection = () => {
                                 flexDirection: 'column', 
                                 alignItems: 'stretch', 
                                 gap: '0.5rem',
-                                padding: '0.75rem',
-                                background: isEditing ? 'rgba(99,102,241,0.05)' : 'rgba(255,255,255,0.02)',
-                                border: isEditing ? '1px solid rgba(99,102,241,0.2)' : '1px solid rgba(255,255,255,0.05)',
-                                borderRadius: '8px'
+                                padding: '0.85rem',
+                                background: isEditing ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+                                border: isEditing ? '1px solid rgba(99,102,241,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                                borderRadius: '10px'
                             }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', width: '100%' }}>
                                     <span style={{
-                                        minWidth: '24px', height: '24px', borderRadius: '50%',
+                                        minWidth: '26px', height: '26px', borderRadius: '50%',
                                         background: 'rgba(99,102,241,0.3)', color: '#a5b4fc',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        fontSize: '0.75rem', fontWeight: 700, flexShrink: 0
+                                        fontSize: '0.8rem', fontWeight: 700, flexShrink: 0
                                     }}>{idx + 1}</span>
                                     
                                     {isEditing ? (
                                         <input 
                                             type="text" 
-                                            value={editingText}
-                                            onChange={(e) => setEditingText(e.target.value)}
+                                            value={editingTitle}
+                                            onChange={(e) => setEditingTitle(e.target.value)}
                                             style={{ 
                                                 flex: 1, 
                                                 background: '#0f172a', 
-                                                border: '1px solid rgba(255,255,255,0.1)', 
+                                                border: '1px solid rgba(255,255,255,0.15)', 
                                                 borderRadius: '6px', 
                                                 padding: '0.4rem 0.6rem', 
                                                 color: '#fff', 
-                                                fontSize: '0.85rem' 
+                                                fontSize: '0.85rem',
+                                                fontWeight: 'bold'
                                             }}
-                                            autoFocus
-                                            placeholder="Qual a pergunta qualificatória?"
-                                            onKeyPress={(e) => e.key === 'Enter' && handleSaveEdit(idx)}
+                                            placeholder="Nome da Etapa"
                                         />
                                     ) : (
                                         <div 
                                             className="msg-text" 
-                                            style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
+                                            style={{ flex: 1, cursor: 'pointer', userSelect: 'none', fontWeight: '600', color: '#e2e8f0' }}
                                             onClick={() => handleStartEdit(idx, q)}
-                                            title="Clique para editar pergunta e instrução"
+                                            title="Clique para editar etapa e prompt"
                                         >
-                                            {qText}
+                                            🎯 {title}
                                         </div>
                                     )}
 
@@ -205,7 +315,7 @@ const QualificationSection = () => {
                                                     type="button" 
                                                     onClick={() => handleSaveEdit(idx)} 
                                                     className="delete-btn" 
-                                                    style={{ color: '#10b981', fontSize: '0.9rem', fontWeight: 'bold' }}
+                                                    style={{ color: '#10b981', fontSize: '1rem', fontWeight: 'bold' }}
                                                     title="Salvar alteração"
                                                 >
                                                     ✓
@@ -214,7 +324,7 @@ const QualificationSection = () => {
                                                     type="button" 
                                                     onClick={handleCancelEdit} 
                                                     className="delete-btn" 
-                                                    style={{ color: '#ef4444', fontSize: '0.9rem', fontWeight: 'bold' }}
+                                                    style={{ color: '#ef4444', fontSize: '1rem', fontWeight: 'bold' }}
                                                     title="Cancelar"
                                                 >
                                                     ✗
@@ -222,60 +332,81 @@ const QualificationSection = () => {
                                             </>
                                         ) : (
                                             <>
-                                                <button type="button" onClick={() => handleMoveQuestion(idx, -1)} disabled={idx === 0}
+                                                <button type="button" onClick={() => handleMoveStage(idx, -1)} disabled={idx === 0}
                                                     className="delete-btn" style={{ opacity: idx === 0 ? 0.3 : 1, fontSize: '0.75rem' }}>▲</button>
-                                                <button type="button" onClick={() => handleMoveQuestion(idx, 1)} disabled={idx === qualificationQuestions.length - 1}
+                                                <button type="button" onClick={() => handleMoveStage(idx, 1)} disabled={idx === qualificationQuestions.length - 1}
                                                     className="delete-btn" style={{ opacity: idx === qualificationQuestions.length - 1 ? 0.3 : 1, fontSize: '0.75rem' }}>▼</button>
-                                                <button type="button" onClick={() => handleRemoveQualificationQuestionClick(idx, qText)} className="delete-btn">🗑️</button>
+                                                <button type="button" onClick={() => handleRemoveStageClick(idx, title)} className="delete-btn">🗑️</button>
                                             </>
                                         )}
                                     </div>
                                 </div>
 
-                                {/* Accordion de instrução opcional */}
-                                {isEditing && (
+                                {/* Edição inline dos campos de Prompt e Critério */}
+                                {isEditing ? (
                                     <div style={{ 
-                                        marginTop: '0.25rem', 
+                                        marginTop: '0.5rem', 
                                         paddingLeft: '2rem', 
                                         display: 'flex', 
                                         flexDirection: 'column', 
-                                        gap: '0.3rem',
+                                        gap: '0.5rem',
                                         animation: 'fadeIn 0.2s ease'
                                     }}>
-                                        <label style={{ fontSize: '0.72rem', color: '#a5b4fc', fontWeight: '600' }}>
-                                            Instrução para o Agente (Opcional):
-                                        </label>
-                                        <textarea
-                                            value={editingInstruction}
-                                            onChange={(e) => setEditingInstruction(e.target.value)}
-                                            placeholder="Ex: Aceite apenas se o usuário digitar um e-mail válido contendo @. Se não, peça para digitar novamente."
-                                            style={{
-                                                background: '#0f172a',
-                                                border: '1px solid rgba(255,255,255,0.08)',
-                                                borderRadius: '6px',
-                                                padding: '0.4rem 0.6rem',
-                                                color: '#cbd5e1',
-                                                fontSize: '0.78rem',
-                                                minHeight: '50px',
-                                                resize: 'vertical'
-                                            }}
-                                        />
-                                    </div>
-                                )}
+                                        <div>
+                                            <label style={{ fontSize: '0.72rem', color: '#a5b4fc', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>
+                                                🤖 Prompt / Diretriz da Pergunta para a IA:
+                                            </label>
+                                            <textarea
+                                                value={editingPrompt}
+                                                onChange={(e) => setEditingPrompt(e.target.value)}
+                                                placeholder="Descreva o que a IA deve perguntar e como deve se portar..."
+                                                style={{
+                                                    width: '100%',
+                                                    background: '#0f172a',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: '6px',
+                                                    padding: '0.4rem 0.6rem',
+                                                    color: '#cbd5e1',
+                                                    fontSize: '0.78rem',
+                                                    minHeight: '55px'
+                                                }}
+                                            />
+                                        </div>
 
-                                {/* Exibe a instrução atual se existir e não estiver editando */}
-                                {!isEditing && qInstruction && (
-                                    <div style={{ 
-                                        paddingLeft: '2rem', 
-                                        fontSize: '0.78rem', 
-                                        color: '#64748b',
-                                        fontStyle: 'italic',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                        marginTop: '-0.2rem'
-                                    }}>
-                                        <span style={{ color: '#818cf8', fontWeight: 'bold' }}>↳ Instrução:</span> {qInstruction}
+                                        <div>
+                                            <label style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: '600', display: 'block', marginBottom: '0.2rem' }}>
+                                                ✅ Critério de Conclusão (Opcional):
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={editingCriteria}
+                                                onChange={(e) => setEditingCriteria(e.target.value)}
+                                                placeholder="Quando considerar esta etapa respondida..."
+                                                style={{
+                                                    width: '100%',
+                                                    background: '#0f172a',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: '6px',
+                                                    padding: '0.4rem 0.6rem',
+                                                    color: '#cbd5e1',
+                                                    fontSize: '0.78rem'
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ paddingLeft: '2.2rem', display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '-0.2rem' }}>
+                                        {prompt && (
+                                            <div style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                                <span style={{ color: '#818cf8', fontWeight: 'bold' }}>🤖 Prompt:</span>
+                                                <span style={{ color: '#cbd5e1' }}>{prompt}</span>
+                                            </div>
+                                        )}
+                                        {criteria && (
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span style={{ color: '#10b981', fontWeight: 'bold' }}>↳ Critério:</span> {criteria}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -284,15 +415,15 @@ const QualificationSection = () => {
                 )}
             </div>
 
-            <div className="form-section" style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.5rem' }}>
-                <span className="section-label">🏷️ Etiquetas do Chatwoot</span>
+            <div className="form-section" style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.5rem', position: 'relative', zIndex: 50 }}>
+                <span className="section-label">🏷️ Etiquetas do ZapVoice</span>
                 <p className="subtab-tip" style={{ marginBottom: '1rem' }}>
-                    Selecione as etiquetas do Chatwoot que serão aplicadas automaticamente na conversa do contato quando a qualificação for concluída.
+                    Selecione as etiquetas do ZapVoice que serão aplicadas automaticamente na conversa do contato quando a qualificação for concluída.
                 </p>
                 {isLoadingLabels ? (
                     <div style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span className="spinner" style={{ width: '14px', height: '14px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#6366f1', borderRadius: '50%', display: 'inline-block', animation: 'spin 1s linear infinite' }}></span>
-                        Carregando etiquetas do Chatwoot...
+                        Carregando etiquetas do ZapVoice...
                     </div>
                 ) : (
                     <ChatwootLabelMultiSelect
@@ -304,7 +435,15 @@ const QualificationSection = () => {
                 )}
             </div>
 
-            <div className="form-section" style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.5rem' }}>
+            {/* Pergunta / Ação Final Pós-Qualificação */}
+            <div style={{ position: 'relative', zIndex: 20 }}>
+                <QualificationFinalActionSection
+                    value={qualificationFinalAction}
+                    onChange={setQualificationFinalAction}
+                />
+            </div>
+
+            <div className="form-section" style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1.5rem', position: 'relative', zIndex: 10 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <span className="section-label" style={{ margin: 0 }}>🔥 Diretrizes e Critérios do Lead Scoring</span>
                     <button 
@@ -323,14 +462,6 @@ const QualificationSection = () => {
                             alignItems: 'center',
                             gap: '6px',
                             transition: 'all 0.2s'
-                        }}
-                        onMouseOver={(e) => {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                        }}
-                        onMouseOut={(e) => {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                         }}
                     >
                         🔍 Maximizar
@@ -355,3 +486,4 @@ Classifique como Quente 🔥 se a pontuação for >= 9, Morno ⚡ se for de 5 a 
 };
 
 export default QualificationSection;
+

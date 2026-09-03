@@ -1,0 +1,173 @@
+/* ConditionalBuilder Form Builder, Inputs, Selects and AND Blocks */
+
+/* Construtor de Condicionais Interativo Premium */
+.cond-modal-card.configuring {
+    border-color: rgba(236, 72, 153, 0.4);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 35px rgba(236, 72, 153, 0.1);
+}
+
+.back-btn-link {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 0.85rem;
+    cursor: pointer;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    transition: color 0.2s;
+}
+
+.back-btn-link:hover {
+    color: #f472b6;
+}
+
+.interactive-configurer {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.current-var-badge {
+    font-family: 'Fira Code', monospace;
+    font-size: 0.9rem;
+    color: #f472b6;
+    background: rgba(236, 72, 153, 0.1);
+    border: 1px solid rgba(236, 72, 153, 0.3);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-weight: 700;
+    display: inline-block;
+}
+
+.cond-config-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.form-group-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-group-inline.flex-grow {
+    flex: 1;
+}
+
+.form-group-inline label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #94a3b8;
+    font-weight: 700;
+}
+
+.cond-custom-select,
+.cond-custom-input {
+    background: rgba(0, 0, 0, 0.3) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 10px !important;
+    padding: 0.65rem 0.85rem !important;
+    color: white !important;
+    font-size: 0.9rem !important;
+    outline: none !important;
+    transition: all 0.2s !important;
+}
+
+.cond-custom-select:focus,
+.cond-custom-input:focus {
+    border-color: #f472b6 !important;
+    box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2) !important;
+}
+
+.cond-custom-input.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.and-toggle-container {
+    padding: 0.5rem 0;
+}
+
+.checkbox-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #818cf8;
+    user-select: none;
+    transition: color 0.2s;
+}
+
+.checkbox-toggle-label:hover {
+    color: #a5b4fc;
+}
+
+.cond-checkbox {
+    width: 16px;
+    height: 16px;
+    accent-color: #818cf8;
+    cursor: pointer;
+}
+
+.and-configurer-block {
+    background: rgba(99, 102, 241, 0.03);
+    border: 1px dashed rgba(99, 102, 241, 0.2);
+    border-radius: 16px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.sub-config-title {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #818cf8;
+    font-weight: 800;
+    margin: 0;
+}
+
+/* Real-time Glow Preview Card */
+
+/* Custom styles for outputs & ELIF blocks */
+.form-group-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-block-label {
+    font-size: 0.8rem;
+    color: #f472b6;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.cond-custom-textarea {
+    background: rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 12px !important;
+    padding: 0.75rem 1rem !important;
+    color: white !important;
+    font-size: 0.9rem !important;
+    min-height: 80px;
+    resize: vertical;
+    outline: none !important;
+    transition: all 0.2s !important;
+    font-family: inherit;
+}
+
+.cond-custom-textarea:focus {
+    border-color: #ec4899 !important;
+    box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.2) !important;
+}
+

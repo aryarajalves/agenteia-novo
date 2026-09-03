@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
@@ -39,6 +39,14 @@ const mockConfigValues = {
     ],
     selectedTools: [],
     setSelectedTools: mockSetSelectedTools,
+    toolPrompts: {},
+    setToolPrompts: vi.fn(),
+    unansweredHandoffEnabled: true,
+    setUnansweredHandoffEnabled: vi.fn(),
+    unansweredHandoffLimit: 2,
+    setUnansweredHandoffLimit: vi.fn(),
+    unansweredQuestionPrompt: '',
+    setUnansweredQuestionPrompt: vi.fn(),
     googleConnected: false,
     showHabilidadesGuide: false,
     setShowHabilidadesGuide: mockSetShowHabilidadesGuide
@@ -58,36 +66,49 @@ describe('TabHabilidades Component', () => {
         mockConfigValues.selectedTools = [];
     });
 
-    it('deve renderizar a seção de Habilidades corretamente', () => {
+    it('deve renderizar a sub-aba de Conhecimento (RAG) por padrão', () => {
+        renderWithRouter(<TabHabilidades />);
+        expect(screen.getByText('📚 Conhecimento Externo (RAG)')).toBeInTheDocument();
+        expect(screen.getByText('Vincular Bases de Conhecimento')).toBeInTheDocument();
+    });
+
+    it('deve alternar para a sub-aba Ações & Ferramentas e exibir ferramentas e seção de dúvidas', () => {
         renderWithRouter(<TabHabilidades />);
         
-        expect(screen.getByText('Ações & Ferramentas (API)')).toBeInTheDocument();
+        // Clicar na sub-aba Ações & Ferramentas
+        const actionsTabBtn = screen.getByRole('button', { name: /🔗 Ações & Ferramentas/i });
+        fireEvent.click(actionsTabBtn);
+
+        expect(screen.getByText(/Ações & Ferramentas \(API\)/i)).toBeInTheDocument();
         expect(screen.getByText('Adicionar Habilidades ao Agente')).toBeInTheDocument();
-        expect(screen.getByText('Escolher Ferramenta...')).toBeInTheDocument();
+        expect(screen.getByText('Dúvidas Sem Resposta & Transbordo Humano')).toBeInTheDocument();
     });
 
     it('deve exibir ferramentas normais no dropdown, mas ocultar transferir_robo', () => {
-        // Inicializa selectedTools como vazio, então google_calendar_manager (id 1) e webhook_customizado (id 3) devem aparecer
         renderWithRouter(<TabHabilidades />);
         
+        const actionsTabBtn = screen.getByRole('button', { name: /🔗 Ações & Ferramentas/i });
+        fireEvent.click(actionsTabBtn);
+
         const optionGoogle = screen.queryByText('📅 google_calendar_manager');
         const optionWebhook = screen.queryByText('🔗 webhook_customizado');
         const optionTransferirRobo = screen.queryByText(/transferir_robo/i);
 
         expect(optionGoogle).toBeInTheDocument();
         expect(optionWebhook).toBeInTheDocument();
-        // transferir_robo não deve ser listado
         expect(optionTransferirRobo).not.toBeInTheDocument();
     });
 
     it('deve renderizar chips das ferramentas normais vinculadas, mas ocultar chip do transferir_robo', () => {
-        // Configura as ferramentas id 1 (google_calendar_manager) e id 2 (transferir_robo) como vinculadas
         mockConfigValues.selectedTools = [1, 2];
         
         renderWithRouter(<TabHabilidades />);
 
+        const actionsTabBtn = screen.getByRole('button', { name: /🔗 Ações & Ferramentas/i });
+        fireEvent.click(actionsTabBtn);
+
         // O chip do google_calendar_manager deve aparecer
-        expect(screen.getByText(/google_calendar_manager/i)).toBeInTheDocument();
+        expect(screen.getAllByText(/google_calendar_manager/i).length).toBeGreaterThan(0);
         
         // O chip do transferir_robo não deve aparecer de jeito nenhum
         const chipTransferirRobo = screen.queryByText(/transferir_robo/i);

@@ -21,6 +21,10 @@ const Sidebar = ({
     setTesterPersona,
     customPersona,
     setCustomPersona,
+    customQuestionsMode,
+    setCustomQuestionsMode,
+    customQuestions,
+    setCustomQuestions,
     testerMessageCount,
     setTesterMessageCount,
     testerDelay,
@@ -128,6 +132,10 @@ const Sidebar = ({
                             testerPersonas={testerPersonas}
                             customPersona={customPersona}
                             setCustomPersona={setCustomPersona}
+                            customQuestionsMode={customQuestionsMode}
+                            setCustomQuestionsMode={setCustomQuestionsMode}
+                            customQuestions={customQuestions}
+                            setCustomQuestions={setCustomQuestions}
                             testerMessageCount={testerMessageCount}
                             setTesterMessageCount={setTesterMessageCount}
                             testerDelay={testerDelay}

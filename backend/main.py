@@ -32,8 +32,8 @@ except ImportError:
 
 # Re-exporta funções e constantes de autenticação (usadas por testes legados)
 from api.services.auth_service import (  # noqa: F401
-    create_access_token, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
-    verify_password, get_password_hash
+    create_access_token, SECRET_KEY, PASSWORD_PEPPER, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
+    verify_password, get_password_hash, needs_password_rehash
 )
 
 

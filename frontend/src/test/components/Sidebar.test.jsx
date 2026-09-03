@@ -7,9 +7,10 @@
  * 2. Controle de visibilidade por role (Super Admin, Admin, Usuário)
  * 3. Exibição do nome e role do usuário
  * 4. Modal de logout (abrir, cancelar, confirmar)
+ * 5. Modal de configurações de perfil (abrir, preencher campos, cancelar)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Sidebar from '../../components/Sidebar';
 
@@ -19,6 +20,18 @@ describe('Sidebar Component', () => {
     beforeEach(() => {
         onLogoutMock = vi.fn();
         localStorage.clear();
+        global.fetch = vi.fn().mockImplementation(() =>
+            Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({
+                    name: 'Admin Teste',
+                    email: 'admin@teste.com',
+                    company_name: 'Minha Empresa S/A',
+                    company_logo: '',
+                    company_logo_size: 'medium'
+                })
+            })
+        );
     });
 
     const renderSidebar = (role = 'Super Admin', name = 'Admin Super') => {
@@ -141,6 +154,27 @@ describe('Sidebar Component', () => {
             fireEvent.click(screen.getByText('Sim, Sair'));
 
             expect(onLogoutMock).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    // ===== MODAL DE CONFIGURAÇÕES DE PERFIL =====
+    describe('Modal de Configurações de Perfil', () => {
+        it('deve abrir o modal de configurações ao clicar no ícone de engrenagem', async () => {
+            renderSidebar('Admin', 'Carlos Admin');
+
+            const settingsBtn = screen.getByTitle('Configurações de Perfil');
+            fireEvent.click(settingsBtn);
+
+            await waitFor(() => {
+                expect(screen.getByText('Configurações de Perfil')).toBeInTheDocument();
+            });
+
+            expect(screen.getByPlaceholderText('Seu nome')).toBeInTheDocument();
+            expect(screen.getByPlaceholderText('seu@email.com')).toBeInTheDocument();
+
+            // Fechar modal
+            fireEvent.click(screen.getByText('Cancelar'));
+            expect(screen.queryByText('Configurações de Perfil')).not.toBeInTheDocument();
         });
     });
 });

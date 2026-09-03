@@ -77,7 +77,7 @@ async def test_pre_router_disables_ambiguity_when_question_extracted():
             
             assert res["precisa_esclarecimento"] is False
             assert res["resposta_esclarecimento"] is None
-            assert res["perguntas_extraidas"] == "É curso on-line? como funciona ele?"
+            assert res["perguntas_extraidas"] == "É curso on-line?\ncomo funciona ele?"
             assert res["lista_perguntas_extraidas"] == ["É curso on-line?", "como funciona ele?"]
             assert res["precisa_rag"] is True
 

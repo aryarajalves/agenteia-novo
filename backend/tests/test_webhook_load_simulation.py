@@ -5,8 +5,9 @@ from sqlalchemy import text
 from webhooks.router import simulate_webhook_load, SimulateLoadRequest, WebhookConfigModel
 
 @pytest.mark.asyncio
-async def test_simulate_webhook_load_endpoint(db_session):
+async def test_simulate_webhook_load_endpoint(db_session, mocker):
     """Valida se o endpoint de simulação de carga cria contatos fictícios em lote e retorna métricas corretas sem erros."""
+    mocker.patch("webhooks.tools.process_webhook_automation")
     table_name = "test_leads_load_sim"
     await ensure_leads_table(table_name)
 
@@ -49,10 +50,9 @@ async def test_simulate_webhook_load_endpoint(db_session):
     assert response["elapsed_ms"] >= 0
 
     # 3. Verificar se os 15 contatos fictícios foram inseridos na tabela de leads
-    with engine_sync.connect() as conn:
-        res = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}")).fetchone()
-        assert res[0] == 15
+    res = await db_session.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+    assert res.scalar() == 15
 
     # Limpeza
-    with engine_sync.begin() as conn:
-        conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    await db_session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    await db_session.commit()

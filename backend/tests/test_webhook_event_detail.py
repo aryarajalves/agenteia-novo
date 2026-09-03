@@ -1,19 +1,22 @@
 import pytest
-from fastapi.testclient import TestClient
 import json
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 from models import WebhookConfigModel, WebhookEventModel
 
-def test_get_webhook_event_detail_by_id(client: TestClient, db):
+@pytest.mark.asyncio
+async def test_get_webhook_event_detail_by_id(client: AsyncClient, db_session: AsyncSession):
     # Criar um webhook config
     config = WebhookConfigModel(
-        nome="Webhook Teste Event Detail",
-        url_slug="test-event-detail-slug",
+        name="Webhook Teste Event Detail",
+        token="test-event-detail-token",
+        leads_table="leads",
         zapvoice_url="https://api.zapvoice.com",
         zapvoice_api_token="token_test"
     )
-    db.add(config)
-    db.commit()
-    db.refresh(config)
+    db_session.add(config)
+    await db_session.commit()
+    await db_session.refresh(config)
 
     # Criar um evento de webhook com passos do pipeline
     steps = [
@@ -28,12 +31,12 @@ def test_get_webhook_event_detail_by_id(client: TestClient, db):
         agent_response="Tudo bem?",
         processing_steps=json.dumps(steps)
     )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
+    db_session.add(event)
+    await db_session.commit()
+    await db_session.refresh(event)
 
     # 1. Testar buscar pelo endpoint com webhook_id
-    resp = client.get(f"/webhooks/{config.id}/events/{event.id}")
+    resp = await client.get(f"/webhooks/{config.id}/events/{event.id}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == event.id
@@ -44,7 +47,7 @@ def test_get_webhook_event_detail_by_id(client: TestClient, db):
     assert steps_res[0]["step"] == "📝 Mensagem Recebida"
 
     # 2. Testar buscar pelo endpoint direto por event_id (/webhooks/events/{event_id})
-    resp_direct = client.get(f"/webhooks/events/{event.id}")
+    resp_direct = await client.get(f"/webhooks/events/{event.id}")
     assert resp_direct.status_code == 200
     data_direct = resp_direct.json()
     assert data_direct["id"] == event.id

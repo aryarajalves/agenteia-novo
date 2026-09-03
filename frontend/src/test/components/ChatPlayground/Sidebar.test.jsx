@@ -86,4 +86,16 @@ describe('Sidebar Component', () => {
         fireEvent.click(screen.getByText('Guia'));
         expect(mockProps.setShowGuide).toHaveBeenCalledWith(true);
     });
+
+    it('deve renderizar os modelos disponíveis no select de modelo principal', () => {
+        const customProps = {
+            ...mockProps,
+            availableModels: ['gpt-5', 'gpt-5-mini', 'gpt-5.2', 'gpt-4o', 'gpt-4o-mini', 'o3-mini']
+        };
+        render(<Sidebar {...customProps} />);
+        expect(screen.getByText('gpt-5')).toBeInTheDocument();
+        expect(screen.getByText('gpt-5-mini')).toBeInTheDocument();
+        expect(screen.getByText('gpt-5.2')).toBeInTheDocument();
+        expect(screen.getByText('o3-mini')).toBeInTheDocument();
+    });
 });

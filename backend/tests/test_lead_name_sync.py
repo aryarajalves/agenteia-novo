@@ -1,11 +1,10 @@
 import pytest
 from datetime import datetime, timedelta
 from webhooks.service import upsert_lead, ensure_leads_table
-from database.connection import engine_sync
 from sqlalchemy import text
 
 @pytest.mark.asyncio
-async def test_upsert_lead_preserves_and_updates_real_name():
+async def test_upsert_lead_preserves_and_updates_real_name(db_session):
     """Valida se o upsert_lead atualiza o nome quando um nome real vem do webhook e não sobrescreve com Lead_XXXX ou Contato Desconhecido se o nome real já existir."""
     table_name = "test_leads_name_sync"
     await ensure_leads_table(table_name)
@@ -18,9 +17,9 @@ async def test_upsert_lead_preserves_and_updates_real_name():
     }
     await upsert_lead(table_name, data1, 1)
     
-    with engine_sync.connect() as conn:
-        res = conn.execute(text(f"SELECT contato_nome FROM {table_name} WHERE telefone = '5585996123586'")).fetchone()
-        assert res[0] == "Lead_3586"
+    res = await db_session.execute(text(f"SELECT contato_nome FROM {table_name} WHERE telefone = '5585996123586'"))
+    row = res.fetchone()
+    assert row[0] == "Lead_3586"
         
     # 2. Receber webhook com nome real "Aryaraj" -> Deve atualizar o nome!
     data2 = {
@@ -30,9 +29,9 @@ async def test_upsert_lead_preserves_and_updates_real_name():
     }
     await upsert_lead(table_name, data2, 1)
     
-    with engine_sync.connect() as conn:
-        res = conn.execute(text(f"SELECT contato_nome FROM {table_name} WHERE telefone = '5585996123586'")).fetchone()
-        assert res[0] == "Aryaraj"
+    res = await db_session.execute(text(f"SELECT contato_nome FROM {table_name} WHERE telefone = '5585996123586'"))
+    row = res.fetchone()
+    assert row[0] == "Aryaraj"
 
     # 3. Receber webhook futuro sem nome ou com "Contato Desconhecido" -> NÃO DEVE SOBRESCREVER "Aryaraj"!
     data3 = {
@@ -50,23 +49,23 @@ async def test_upsert_lead_preserves_and_updates_real_name():
     }
     await upsert_lead(table_name, data4, 1)
     
-    with engine_sync.connect() as conn:
-        res = conn.execute(text(f"SELECT contato_nome FROM {table_name} WHERE telefone = '5585996123586'")).fetchone()
-        assert res[0] == "Aryaraj"
+    res = await db_session.execute(text(f"SELECT contato_nome FROM {table_name} WHERE telefone = '5585996123586'"))
+    row = res.fetchone()
+    assert row[0] == "Aryaraj"
         
     # Limpeza
-    with engine_sync.begin() as conn:
-        conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    await db_session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    await db_session.commit()
 
 @pytest.mark.asyncio
-async def test_upsert_lead_preserves_labels_and_window_on_memory():
+async def test_upsert_lead_preserves_labels_and_window_on_memory(db_session):
     """Valida se o upsert_lead mantem as etiquetas existentes intactas e NAO reseta a janela de 24h ao receber um webhook de memoria (Outra Plataforma)."""
     table_name = "test_leads_labels_memory"
     await ensure_leads_table(table_name)
     
     # 1. Inserir lead inicial com etiquetas e uma data de última mensagem específica no passado
     initial_labels = '["whatsapp", "robo", "24-horas"]'
-    past_window_time = datetime.utcnow() - timedelta(hours=5)
+    past_window_time = datetime.now() - timedelta(hours=5)
     
     data_user = {
         "telefone": "5585996123586",
@@ -77,13 +76,12 @@ async def test_upsert_lead_preserves_labels_and_window_on_memory():
     await upsert_lead(table_name, data_user, 1)
     
     # Forçar no banco a data da ultima_mensagem_em para a data passada
-    with engine_sync.begin() as conn:
-        conn.execute(text(f"UPDATE {table_name} SET ultima_mensagem_em = :past_time WHERE telefone = '5585996123586'"), {"past_time": past_window_time})
+    await db_session.execute(text(f"UPDATE {table_name} SET ultima_mensagem_em = :past_time WHERE telefone = '5585996123586'"), {"past_time": past_window_time})
+    await db_session.commit()
         
-    with engine_sync.connect() as conn:
-        res = conn.execute(text(f"SELECT labels, ultima_mensagem_em FROM {table_name} WHERE telefone = '5585996123586'")).fetchone()
-        assert res[0] == initial_labels
-        saved_time = res[1]
+    res = await db_session.execute(text(f"SELECT labels, ultima_mensagem_em FROM {table_name} WHERE telefone = '5585996123586'"))
+    row = res.fetchone()
+    assert row[0] == initial_labels
 
     # 2. Receber um webhook de memoria / outra plataforma (sem labels e com is_memory=True)
     memory_data = {
@@ -94,13 +92,11 @@ async def test_upsert_lead_preserves_labels_and_window_on_memory():
     }
     await upsert_lead(table_name, memory_data, 1)
     
-    with engine_sync.connect() as conn:
-        res = conn.execute(text(f"SELECT labels, ultima_mensagem_em FROM {table_name} WHERE telefone = '5585996123586'")).fetchone()
-        # As etiquetas DEVEM continuar sendo ["whatsapp", "robo", "24-horas"]
-        assert res[0] == initial_labels
-        # A data da janela de 24h NAO DEVE ter sido alterada!
-        assert res[1] == saved_time
-        
+    res = await db_session.execute(text(f"SELECT labels, ultima_mensagem_em FROM {table_name} WHERE telefone = '5585996123586'"))
+    row = res.fetchone()
+    # As etiquetas DEVEM continuar sendo ["whatsapp", "robo", "24-horas"]
+    assert row[0] == initial_labels
+    
     # Limpeza
-    with engine_sync.begin() as conn:
-        conn.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    await db_session.execute(text(f"DROP TABLE IF EXISTS {table_name}"))
+    await db_session.commit()

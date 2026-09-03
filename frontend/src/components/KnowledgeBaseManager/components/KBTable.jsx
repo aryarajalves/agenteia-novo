@@ -22,10 +22,11 @@ const KBTable = () => {
             <div className="kb-table-header">
                 <input
                     type="text"
-                    placeholder="Filtrar na base..."
+                    placeholder="Filtrar por ID (#12), pergunta ou resposta..."
                     value={kbFilterTerm}
                     onChange={e => setKbFilterTerm(e.target.value)}
                     className="kb-search-input"
+                    data-testid="kb-search-input"
                 />
                 <div className="kb-stats">
                     <select
@@ -66,27 +67,33 @@ const KBTable = () => {
             <table className="kb-table">
                 <thead>
                     <tr>
-                        <th>
+                        <th style={{ width: '40px' }}>
                             <input 
                                 type="checkbox" 
                                 checked={selectedItems.size > 0 && selectedItems.size === paginatedItems.length}
                                 onChange={() => toggleSelectAll(paginatedItems)}
                             />
                         </th>
+                        <th style={{ width: '80px' }}>ID</th>
                         <th>{kbLabels.question}</th>
                         <th>{kbLabels.answer}</th>
-                        <th>Ações</th>
+                        <th style={{ width: '100px', textAlign: 'center' }}>Ações</th>
                     </tr>
                 </thead>
                 <tbody>
                     {paginatedItems.map((item) => (
-                        <tr key={item.id}>
+                        <tr key={item.id || item.originalIndex}>
                             <td>
                                 <input 
                                     type="checkbox" 
                                     checked={selectedItems.has(item.id)}
                                     onChange={() => toggleSelect(item.id)}
                                 />
+                            </td>
+                            <td>
+                                <span className="kb-id-badge" title={`ID do Conhecimento: #${item.id || item.originalIndex + 1}`}>
+                                    #{item.id || item.originalIndex + 1}
+                                </span>
                             </td>
                             <td>{item.question}</td>
                             <td>{item.answer}</td>

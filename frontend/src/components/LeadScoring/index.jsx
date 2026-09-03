@@ -437,16 +437,16 @@ const LeadScoring = () => {
                                                 )}
                                             </button>
 
-                                            {lead.chatwoot_conversation_url && (
+                                            {(lead.chatwoot_conversation_url || lead.telefone) && (
                                                 <a
-                                                    href={lead.chatwoot_conversation_url}
+                                                    href={lead.chatwoot_conversation_url || `https://web.whatsapp.com/send?phone=${String(lead.telefone).replace(/\D/g, '')}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="btn-lead-action chatwoot"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     <span>💬</span>
-                                                    <span>Conversar no Chatwoot</span>
+                                                    <span>Conversar no ZapVoice</span>
                                                 </a>
                                             )}
                                         </div>

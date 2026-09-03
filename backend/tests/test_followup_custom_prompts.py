@@ -52,3 +52,38 @@ def test_fixed_template_interpolation():
     msg = fixed_template.replace("{nome}", nome).replace("{primeiro_nome}", primeiro_nome).replace("{telefone}", telefone)
     
     assert msg == "Olá Aryaraj Alves! Notamos que seu telefone é 5511999998888. Fala Aryaraj!"
+
+
+def test_sanitize_numeric_phone_as_name():
+    """Valida que se o nome for um número de telefone, as variáveis {nome} e {primeiro_nome} são substituídas por vazio/espaço."""
+    raw_nome = "558596123586"
+    telefone = "558596123586"
+    
+    is_number_name = raw_nome.replace("+", "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "").isdigit()
+    if not raw_nome or is_number_name or raw_nome.lower() in ("sem nome", "cliente", "lead"):
+        clean_nome = ""
+        primeiro_nome = ""
+    else:
+        clean_nome = raw_nome
+        primeiro_nome = raw_nome.split()[0]
+
+    def resolve_val(raw_v):
+        if not raw_v: return ""
+        res = str(raw_v).replace("{nome}", clean_nome) \
+                        .replace("{primeiro_nome}", primeiro_nome) \
+                        .replace("{telefone}", telefone or "")
+        return res.strip() if res.strip() else " "
+
+    # Teste de template do WhatsApp oficial
+    val_body_1 = resolve_val("{primeiro_nome}")
+    assert val_body_1 == " "  # Espaço para aceitação na API Oficial da Meta sem erro 400
+
+    # Teste quando há nome real
+    real_nome = "Carlos Eduardo"
+    clean_nome_real = real_nome
+    primeiro_nome_real = real_nome.split()[0]
+    def resolve_real(raw_v):
+        res = str(raw_v).replace("{nome}", clean_nome_real).replace("{primeiro_nome}", primeiro_nome_real)
+        return res.strip() if res.strip() else " "
+    
+    assert resolve_real("{primeiro_nome}") == "Carlos"

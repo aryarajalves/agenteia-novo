@@ -51,19 +51,24 @@ class SearchResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     agent_id: Optional[int] = None
+    model: Optional[str] = None
     current_prompt: str
     messages: list[dict] # [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
     image_url: Optional[str] = None # Base64 ou URL pública
 
-async def get_best_model_for_agent(agent_id: Optional[int], default_model: str = "gpt-4o"):
+async def get_best_model_for_agent(agent_id: Optional[int], requested_model: Optional[str] = None, default_model: str = "gpt-4o"):
     """
-    Busca o melhor modelo configurado para o agente seguindo a hierarquia solicitada:
-    1. router_complex_model
-    2. router_complex_fallback_model
-    3. model
-    4. fallback_model
-    5. gpt-4o (default)
+    Busca o melhor modelo configurado para o agente seguindo a hierarquia:
+    1. requested_model (se informado pelo frontend na tela de configurações)
+    2. router_complex_model (Modelo para Perguntas Complexas)
+    3. router_complex_fallback_model
+    4. model
+    5. fallback_model
+    6. default_model
     """
+    if requested_model and requested_model.strip() and requested_model.lower() not in ["", "none", "null"]:
+        return requested_model.strip()
+
     if not agent_id:
         return default_model
 
@@ -87,14 +92,64 @@ async def get_best_model_for_agent(agent_id: Optional[int], default_model: str =
             
             for m in models:
                 if m and m.strip():
-                    # Evita modelos de placeholder se existirem
                     if m.lower() not in ["", "none", "null"]:
                         return m
                         
-            return default_model
     except Exception as e:
         logger.warning(f"⚠️ Erro ao buscar modelo do agente {agent_id}: {e}. Usando fallback {default_model}")
         return default_model
+
+async def log_advisor_interaction(
+    agent_id: Optional[int],
+    user_message: str,
+    agent_response: str,
+    model_used: str,
+    input_tokens: int,
+    output_tokens: int,
+    origin: str = "Assistente de Prompt"
+):
+    """
+    Grava os custos e tokens consumidos pelo Assistente de Prompt na tabela InteractionLog,
+    permitindo rastreabilidade financeira completa no painel e relatórios.
+    """
+    try:
+        from database import SessionLocal
+        from models import InteractionLog
+        from api.services.cost_service import calculate_ai_cost
+        import json
+        from datetime import datetime, timezone
+
+        cost_usd, cost_brl = calculate_ai_cost(model_used, input_tokens, output_tokens)
+        
+        safe_agent_id = None
+        if agent_id:
+            try:
+                parsed_id = int(agent_id)
+                if parsed_id > 0:
+                    safe_agent_id = parsed_id
+            except (ValueError, TypeError):
+                safe_agent_id = None
+
+        async with SessionLocal() as db:
+            new_log = InteractionLog(
+                agent_id=safe_agent_id,
+                session_id=f"advisor_{safe_agent_id or 'global'}",
+                user_message=user_message or "Interação com Assistente de Prompt",
+                agent_response=agent_response or "",
+                model_used=f"{model_used} ({origin})",
+                input_tokens=input_tokens or 0,
+                output_tokens=output_tokens or 0,
+                cached_tokens=0,
+                cost_usd=cost_usd,
+                cost_brl=cost_brl,
+                debug_info=json.dumps({"origin": origin, "source": "prompt_lab"}),
+                timestamp=datetime.now(timezone.utc)
+            )
+            db.add(new_log)
+            await db.commit()
+            logger.info(f"💰 Log financeiro gravado: {model_used} ({origin}) -> {input_tokens + output_tokens} tokens / R$ {cost_brl:.4f}")
+    except Exception as e:
+        logger.warning(f"⚠️ Erro ao registrar InteractionLog do Advisor: {e}")
 
 @router.post("/generate-prompt")
 async def generate_prompt(request: PromptRequest):
@@ -137,6 +192,18 @@ async def generate_prompt(request: PromptRequest):
                 {"role": "user", "content": user_input}
             ]
         )
+
+        # Registra no financeiro
+        if hasattr(response, 'usage') and response.usage:
+            await log_advisor_interaction(
+                agent_id=None,
+                user_message=f"Gerar prompt: {request.identity} / {request.mission}",
+                agent_response=response.choices[0].message.content,
+                model_used="gpt-4o-mini",
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                origin="Gerador de Prompt"
+            )
         
         return {"prompt": response.choices[0].message.content}
     except Exception as e:
@@ -169,10 +236,8 @@ async def prompt_chat(request: ChatRequest):
     if not api_key:
         raise HTTPException(status_code=500, detail="API Key not configured")
 
-    # Se houver imagem, priorizamos modelos com Vision
-    model_to_use = await get_best_model_for_agent(request.agent_id, "gpt-4o")
-    if request.image_url and "vision" not in model_to_use and model_to_use != "gpt-4o":
-        model_to_use = "gpt-4o"
+    # Prioriza o modelo selecionado nas configurações (Perguntas Complexas) ou o configurado no agente
+    model_to_use = await get_best_model_for_agent(request.agent_id, request.model, "gpt-4o")
 
     lines = request.current_prompt.split('\n')
     numbered_prompt = "\n".join([f"{i+1}: {line}" for i, line in enumerate(lines)])
@@ -255,6 +320,35 @@ async def prompt_chat(request: ChatRequest):
         })
 
         response = await client.chat.completions.create(**kwargs)
+
+        # Registra custo no financeiro
+        try:
+            last_user_text = "Interação com Assistente"
+            for m in reversed(formatted_messages):
+                if m["role"] == "user":
+                    c = m.get("content")
+                    if isinstance(c, list):
+                        for part in c:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                last_user_text = part.get("text")
+                                break
+                    elif isinstance(c, str):
+                        last_user_text = c
+                    break
+
+            if hasattr(response, 'usage') and response.usage:
+                await log_advisor_interaction(
+                    agent_id=request.agent_id,
+                    user_message=last_user_text,
+                    agent_response=response.choices[0].message.content,
+                    model_used=response.model or model_to_use,
+                    input_tokens=response.usage.prompt_tokens,
+                    output_tokens=response.usage.completion_tokens,
+                    origin="Assistente de Prompt"
+                )
+        except Exception as log_e:
+            logger.warning(f"Erro ao salvar log do assistente: {log_e}")
+
         return {
             "content": response.choices[0].message.content,
             "model": response.model,
@@ -276,6 +370,19 @@ async def prompt_chat(request: ChatRequest):
                     messages=messages,
                     temperature=0.5
                 )
+
+                # Registra no financeiro (fallback)
+                if hasattr(response, 'usage') and response.usage:
+                    await log_advisor_interaction(
+                        agent_id=request.agent_id,
+                        user_message="Interação Assistente (Fallback)",
+                        agent_response=response.choices[0].message.content,
+                        model_used=response.model or "gpt-4o",
+                        input_tokens=response.usage.prompt_tokens,
+                        output_tokens=response.usage.completion_tokens,
+                        origin="Assistente de Prompt (Fallback)"
+                    )
+
                 return {
                     "content": response.choices[0].message.content,
                     "model": response.model,
@@ -295,7 +402,7 @@ async def apply_suggestions(request: ChatRequest):
     if not api_key:
         raise HTTPException(status_code=500, detail="API Key not configured")
 
-    model_to_use = await get_best_model_for_agent(request.agent_id, "gpt-4o")
+    model_to_use = await get_best_model_for_agent(request.agent_id, request.model, "gpt-4o")
     chat_summary = "\n".join([f"{m['role']}: {m['content']}" for m in request.messages])
 
     system_instruction = """
@@ -334,6 +441,19 @@ async def apply_suggestions(request: ChatRequest):
             "temperature": 0
         })
         response = await client.chat.completions.create(**kwargs)
+
+        # Registra custo no financeiro
+        if hasattr(response, 'usage') and response.usage:
+            await log_advisor_interaction(
+                agent_id=request.agent_id,
+                user_message="Aplicar sugestões ao editor de prompt",
+                agent_response=response.choices[0].message.content,
+                model_used=response.model or model_to_use,
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+                origin="Aplicar Sugestões"
+            )
+
         return {"prompt": response.choices[0].message.content}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

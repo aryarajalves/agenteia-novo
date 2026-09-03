@@ -52,7 +52,7 @@ const QuestionCard = ({ question, index }) => {
                             border: '1px solid rgba(255, 255, 255, 0.05)'
                         }}
                     >
-                        {question.source === 'chatwoot' ? '💬 Chatwoot' : '💻 Chat'}
+                        {question.source === 'chatwoot' || question.source === 'zapvoice' ? '💬 ZapVoice' : '💻 Chat'}
                     </span>
                 )}
                 {question.session_id && (

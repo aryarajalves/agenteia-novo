@@ -1,0 +1,138 @@
+/* ObjectionsDashboard Header, Titles, Selector and Controls */
+n/* objections.css - Estilos premium para o Dashboard de Ranking de Dúvidas e Objeções */
+
+.objections-container {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    color: #f8fafc;
+}
+
+.objections-header {
+    margin-bottom: 2.5rem;
+    position: relative;
+}
+
+.objections-title {
+    font-size: 2.25rem;
+    font-weight: 800;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 0 0 0.5rem 0;
+    letter-spacing: -0.025em;
+    text-shadow: 0 0 30px rgba(99, 102, 241, 0.2);
+}
+
+.objections-title span {
+    filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.5));
+}
+
+.objections-subtitle {
+    color: #94a3b8;
+    font-size: 1.05rem;
+    margin: 0;
+    font-weight: 400;
+}
+
+/* Painel de Controle Superior */
+.objections-control-panel {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 2rem;
+    gap: 1.5rem;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+}
+
+.agent-selector-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.agent-selector-label {
+    color: #cbd5e1;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.agent-select {
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #ffffff;
+    padding: 0.6rem 2rem 0.6rem 1rem;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 220px;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem;
+}
+
+.agent-select:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.objections-recalc-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 1.25rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+
+.objections-recalc-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+    filter: brightness(1.1);
+}
+
+.objections-recalc-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    background: #334155;
+    box-shadow: none;
+}
+
+/* Spinner animado */
+.recalc-spinner {
+    width: 1.1rem;
+    height: 1.1rem;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #ffffff;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Ranking Grid */
+.objections-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+

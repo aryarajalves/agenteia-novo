@@ -66,7 +66,7 @@ async def get_db():
         yield session
 
 async def run_pool_janitor():
-    """Worker background que checa a saúde das conexões do banco e recicla conexões inativas."""
+    """Worker background que checa a saúde das conexões do banco e monitora a pressão do pool sem derrubar conexões ativas."""
     try:
         if hasattr(engine, 'pool'):
             pool = engine.pool
@@ -75,12 +75,15 @@ async def run_pool_janitor():
             overflow = pool.overflow()
             logger.info(f"🔍 [JANITOR DB] Pool Status -> Size: {size}, CheckedOut: {checkedout}, Overflow: {overflow}")
 
-            # Acionar reciclagem em 65% de uso OU se houver overflow ativo (conexões além do pool base)
-            pressao_alta = checkedout >= (size * 0.65)
-            overflow_ativo = overflow > 0
-            if pressao_alta or overflow_ativo:
-                logger.warning(f"⚠️ [JANITOR DB] Alta pressão no pool ({checkedout}/{size}, overflow={overflow}). Forçando reciclagem de conexões inativas...")
+            # Monitoramento de alta pressão (apenas alerta observável, sem matar conexões ativas)
+            pressao_alta = checkedout >= (size * 0.8)
+            if pressao_alta:
+                logger.warning(f"⚠️ [JANITOR DB] Alta pressão no pool de conexões ({checkedout}/{size}, overflow={overflow}).")
+            
+            # Reciclagem segura de conexões inativas apenas se NÃO houver conexões em uso (checkedout == 0)
+            if checkedout == 0 and overflow > 0:
+                logger.info("🧹 [JANITOR DB] Pool totalmente ocioso com overflow residual. Reciclando conexões inativas com segurança...")
                 await engine.dispose()
-                logger.info("🧹 [JANITOR DB] Reciclagem executada com sucesso. Pool liberado!")
+                logger.info("✅ [JANITOR DB] Reciclagem de conexões inativas concluída com sucesso.")
     except Exception as e:
         logger.error(f"❌ [JANITOR DB] Erro no zelador do pool de conexões: {e}")

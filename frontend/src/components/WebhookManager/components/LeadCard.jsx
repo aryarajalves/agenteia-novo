@@ -170,9 +170,14 @@ const LeadCard = ({
                             { 
                                 label: 'LINK DA MÍDIA', 
                                 value: l.link ? (
-                                    <a href={l.link} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        🔗 Abrir Mídia Original
-                                    </a>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        <a href={l.link} target="_blank" rel="noopener noreferrer" style={{ color: '#818cf8', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                                            🔗 Abrir Mídia Original ↗
+                                        </a>
+                                        {(l.message_type === 'audio' || l.link.match(/\.(ogg|mp3|wav|m4a|oga|opus)($|\?)/i)) && (
+                                            <audio controls src={l.link} style={{ height: '28px', width: '100%', maxWidth: '220px', outline: 'none', marginTop: '2px' }} />
+                                        )}
+                                    </div>
                                 ) : 'Sem mídia', 
                                 icon: '🔗' 
                             },

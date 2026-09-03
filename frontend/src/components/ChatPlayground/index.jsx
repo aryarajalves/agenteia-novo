@@ -8,17 +8,21 @@ import { useChat } from './hooks/useChat';
 import { useSessions } from './hooks/useSessions';
 import { useTester } from './hooks/useTester';
 import { useFeedback } from './hooks/useFeedback';
+import { exportConversationForTraining } from './utils/exportTraining';
 
 // Components
 import Sidebar from './components/Sidebar';
 import MessageList from './components/MessageList';
 import InputArea from './components/InputArea';
+import ChallengerPromptEditor from './components/ChallengerPromptEditor';
 import AnalysisModal from './components/AnalysisModal';
 import CorrectionModal from './components/CorrectionModal';
+import ApproveCacheModal from './components/ApproveCacheModal';
 import TesterReportModal from './components/TesterReportModal';
 import PlaygroundGuide from './components/PlaygroundGuide';
 import HotfixPanel from './components/HotfixPanel';
 import ConfirmModal from '../ConfirmModal';
+import { estimateTokens, formatTokenCount } from './utils/tokenUtils';
 
 // Styles
 import './styles/ChatPlayground.css';
@@ -35,13 +39,14 @@ const ChatPlayground = () => {
     // Core Data State
     const [agents, setAgents] = useState([]);
     const [globalVars, setGlobalVars] = useState([]);
-    const [availableModels] = useState(['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'claude-3-5-sonnet', 'gemini-1.5-pro', 'o1-mini']);
+    const [availableModels, setAvailableModels] = useState([]);
     const [loadingAgents, setLoadingAgents] = useState(true);
 
     // Navigation/Session State
     const [selectedAgentId, setSelectedAgentId] = useState(agentIdFromQuery || '');
     const [sessionId, setSessionId] = useState(initialSessionId || Math.random().toString(36).substring(7));
     const [isBattleMode, setIsBattleMode] = useState(false);
+    const [battleTab, setBattleTab] = useState('chat'); // 'chat' | 'prompt'
     const [showGuide, setShowGuide] = useState(false);
 
     // Model & Prompt State
@@ -50,7 +55,6 @@ const ChatPlayground = () => {
     const [challengerAgentId, setChallengerAgentId] = useState('');
     const [showHotfix, setShowHotfix] = useState(false);
     const [hotfixPrompt, setHotfixPrompt] = useState('');
-    const [showChallengerHotfix, setShowChallengerHotfix] = useState(false);
     const [challengerHotfixPrompt, setChallengerHotfixPrompt] = useState('');
 
     const [isInputExpanded, setIsInputExpanded] = useState(false);
@@ -69,20 +73,25 @@ const ChatPlayground = () => {
         setTimeout(() => setToast({ show: false, message: '', type: 'info' }), 5000);
     };
 
-    // Fetch Agents and Globals
+    // Fetch Agents, Globals and Models
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [agentsRes, globalsRes] = await Promise.all([
+                const [agentsRes, globalsRes, modelsRes] = await Promise.all([
                     api.get('/agents'),
-                    api.get('/global-variables')
+                    api.get('/global-variables'),
+                    api.get('/models')
                 ]);
                 
                 const agentsData = await agentsRes.json();
                 const globalsData = await globalsRes.json();
+                const modelsData = await modelsRes.json();
                 
                 setAgents(agentsData);
                 setGlobalVars(globalsData);
+
+                const modelsList = (modelsData?.models || []).map(m => m.id);
+                setAvailableModels(modelsList.length > 0 ? modelsList : ['gpt-5', 'gpt-5-mini', 'gpt-5.2', 'gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1-mini']);
                 
                 if (!selectedAgentId && agentsData.length > 0) {
                     setSelectedAgentId(agentsData[0].id);
@@ -126,7 +135,6 @@ const ChatPlayground = () => {
         challengerModelOverride,
         showHotfix,
         hotfixPrompt,
-        showChallengerHotfix,
         challengerHotfixPrompt,
         contextVars,
         showToast,
@@ -169,6 +177,8 @@ const ChatPlayground = () => {
         isTesterMode, setIsTesterMode,
         testerPersona, setTesterPersona,
         customPersona, setCustomPersona,
+        customQuestionsMode, setCustomQuestionsMode,
+        customQuestions, setCustomQuestions,
         testerMessageCount, setTesterMessageCount,
         testerDelay, setTesterDelay,
         testerKnowsPrompt, setTesterKnowsPrompt,
@@ -185,6 +195,11 @@ const ChatPlayground = () => {
         feedbackState,
         readFbFromStorage,
         correctionModal, setCorrectionModal,
+        cacheConfirmModal,
+        confirmSaveToCache,
+        linkToExistingCache,
+        cancelSaveToCache,
+        savingFeedback,
         handleThumbsUp,
         handleThumbsDown,
         saveCorrection
@@ -202,6 +217,16 @@ const ChatPlayground = () => {
             fetchSessions();
         }
     }, [selectedAgentId, activeTab, fetchSessions]);
+
+    const handleExportTraining = () => {
+        exportConversationForTraining({
+            messages,
+            sessionId,
+            selectedAgentId,
+            agents,
+            showToast
+        });
+    };
 
     if (loadingAgents || isNavigating) {
         return createPortal(
@@ -237,6 +262,10 @@ const ChatPlayground = () => {
                     setTesterPersona={setTesterPersona}
                     customPersona={customPersona}
                     setCustomPersona={setCustomPersona}
+                    customQuestionsMode={customQuestionsMode}
+                    setCustomQuestionsMode={setCustomQuestionsMode}
+                    customQuestions={customQuestions}
+                    setCustomQuestions={setCustomQuestions}
                     testerMessageCount={testerMessageCount}
                     setTesterMessageCount={setTesterMessageCount}
                     testerDelay={testerDelay}
@@ -283,94 +312,120 @@ const ChatPlayground = () => {
                         <button
                             type="button"
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                            className="edit-prompt-link"
-                            style={{ marginRight: '10px' }}
+                            className="toggle-sidebar-btn"
                             title={isSidebarOpen ? "Ocultar Painel Lateral" : "Exibir Painel Lateral"}
                         >
-                            {isSidebarOpen ? '◀ Ocultar Painel' : '⚙️ Exibir Painel'}
+                            {isSidebarOpen ? '◀' : '⚙️ Painel'}
                         </button>
                         <div className="agent-avatar-status">
                             <div className="avatar-mini">🤖</div>
                             <span className="status-dot"></span>
                         </div>
                         <div className="agent-meta-title">
-                            <h3>{agents.find(a => a.id == selectedAgentId)?.name || 'Agente Inteligente'}</h3>
-                            <p>Assistente Virtual Nativo</p>
+                            <h3>{agents.find(a => a.id == selectedAgentId)?.name || 'Agente'}</h3>
                         </div>
-                        {selectedAgentId && (
-                            <div className="header-actions-row">
-                                <button
-                                    onClick={() => {
-                                        setIsNavigating(true);
-                                        window.location.href = `/agent/${selectedAgentId}?tab=prompts`;
-                                    }}
-                                    className="edit-prompt-link"
-                                >
-                                    ✏️ Editar Prompt
-                                </button>
-                                {isBattleMode && (
-                                    <button 
-                                        className={`hotfix-toggle ${showChallengerHotfix ? 'active' : ''}`}
-                                        onClick={() => setShowChallengerHotfix(!showChallengerHotfix)}
-                                    >
-                                        🥊 Prompt Desafiante
-                                    </button>
+                    </div>
+
+                    {isBattleMode && (
+                        <div className="arena-tabs-header">
+                            <button 
+                                type="button"
+                                className={`arena-tab-btn ${battleTab === 'chat' ? 'active' : ''}`}
+                                onClick={() => setBattleTab('chat')}
+                                data-testid="arena-tab-chat"
+                            >
+                                💬 Arena
+                            </button>
+                            <button 
+                                type="button"
+                                className={`arena-tab-btn challenger-tab ${battleTab === 'prompt' ? 'active' : ''}`}
+                                onClick={() => setBattleTab('prompt')}
+                                data-testid="arena-tab-prompt"
+                            >
+                                🥊 Desafiante
+                                {challengerHotfixPrompt && (
+                                    <span className="arena-tab-badge">
+                                        ~{formatTokenCount(estimateTokens(challengerHotfixPrompt))}t
+                                    </span>
                                 )}
-                            </div>
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="header-actions-row">
+                        <button
+                            onClick={handleExportTraining}
+                            className="export-training-btn"
+                            title="Exportar conversa completa em formato HTML para estudar e melhorar o prompt"
+                            data-testid="export-training-btn"
+                        >
+                            📄 Exportar
+                        </button>
+                        {selectedAgentId && (
+                            <button
+                                onClick={() => {
+                                    setIsNavigating(true);
+                                    window.location.href = `/agent/${selectedAgentId}?tab=prompts`;
+                                }}
+                                className="edit-prompt-link"
+                                data-testid="edit-prompt-header-btn"
+                                title="Editar Prompt do Agente"
+                            >
+                                ✏️ Prompt
+                            </button>
                         )}
                     </div>
                 </div>
 
-                <HotfixPanel 
-                    show={showChallengerHotfix} 
-                    setShow={setShowChallengerHotfix}
-                    title="🥊 Prompt Desafiante"
-                    value={challengerHotfixPrompt}
-                    onChange={setChallengerHotfixPrompt}
-                    placeholder="Edite o Prompt do desafiante aqui..."
-                    tip="Este prompt será usado apenas nesta sessão da Arena."
-                    isChallenger={true}
-                />
-
-                <HotfixPanel 
-                    show={showHotfix} 
-                    setShow={setShowHotfix}
-                    title="✏️ Prompt Principal (Hotfix)"
-                    value={hotfixPrompt}
-                    onChange={setHotfixPrompt}
-                    placeholder="Edite o Prompt principal aqui..."
-                    tip="Este hotfix é temporário e não altera as configurações permanentes."
-                />
-
-                <div className={`chat-area-container ${isBattleMode ? 'split-view' : ''}`}>
-                    <MessageList 
-                        isBattleMode={isBattleMode}
-                        messages={messages}
-                        battleMessages={battleMessages}
-                        loading={loading}
-                        agents={agents}
-                        selectedAgentId={selectedAgentId}
-                        challengerAgentId={challengerAgentId}
-                        mainModelOverride={mainModelOverride}
-                        challengerModelOverride={challengerModelOverride}
-                        scrollRef={scrollRef}
-                        battleScrollRef={battleScrollRef}
-                        feedbackState={feedbackState}
-                        handleThumbsUp={handleThumbsUp}
-                        handleThumbsDown={handleThumbsDown}
-                        readFbFromStorage={readFbFromStorage}
-                        isRegularUser={false}
+                {isBattleMode && battleTab === 'prompt' ? (
+                    <ChallengerPromptEditor
+                        value={challengerHotfixPrompt}
+                        onChange={setChallengerHotfixPrompt}
+                        onBackToChat={() => setBattleTab('chat')}
+                        mainAgentPrompt={agents.find(a => a.id == selectedAgentId)?.system_prompt || ''}
+                        agentName={agents.find(a => a.id == selectedAgentId)?.name || 'Agente'}
                     />
-                </div>
+                ) : (
+                    <>
+                        <HotfixPanel 
+                            show={showHotfix} 
+                            setShow={setShowHotfix}
+                            title="✏️ Prompt Principal (Hotfix)"
+                            value={hotfixPrompt}
+                            onChange={setHotfixPrompt}
+                            placeholder="Edite o Prompt principal aqui..."
+                            tip="Este hotfix é temporário e não altera as configurações permanentes."
+                        />
 
-                {!isViewMode && (
-                    <InputArea 
-                        {...chat}
-                        isInputExpanded={isInputExpanded}
-                        setIsInputExpanded={setIsInputExpanded}
-                        isTesterAutoRunning={isTesterAutoRunning}
-                        isRegularUser={false}
-                    />
+                        <MessageList 
+                            isBattleMode={isBattleMode}
+                            messages={messages}
+                            battleMessages={battleMessages}
+                            loading={loading}
+                            agents={agents}
+                            selectedAgentId={selectedAgentId}
+                            challengerAgentId={challengerAgentId}
+                            mainModelOverride={mainModelOverride}
+                            challengerModelOverride={challengerModelOverride}
+                            scrollRef={scrollRef}
+                            battleScrollRef={battleScrollRef}
+                            feedbackState={feedbackState}
+                            handleThumbsUp={handleThumbsUp}
+                            handleThumbsDown={handleThumbsDown}
+                            readFbFromStorage={readFbFromStorage}
+                            isRegularUser={false}
+                        />
+
+                        {!isViewMode && (
+                            <InputArea 
+                                {...chat}
+                                isInputExpanded={isInputExpanded}
+                                setIsInputExpanded={setIsInputExpanded}
+                                isTesterAutoRunning={isTesterAutoRunning}
+                                isRegularUser={false}
+                            />
+                        )}
+                    </>
                 )}
 
                 {toast.show && createPortal(
@@ -384,6 +439,14 @@ const ChatPlayground = () => {
 
             <AnalysisModal data={analysisData} onClose={() => setAnalysisData({ show: false, content: '', type: '' })} />
             <CorrectionModal modal={correctionModal} setModal={setCorrectionModal} onSubmit={saveCorrection} />
+            <ApproveCacheModal
+                modal={cacheConfirmModal}
+                agentId={selectedAgentId}
+                onConfirm={confirmSaveToCache}
+                onLinkExisting={linkToExistingCache}
+                onCancel={cancelSaveToCache}
+                isSaving={savingFeedback}
+            />
             <TesterReportModal report={testerReport} onClose={() => setTesterReport(null)} />
             <PlaygroundGuide showGuide={showGuide} setShowGuide={setShowGuide} />
             

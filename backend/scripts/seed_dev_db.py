@@ -14,7 +14,7 @@ def main():
         existing = session.query(WebhookConfigModel).first()
         if not existing:
             config = WebhookConfigModel(
-                name="Integração WhatsApp & Chatwoot",
+                name="Integração WhatsApp & ZapVoice",
                 token=uuid.uuid4().hex,
                 memory_token=uuid.uuid4().hex,
                 leads_table="leads",

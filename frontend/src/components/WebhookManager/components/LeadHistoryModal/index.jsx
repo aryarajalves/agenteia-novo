@@ -9,6 +9,8 @@ import LeadHistoryTableRow from './components/LeadHistoryTableRow';
 import ConfirmDeleteModal from './components/ConfirmDeleteModal';
 import ConfirmRetryModal from './components/ConfirmRetryModal';
 import MaximizedTextModal from './components/MaximizedTextModal';
+import ApproveCacheModal from '../../../ChatPlayground/components/ApproveCacheModal';
+import { useSaveToCache } from './hooks/useSaveToCache';
 
 const LeadHistoryModal = ({
     lead,
@@ -25,6 +27,15 @@ const LeadHistoryModal = ({
     const [confirmRetry, setConfirmRetry] = useState({ isOpen: false, eventId: null });
     const [maximizedText, setMaximizedText] = useState(null);
     const [retryingEvents, setRetryingEvents] = useState(new Set());
+
+    const {
+        approveCacheModal,
+        setApproveCacheModal,
+        isSavingCache,
+        handleOpenSaveCache,
+        handleConfirmSaveCache,
+        handleLinkExistingCache
+    } = useSaveToCache(webhook);
 
     // Bloquear scroll do body ao montar modal
     useEffect(() => {
@@ -313,8 +324,8 @@ const LeadHistoryModal = ({
             ` }} />
             <div
                 onClick={e => e.stopPropagation()}
-                className="premium-modal-content"
-                style={{ maxWidth: '1050px', height: '90vh', maxHeight: '900px', display: 'flex', flexDirection: 'column' }}
+                className="premium-modal-content modal-wide"
+                style={{ maxWidth: '1120px', height: '90vh', maxHeight: '900px', display: 'flex', flexDirection: 'column' }}
             >
                 {/* Cabeçalho Premium */}
                 <div className="modal-header-premium" style={{ padding: '1rem 2rem' }}>
@@ -363,16 +374,16 @@ const LeadHistoryModal = ({
                 </div>
 
                 {/* Tabela de Disparos */}
-                <div style={{ flex: 1, overflowY: 'auto', background: 'rgba(15, 23, 42, 0.2)' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', tableLayout: 'fixed' }}>
+                <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', background: 'rgba(15, 23, 42, 0.2)' }}>
+                    <table style={{ width: '100%', minWidth: '920px', borderCollapse: 'collapse', textAlign: 'left', tableLayout: 'fixed' }}>
                         <thead>
                             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(15, 23, 42, 0.4)' }}>
-                                <th style={{ width: '80px', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>ID INTERNO</th>
-                                <th style={{ width: '28%', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>MENSAGEM USUÁRIO</th>
-                                <th style={{ width: '130px', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>ORIGEM / TIPO</th>
-                                <th style={{ width: '32%', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>RESPOSTA IA</th>
-                                <th style={{ width: '150px', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>DATA/HORA</th>
-                                <th style={{ width: '120px', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>AÇÕES</th>
+                                <th style={{ width: '80px', padding: '1rem 0.5rem 1rem 1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>ID INTERNO</th>
+                                <th style={{ width: '26%', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>MENSAGEM USUÁRIO</th>
+                                <th style={{ width: '125px', padding: '1rem 0.5rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>ORIGEM / TIPO</th>
+                                <th style={{ width: '30%', padding: '1rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>RESPOSTA IA</th>
+                                <th style={{ width: '145px', padding: '1rem 0.5rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>DATA/HORA</th>
+                                <th style={{ width: '175px', padding: '1rem 1.25rem 1rem 0.5rem', fontSize: '0.65rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', textAlign: 'center' }}>AÇÕES</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -393,6 +404,7 @@ const LeadHistoryModal = ({
                                     setSelectedPipelineEvent={setSelectedPipelineEvent}
                                     handleDeleteEvent={handleDeleteEvent}
                                     handleRetryEvent={handleRetryEvent}
+                                    onSaveToCache={handleOpenSaveCache}
                                     isRetrying={retryingEvents.has(event.id)}
                                 />
                             ))}
@@ -418,6 +430,17 @@ const LeadHistoryModal = ({
                 </div>
 
                 {/* Submodais Dinâmicos */}
+                {approveCacheModal && (
+                    <ApproveCacheModal
+                        modal={approveCacheModal}
+                        agentId={approveCacheModal.agentId}
+                        onConfirm={handleConfirmSaveCache}
+                        onLinkExisting={handleLinkExistingCache}
+                        onCancel={() => setApproveCacheModal(null)}
+                        isSaving={isSavingCache}
+                    />
+                )}
+
                 {selectedPipelineEvent && (
                     <AutomationPipelineModal
                         event={selectedPipelineEvent}

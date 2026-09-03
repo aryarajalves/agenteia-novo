@@ -1,4 +1,5 @@
 import React from 'react';
+import { estimateTokens, formatTokenCount } from '../utils/tokenUtils';
 
 const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt }) => {
     if (!debug) return null;
@@ -185,11 +186,27 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
                                                 borderRadius: '6px',
                                                 fontSize: '0.75rem',
                                                 cursor: 'pointer',
-                                                transition: 'all 0.2s'
+                                                transition: 'all 0.2s',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
                                             }}
                                             className="playground-action-btn"
                                         >
                                             📄 Ver Prompt do Pre-Router
+                                            {step.preRouterData?._debug_prompt && (
+                                                <span style={{
+                                                    background: 'rgba(251, 191, 36, 0.15)',
+                                                    border: '1px solid rgba(251, 191, 36, 0.3)',
+                                                    color: '#fbbf24',
+                                                    padding: '1px 6px',
+                                                    borderRadius: '10px',
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 'bold'
+                                                }}>
+                                                    ~{formatTokenCount(estimateTokens(step.preRouterData._debug_prompt))}t
+                                                </span>
+                                            )}
                                         </button>
                                     )}
                                 </div>

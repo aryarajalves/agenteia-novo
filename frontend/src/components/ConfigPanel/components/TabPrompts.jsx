@@ -5,6 +5,7 @@ import TemporalGuideModal from './Modals/TemporalGuideModal';
 import TemporalConfigGuideModal from './Modals/TemporalConfigGuideModal';
 import DeleteMessageModal from './Modals/DeleteMessageModal';
 import QualificationSection from './QualificationSection';
+import TemporalSection from './TemporalSection';
 
 const TabPrompts = () => {
     const {
@@ -15,6 +16,7 @@ const TabPrompts = () => {
         initialMessage, setInitialMessage,
         initialQuestionMessage, setInitialQuestionMessage,
         initialIgnoreMessage, setInitialIgnoreMessage,
+        qualificationQuestions,
         dateAwareness, setDateAwareness,
         dateAwarenessPastDays, setDateAwarenessPastDays,
         dateAwarenessFutureDays, setDateAwarenessFutureDays,
@@ -25,7 +27,7 @@ const TabPrompts = () => {
         adMode, setAdMode
     } = useConfig();
 
-    const [activeSubTab, setActiveSubTab] = useState('post_question');
+    const [activePromptSubTab, setActivePromptSubTab] = useState('prompts'); // 'prompts' | 'qualification' | 'temporal'
     const [showTemporalGuide, setShowTemporalGuide] = useState(false);
     const [showTemporalConfigGuide, setShowTemporalConfigGuide] = useState(false);
     const [deleteModal, setDeleteModal] = useState({ isOpen: false, index: null, text: '' });
@@ -58,7 +60,7 @@ const TabPrompts = () => {
     return (
         <div className="fade-in">
             <div className="form-section">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
                     <span className="section-label" style={{ margin: 0 }}>Editor Prompt & Regras</span>
                     <button type="button" onClick={() => setShowTemporalGuide(true)} className="guide-btn">
                         <span>📖</span><span>Guia do Prompt</span>
@@ -74,95 +76,156 @@ const TabPrompts = () => {
                     onCancel={() => setDeleteModal({ isOpen: false, index: null, text: '' })}
                 />
 
+                {/* Navegação por Sub-Abas do Editor de Prompt */}
+                <div style={{
+                    display: 'flex',
+                    gap: '8px',
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    padding: '6px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    marginBottom: '1.5rem',
+                    flexWrap: 'wrap'
+                }}>
+                    <button
+                        type="button"
+                        data-testid="subtab-prompts-editor"
+                        onClick={() => setActivePromptSubTab('prompts')}
+                        style={{
+                            flex: 1,
+                            minWidth: '180px',
+                            padding: '10px 16px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: activePromptSubTab === 'prompts' ? 'rgba(99, 102, 241, 0.25)' : 'transparent',
+                            color: activePromptSubTab === 'prompts' ? '#c7d2fe' : '#94a3b8',
+                            fontWeight: 700,
+                            fontSize: '0.88rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s ease',
+                            boxShadow: activePromptSubTab === 'prompts' ? '0 4px 12px rgba(99, 102, 241, 0.2)' : 'none'
+                        }}
+                    >
+                        <span>📝 Instruções do Sistema</span>
+                    </button>
 
-                <div className="temporal-config-box" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'stretch' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1.5rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <div className="checkbox-group" onClick={() => setDateAwareness(!dateAwareness)} style={{ margin: 0 }}>
-                                <input type="checkbox" checked={dateAwareness} readOnly />
-                                <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'white' }}>🕒 Ativar Consciência Temporal</span>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setShowTemporalConfigGuide(true); }}
-                                style={{
-                                    background: 'rgba(99, 102, 241, 0.1)',
-                                    border: '1px solid rgba(99, 102, 241, 0.2)',
-                                    color: '#818cf8',
-                                    borderRadius: '50%',
-                                    width: '20px',
-                                    height: '20px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '0.7rem',
-                                    cursor: 'pointer',
-                                    fontWeight: 'bold',
-                                    transition: 'all 0.2s'
-                                }}
-                                title="Saiba mais sobre a Consciência Temporal"
-                                onMouseOver={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'}
-                                onMouseOut={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)'}
-                            >
-                                ❓
-                            </button>
-                        </div>
-                        {dateAwareness && (
-                            <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                                <div>
-                                    <label style={{ fontSize: '0.75rem', opacity: 0.7, display: 'block', marginBottom: '0.4rem' }}>Dias Anteriores</label>
-                                    <input 
-                                        type="number" 
-                                        min="0"
-                                        max="60"
-                                        value={dateAwarenessPastDays} 
-                                        onChange={(e) => setDateAwarenessPastDays(Math.max(0, parseInt(e.target.value) || 0))} 
-                                        className="time-input" 
-                                        style={{ width: '80px', textAlign: 'center' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '0.75rem', opacity: 0.7, display: 'block', marginBottom: '0.4rem' }}>Dias Posteriores</label>
-                                    <input 
-                                        type="number" 
-                                        min="0"
-                                        max="60"
-                                        value={dateAwarenessFutureDays} 
-                                        onChange={(e) => setDateAwarenessFutureDays(Math.max(0, parseInt(e.target.value) || 0))} 
-                                        className="time-input" 
-                                        style={{ width: '80px', textAlign: 'center' }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ fontSize: '0.75rem', opacity: 0.7, display: 'block', marginBottom: '0.4rem' }}>Forçar Horário Específico (Opcional)</label>
-                                    <input type="time" value={simulatedTime} onChange={(e) => setSimulatedTime(e.target.value)} className="time-input" />
-                                </div>
-                            </div>
+                    <button
+                        type="button"
+                        data-testid="subtab-prompts-qualification"
+                        onClick={() => setActivePromptSubTab('qualification')}
+                        style={{
+                            flex: 1,
+                            minWidth: '180px',
+                            padding: '10px 16px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: activePromptSubTab === 'qualification' ? 'rgba(236, 72, 153, 0.25)' : 'transparent',
+                            color: activePromptSubTab === 'qualification' ? '#fbcfe8' : '#94a3b8',
+                            fontWeight: 700,
+                            fontSize: '0.88rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s ease',
+                            boxShadow: activePromptSubTab === 'qualification' ? '0 4px 12px rgba(236, 72, 153, 0.2)' : 'none'
+                        }}
+                    >
+                        <span>🎯 Funil de Qualificação</span>
+                        {qualificationQuestions && qualificationQuestions.length > 0 && (
+                            <span style={{
+                                background: activePromptSubTab === 'qualification' ? 'rgba(236, 72, 153, 0.4)' : 'rgba(255, 255, 255, 0.1)',
+                                padding: '1px 8px',
+                                borderRadius: '10px',
+                                fontSize: '0.75rem',
+                                color: '#fff',
+                                fontWeight: 700
+                            }}>
+                                {qualificationQuestions.length}
+                            </span>
                         )}
-                    </div>
+                    </button>
+
+                    <button
+                        type="button"
+                        data-testid="subtab-prompts-temporal"
+                        onClick={() => setActivePromptSubTab('temporal')}
+                        style={{
+                            flex: 1,
+                            minWidth: '180px',
+                            padding: '10px 16px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: activePromptSubTab === 'temporal' ? 'rgba(56, 189, 248, 0.25)' : 'transparent',
+                            color: activePromptSubTab === 'temporal' ? '#bae6fd' : '#94a3b8',
+                            fontWeight: 700,
+                            fontSize: '0.88rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
+                            transition: 'all 0.2s ease',
+                            boxShadow: activePromptSubTab === 'temporal' ? '0 4px 12px rgba(56, 189, 248, 0.2)' : 'none'
+                        }}
+                    >
+                        <span>👋 Saudação & Consciência Temporal</span>
+                        {dateAwareness && (
+                            <span style={{
+                                background: activePromptSubTab === 'temporal' ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255, 255, 255, 0.1)',
+                                padding: '1px 8px',
+                                borderRadius: '10px',
+                                fontSize: '0.72rem',
+                                color: '#fff',
+                                fontWeight: 700
+                            }}>
+                                🕒 Ativo
+                            </span>
+                        )}
+                    </button>
                 </div>
 
-                <PromptEditor
-                    value={systemPrompt}
-                    onChange={(e) => setSystemPrompt(e.target.value)}
-                    dynamicValue={dynamicPrompt}
-                    onChangeDynamic={(e) => setDynamicPrompt(e.target.value)}
-                    preRouterValue={preRouterPrompt}
-                    onChangePreRouter={(e) => setPreRouterPrompt(e.target.value)}
-                    agentId={id}
-                    mainModel={routerEnabled ? routerComplexModel : selectedModel}
-                    initialMessage={initialMessage}
-                    initialQuestionMessage={initialQuestionMessage}
-                    onChangeInitialMessage={(val) => setInitialMessage(val)}
-                    availableTools={toolsList
-                        .filter(t => selectedTools.includes(t.id))
-                        .map(t => t.name)
-                    }
-                />
+                {/* Sub-Aba 1: Instruções do Sistema (Prompt Principal) */}
+                {activePromptSubTab === 'prompts' && (
+                    <div className="fade-in">
+                        <PromptEditor
+                            value={systemPrompt}
+                            onChange={(e) => setSystemPrompt(e.target.value)}
+                            dynamicValue={dynamicPrompt}
+                            onChangeDynamic={(e) => setDynamicPrompt(e.target.value)}
+                            preRouterValue={preRouterPrompt}
+                            onChangePreRouter={(e) => setPreRouterPrompt(e.target.value)}
+                            agentId={id}
+                            mainModel={routerEnabled ? routerComplexModel : selectedModel}
+                            initialMessage={initialMessage}
+                            initialQuestionMessage={initialQuestionMessage}
+                            onChangeInitialMessage={(val) => setInitialMessage(val)}
+                            availableTools={toolsList
+                                .filter(t => selectedTools.includes(t.id))
+                                .map(t => t.name)
+                            }
+                        />
+                    </div>
+                )}
 
+                {/* Sub-Aba 2: Funil de Qualificação & Fechamento */}
+                {activePromptSubTab === 'qualification' && (
+                    <div className="fade-in">
+                        <QualificationSection />
+                    </div>
+                )}
 
-
-                <QualificationSection />
+                {/* Sub-Aba 3: Saudação & Consciência Temporal */}
+                {activePromptSubTab === 'temporal' && (
+                    <div className="fade-in">
+                        <TemporalSection />
+                    </div>
+                )}
             </div>
         </div>
     );

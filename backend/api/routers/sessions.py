@@ -106,17 +106,23 @@ async def get_session_messages(
             model=None
         ))
         # Resposta do agente
+        debug_obj = json.loads(log.debug_info) if log.debug_info else None
+        is_cache = (log.model_used == "semantic-cache") or (bool(debug_obj.get("from_semantic_cache")) if debug_obj else False)
+
         messages.append(SessionMessage(
             role="assistant",
             content=log.agent_response,
             timestamp=log.timestamp.replace(tzinfo=timezone.utc) if log.timestamp else datetime.now(timezone.utc),
-            cost=log.cost_brl,
-            tokens=log.input_tokens + log.output_tokens,
-            input_tokens=log.input_tokens,
+            cost=log.cost_brl or 0.0,
+            tokens=(log.input_tokens or 0) + (log.output_tokens or 0),
+            input_tokens=log.input_tokens or 0,
             cached_tokens=log.cached_tokens or 0,
-            output_tokens=log.output_tokens,
+            output_tokens=log.output_tokens or 0,
             model=log.model_used,
-            debug=json.loads(log.debug_info) if log.debug_info else None
+            debug=debug_obj,
+            from_semantic_cache=is_cache,
+            cached_similarity=debug_obj.get("cached_similarity") if debug_obj else None,
+            cached_original_query=debug_obj.get("cached_original_query") if debug_obj else None
         ))
         
     return messages
@@ -254,3 +260,81 @@ async def get_shared_session(session_id: str, db: AsyncSession = Depends(get_db)
         "agent_name": agent_name,
         "messages": messages
     }
+
+@router.get("/sessions/{session_id}/export-training")
+async def export_session_for_training(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_api_key)
+):
+    """Exporta uma sessão completa formatada para dataset de treinamento de IA."""
+    result = await db.execute(
+        select(InteractionLog)
+        .where(InteractionLog.session_id == session_id)
+        .order_by(InteractionLog.timestamp.asc())
+    )
+    logs = result.scalars().all()
+
+    if not logs:
+        raise HTTPException(status_code=404, detail="Sessão não encontrada ou sem mensagens registradas.")
+
+    agent_id = logs[0].agent_id
+    agent = None
+    if agent_id:
+        agent_res = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id))
+        agent = agent_res.scalars().first()
+
+    agent_name = agent.name if agent else "Agente Inteligente"
+    system_prompt = (agent.system_prompt if agent else "") or "Você é um assistente virtual prestativo e humanizado."
+
+    openai_messages = [{"role": "system", "content": system_prompt}]
+    alpaca_pairs = []
+    raw_turns = []
+    turn_idx = 1
+
+    for log in logs:
+        if log.user_message:
+            openai_messages.append({"role": "user", "content": log.user_message})
+        if log.agent_response:
+            openai_messages.append({"role": "assistant", "content": log.agent_response})
+
+        if log.user_message and log.agent_response:
+            alpaca_pairs.append({
+                "instruction": log.user_message,
+                "input": "",
+                "output": log.agent_response,
+                "turn": turn_idx,
+                "timestamp": log.timestamp.isoformat() if log.timestamp else None
+            })
+            turn_idx += 1
+
+        raw_turns.append({
+            "id": log.id,
+            "user_message": log.user_message,
+            "agent_response": log.agent_response,
+            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+            "model_used": log.model_used,
+            "cost_brl": log.cost_brl,
+            "input_tokens": log.input_tokens,
+            "output_tokens": log.output_tokens
+        })
+
+    return {
+        "export_info": {
+            "type": "agent_training_dataset",
+            "version": "1.0",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "session_id": session_id,
+            "total_messages": len(openai_messages) - 1,
+            "total_pairs": len(alpaca_pairs)
+        },
+        "system_prompt": system_prompt,
+        "openai_fine_tuning": {
+            "messages": openai_messages
+        },
+        "alpaca_instruction_dataset": alpaca_pairs,
+        "raw_conversation": raw_turns
+    }
+

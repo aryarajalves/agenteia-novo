@@ -12,7 +12,6 @@ export const useChat = ({
     challengerModelOverride,
     showHotfix,
     hotfixPrompt,
-    showChallengerHotfix,
     challengerHotfixPrompt,
     contextVars,
     showToast,
@@ -32,7 +31,6 @@ export const useChat = ({
     const [selectedImage, setSelectedImage] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
-    
     const scrollRef = useRef(null);
     const battleScrollRef = useRef(null);
     const messagesRef = useRef(messages);
@@ -41,8 +39,14 @@ export const useChat = ({
     const speechRecognitionRef = useRef(null);
     const audioChunksRef = useRef([]);
     const isViewMode = false;
+
     useEffect(() => {
         messagesRef.current = messages;
+        if (scrollRef.current) {
+            setTimeout(() => {
+                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }, 50);
+        }
     }, [messages]);
 
     const handleReset = useCallback(() => {
@@ -61,7 +65,7 @@ export const useChat = ({
         try {
             const modelOverride = isChallenger ? challengerModelOverride : mainModelOverride;
             const promptOverride = isChallenger
-                ? (showChallengerHotfix ? challengerHotfixPrompt : null)
+                ? (challengerHotfixPrompt || null)
                 : (showHotfix ? hotfixPrompt : null);
 
             const res = await api.post('/execute', {
@@ -92,7 +96,10 @@ export const useChat = ({
                 output_tokens: data.output_tokens,
                 model_used: data.model_used,
                 model_role: data.model_role || 'main',
-                response_time_ms: data.response_time_ms
+                response_time_ms: data.response_time_ms,
+                from_semantic_cache: data.from_semantic_cache || false,
+                cached_similarity: data.cached_similarity || null,
+                cached_original_query: data.cached_original_query || null
             };
             const baseDebug = data.debug;
             const baseViolations = data.debug?.violations || false;
@@ -109,6 +116,7 @@ export const useChat = ({
             const newMsgs = parts.map((part, i) => ({
                 role: 'assistant',
                 content: part,
+                fullContent: rawContent,
                 isLink: isUrl(part),
                 isSplit: i > 0,
                 debug: i === metricsIndex ? baseDebug : undefined,
@@ -247,21 +255,37 @@ export const useChat = ({
             const res = await api.get(`/sessions/${sessId}/messages`);
             const data = await res.json();
 
-            const historyMsgs = data.map(m => ({
-                role: m.role,
-                content: m.content,
-                model_used: m.model,
-                image_url: m.debug?.image_url,
-                metrics: m.cost > 0 || m.tokens > 0 ? {
-                    cost: m.cost,
-                    tokens: m.tokens,
-                    input_tokens: m.input_tokens,
-                    cached_tokens: m.cached_tokens,
-                    output_tokens: m.output_tokens
-                } : null,
-                debug: m.debug,
-                created_at: m.timestamp || new Date().toISOString()
-            }));
+            let lastUserMsg = '';
+            const historyMsgs = data.map(m => {
+                if (m.role === 'user') {
+                    lastUserMsg = m.content;
+                }
+                const isAssistant = m.role === 'assistant';
+                const isFromCache = m.from_semantic_cache || m.model === 'semantic-cache' || !!m.debug?.from_semantic_cache;
+
+                return {
+                    role: m.role,
+                    content: m.content,
+                    userMessage: isAssistant ? lastUserMsg : undefined,
+                    model_used: m.model,
+                    image_url: m.debug?.image_url,
+                    metrics: isAssistant ? {
+                        cost: m.cost || 0,
+                        tokens: m.tokens || 0,
+                        input_tokens: m.input_tokens || 0,
+                        cached_tokens: m.cached_tokens || 0,
+                        output_tokens: m.output_tokens || 0,
+                        from_semantic_cache: isFromCache,
+                        cached_similarity: m.cached_similarity || m.debug?.cached_similarity || null,
+                        cached_original_query: m.cached_original_query || m.debug?.cached_original_query || null,
+                        model_used: m.model,
+                        model_role: m.debug?.model_role || 'main',
+                        response_time_ms: m.debug?.response_time_ms || (isFromCache ? 50 : undefined)
+                    } : null,
+                    debug: m.debug,
+                    created_at: m.timestamp || new Date().toISOString()
+                };
+            });
 
             const totalCostSum = data.reduce((sum, msg) => sum + (msg.cost || 0), 0);
             const totalTokensSum = data.reduce((sum, msg) => sum + (msg.tokens || 0), 0);
@@ -337,17 +361,8 @@ export const useChat = ({
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 audioChunksRef.current = [];
                 
-                let mimeType = 'audio/webm';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                     mimeType = 'audio/ogg';
-                }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                     mimeType = 'audio/mp4';
-                }
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                     mimeType = '';
-                }
-
+                const types = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
+                const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
                 const options = mimeType ? { mimeType } : {};
                 const mediaRecorder = new MediaRecorder(stream, options);
                 mediaRecorderRef.current = mediaRecorder;
