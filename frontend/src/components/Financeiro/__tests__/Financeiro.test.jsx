@@ -261,4 +261,36 @@ describe('TransactionTable', () => {
         renderWithContext(TransactionTable);
         expect(screen.getByText('1 / 1')).toBeTruthy();
     });
+
+    it('exibe badge RAG e formata custo reduzido quando o item for do Simulador RAG', () => {
+        const originalItems = mockContextValue.report.items;
+        mockContextValue.report.items = [
+            {
+                date: '2026-04-03',
+                agent_name: 'Simulador RAG (gpt-4o-mini)',
+                unique_sessions: 1,
+                total_tokens: 1150,
+                avg_cost_per_message: 0.0005,
+                total_cost: 0.0005,
+                isFtJob: false,
+            }
+        ];
+
+        renderWithContext(TransactionTable);
+
+        // Deve renderizar badge com texto RAG e classe type-rag
+        const ragBadge = document.querySelector('.agent-badge.type-rag');
+        expect(ragBadge).toBeTruthy();
+        expect(ragBadge.textContent.trim()).toBe('RAG');
+
+        // Deve exibir o nome do simulador e quantidade de tokens
+        expect(screen.getByTitle('Simulador RAG (gpt-4o-mini)')).toBeTruthy();
+        expect(screen.getByText('1.150')).toBeTruthy();
+
+        // Custo menor que 1 centavo deve ser formatado como < R$ 0.01
+        expect(screen.getByText('< R$ 0.01')).toBeTruthy();
+
+        // Restaura mock
+        mockContextValue.report.items = originalItems;
+    });
 });

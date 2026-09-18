@@ -12,7 +12,11 @@ export const EventCostBadge = ({ event, compact = false, style = {} }) => {
     let border = 'rgba(99, 102, 241, 0.35)';
     let color = '#a5b4fc';
 
-    if (info.badgeType === 'cache') {
+    if (info.badgeType === 'zapvoice_import') {
+        bg = 'rgba(99, 102, 241, 0.2)';
+        border = 'rgba(99, 102, 241, 0.45)';
+        color = '#a5b4fc';
+    } else if (info.badgeType === 'cache' || info.badgeType === 'shortcut' || info.badgeType === 'free') {
         bg = 'rgba(16, 185, 129, 0.2)';
         border = 'rgba(16, 185, 129, 0.45)';
         color = '#34d399';
@@ -24,6 +28,10 @@ export const EventCostBadge = ({ event, compact = false, style = {} }) => {
         bg = 'rgba(168, 85, 247, 0.2)';
         border = 'rgba(168, 85, 247, 0.45)';
         color = '#c084fc';
+    } else if (info.badgeType === 'template') {
+        bg = 'rgba(99, 102, 241, 0.2)';
+        border = 'rgba(99, 102, 241, 0.45)';
+        color = '#a5b4fc';
     }
 
     const textToDisplay = compact ? info.shortLabel : info.label;

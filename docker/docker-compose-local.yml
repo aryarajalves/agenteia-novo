@@ -41,6 +41,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    networks:
+      - default
+      - zapvoice_net
  
   beat:
     build: ../backend
@@ -121,4 +124,11 @@ services:
 volumes:
   postgres_local_data:
   minio_local_data:
+
+networks:
+  default:
+  zapvoice_net:
+    name: zapvoice_zapvoice_net
+    external: true
+
 

@@ -1,6 +1,12 @@
 import re
 import logging
-from .shortcuts import _is_closing_or_no_more_doubts
+from .shortcuts import (
+    _is_closing_or_no_more_doubts,
+    _is_explicit_farewell,
+    _agent_has_active_qualification_funnel,
+    is_user_answering_assistant_question,
+    is_user_accepting_assistant_offer
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,48 +20,90 @@ def sanitize_and_split_questions(
     msg_clean_no_punct: str,
     common_confirmations: list,
     has_reaction_emoji: bool,
-    history: list
+    history: list,
+    context_variables: dict = None
 ) -> dict:
-    """Sanitiza, desmembra múltiplas perguntas, alinha dúvidas e garante consistência do JSON retornado pelo LLM."""
+    if result.get("tipo_mensagem") == "Solicitação de Link do Curso (Detectado 100% por LLM)":
+        result["precisa_rag"] = True
+        result["eh_saudacao"] = False
+        result["eh_agradecimento"] = False
+        result["eh_resposta_ao_agente"] = True
+        return result
+
     short_negations = {
         "nao", "não", "nao.", "não.", "nao nao", "não não",
-        "nenhuma", "nenhum", "nada", "nada mais", "mais nada",
+        "nenhuma", "nenhum", "nada",
         "ainda nao", "ainda não", "por enquanto nao", "por enquanto não",
         "nao tenho", "não tenho", "nao trabalho", "não trabalho", "nao atuo", "não atuo",
         "nao sou", "não sou", "começando do zero", "comecando do zero", "do zero",
         "nunca trabalhei", "nunca atuei", "nao tenho curso", "não tenho curso"
     }
-    is_negation_msg = (msg_clean_no_punct in short_negations or bool(re.match(r'^(?:n[aã]o|nenhum[a]?|nada|ainda\s+n[aã]o)$', msg_clean_no_punct))) and not has_real_question
+    has_extracted_q = bool(result.get("perguntas_extraidas") and len(str(result.get("perguntas_extraidas")).strip()) > 3 and not any(term in str(result.get("perguntas_extraidas")).lower() for term in ["não possui dúvidas", "nao possui duvidas", "sem dúvidas"]))
+    is_negation_msg = (msg_clean_no_punct in short_negations or bool(re.match(r'^(?:n[aã]o|nenhum[a]?|nada|ainda\s+n[aã]o)\b', msg_clean_no_punct))) and not has_real_question
+    is_answering_qual = is_user_answering_assistant_question(raw_user_message, history) and not has_real_question
 
-    if is_negation_msg:
-        if _is_closing_or_no_more_doubts(raw_user_message, history):
-            result["eh_saudacao"] = True
-            result["eh_agradecimento"] = True
-            result["eh_agradecimento_recorrente"] = False
-            result["precisa_esclarecimento"] = False
-            result["resposta_esclarecimento"] = None
-            result["precisa_rag"] = False
-            result["perguntas_extraidas"] = None
-            result["lista_perguntas_extraidas"] = []
-            result["resposta_direta"] = "Perfeito! Fico à disposição se precisar de qualquer outra informação ou se tiver alguma dúvida. Bons estudos e até logo! 😊"
-            result["tipo_mensagem"] = "Encerramento / Sem Mais Dúvidas"
+    # Tratamento prioritário de Aceite de Ofertas (Links de Inscrição / Pagamento / Material): DEVE SEMPRE ACIONAR O RAG!
+    is_accepting_offer, offer_topic = is_user_accepting_assistant_offer(raw_user_message, history)
+    if is_accepting_offer:
+        target_q = "Qual é o link do curso / link de inscrição?" if offer_topic == "link" else (
+            "Quais são as formas de pagamento do curso?" if offer_topic == "pagamento" else "Qual é o conteúdo e material do curso?"
+        )
+        result["eh_saudacao"] = False
+        result["eh_agradecimento"] = False
+        result["eh_agradecimento_recorrente"] = False
+        result["eh_resposta_ao_agente"] = True
+        result["precisa_esclarecimento"] = False
+        result["resposta_esclarecimento"] = None
+        result["precisa_rag"] = True
+        
+        extracted = str(result.get("perguntas_extraidas") or "").strip()
+        if not extracted or extracted.lower() in [raw_user_message.strip().lower(), "pode enviar", "sim", "manda", "quero", "claro", "por favor"]:
+            result["perguntas_extraidas"] = target_q
+            result["lista_perguntas_extraidas"] = [target_q]
         else:
-            result["eh_saudacao"] = False
-            result["eh_agradecimento"] = False
-            result["eh_agradecimento_recorrente"] = False
-            result["precisa_esclarecimento"] = False
-            result["resposta_esclarecimento"] = None
-            result["precisa_rag"] = False
-            result["perguntas_extraidas"] = raw_user_message.strip()
-            result["lista_perguntas_extraidas"] = []
-            result["mensagem_melhorada"] = raw_user_message.strip()
-            result["tipo_mensagem"] = "Resposta Conversacional / Qualificação do Usuário"
-            result["resposta_direta"] = None
+            if not result.get("lista_perguntas_extraidas"):
+                result["lista_perguntas_extraidas"] = [extracted]
+        result["mensagem_melhorada"] = target_q
+        result["tipo_mensagem"] = "Solicitação de Link / Material Ofertado"
+        result["resposta_direta"] = None
         return result
 
-    has_extracted_q = bool(result.get("perguntas_extraidas") and len(str(result.get("perguntas_extraidas")).strip()) > 3 and not any(term in str(result.get("perguntas_extraidas")).lower() for term in ["não possui dúvidas", "nao possui duvidas", "sem dúvidas"]))
-    
-    if has_real_question or has_extracted_q:
+    # Se a LLM já classificou como saudação/encerramento/agradecimento com resposta direta, respeitamos a decisão semântica da LLM
+    if (result.get("eh_saudacao") or result.get("eh_agradecimento")) and result.get("resposta_direta"):
+        is_negation_msg = False
+        is_answering_qual = False
+
+    if is_negation_msg:
+        result["eh_saudacao"] = False
+        result["eh_agradecimento"] = False
+        result["eh_agradecimento_recorrente"] = False
+        result["eh_resposta_ao_agente"] = True
+        result["precisa_esclarecimento"] = False
+        result["resposta_esclarecimento"] = None
+        result["precisa_rag"] = False
+        result["perguntas_extraidas"] = raw_user_message.strip()
+        result["lista_perguntas_extraidas"] = []
+        result["mensagem_melhorada"] = raw_user_message.strip()
+        result["tipo_mensagem"] = "Resposta ao Agente / Declaração"
+        result["resposta_direta"] = None
+        return result
+
+    if is_answering_qual and not has_real_question:
+        result["eh_saudacao"] = False
+        result["eh_agradecimento"] = False
+        result["eh_agradecimento_recorrente"] = False
+        result["eh_resposta_ao_agente"] = True
+        result["precisa_esclarecimento"] = False
+        result["resposta_esclarecimento"] = None
+        result["precisa_rag"] = False
+        result["perguntas_extraidas"] = None
+        result["lista_perguntas_extraidas"] = []
+        result["mensagem_melhorada"] = raw_user_message.strip()
+        result["tipo_mensagem"] = "Resposta Conversacional / Qualificação do Usuário"
+        result["resposta_direta"] = None
+        return result
+
+    if has_real_question or has_extracted_q or result.get("precisa_rag"):
         result["eh_saudacao"] = False
         result["eh_agradecimento"] = False
         result["eh_agradecimento_recorrente"] = False
@@ -197,6 +245,9 @@ def sanitize_and_split_questions(
                 if getattr(main_agent, 'greeting_mode', 'prompt') == 'panel':
                     if not result.get("resposta_direta") or str(result.get("resposta_direta")).strip().lower() in ["", "none", "null"]:
                         result["resposta_direta"] = initial_msg
+                elif getattr(main_agent, 'greeting_mode', 'prompt') == 'disabled':
+                    result["resposta_direta"] = None
+                    result["eh_saudacao"] = False
             else:
                 if not result.get("resposta_direta"):
                     is_conf = any(term in msg_clean_no_punct for term in common_confirmations) or has_reaction_emoji
@@ -209,13 +260,24 @@ def sanitize_and_split_questions(
     if _is_closing_or_no_more_doubts(raw_user_message, history):
         result["precisa_esclarecimento"] = False
         result["resposta_esclarecimento"] = None
-        result["eh_saudacao"] = True
-        result["eh_agradecimento"] = True
-        result["perguntas_extraidas"] = None
-        result["lista_perguntas_extraidas"] = []
-        result["precisa_rag"] = False
-        if not result.get("resposta_direta") or str(result.get("resposta_direta")).strip().lower() in ["", "none", "null"]:
-            result["resposta_direta"] = "Perfeito! Fico à disposição se precisar de qualquer outra informação ou se tiver alguma dúvida. Bons estudos e até logo! 😊"
+        has_active_funnel = _agent_has_active_qualification_funnel(main_agent, context_variables)
+        if has_active_funnel and not _is_explicit_farewell(raw_user_message):
+            result["eh_saudacao"] = False
+            result["eh_agradecimento"] = False
+            result["eh_resposta_ao_agente"] = True
+            result["perguntas_extraidas"] = None
+            result["lista_perguntas_extraidas"] = []
+            result["precisa_rag"] = False
+            result["resposta_direta"] = None
+            result["tipo_mensagem"] = "Resposta de Ausência de Dúvidas / Continuidade de Qualificação"
+        else:
+            result["eh_saudacao"] = True
+            result["eh_agradecimento"] = True
+            result["perguntas_extraidas"] = None
+            result["lista_perguntas_extraidas"] = []
+            result["precisa_rag"] = False
+            if not result.get("resposta_direta") or str(result.get("resposta_direta")).strip().lower() in ["", "none", "null"]:
+                result["resposta_direta"] = "Perfeito! Fico à disposição se precisar de qualquer outra informação ou se tiver alguma dúvida. Bons estudos e até logo! 😊"
 
     return result
 

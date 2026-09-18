@@ -147,3 +147,214 @@
     line-height: 1.5;
 }
 
+/* Question Variations Section */
+.kb-variations-section {
+    margin: 1.25rem 0;
+    padding: 1.2rem 1.4rem;
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(129, 140, 248, 0.2);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+}
+
+.kb-variations-header {
+    margin-bottom: 0.85rem;
+}
+
+.kb-variations-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.35rem;
+}
+
+.kb-variations-label {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    letter-spacing: 0.02em;
+}
+
+.kb-variations-count-badge {
+    background: rgba(99, 102, 241, 0.18);
+    color: #a5b4fc;
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    letter-spacing: 0.03em;
+}
+
+.kb-variations-tip {
+    margin: 0;
+    font-size: 0.76rem;
+    color: #94a3b8;
+    line-height: 1.45;
+}
+
+.kb-variations-tip em {
+    color: #c7d2fe;
+    font-style: normal;
+}
+
+.kb-variations-input-row {
+    display: flex;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+}
+
+.kb-variations-input {
+    flex: 1;
+    background: rgba(2, 6, 23, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    color: white;
+    font-size: 0.85rem;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.kb-variations-input:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.2);
+    background: rgba(2, 6, 23, 0.95);
+}
+
+.kb-variations-add-btn {
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 0.7rem 1.1rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.kb-variations-add-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+}
+
+.kb-variations-add-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.kb-variations-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.kb-variation-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: rgba(30, 41, 59, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: #e2e8f0;
+    transition: all 0.2s ease;
+    animation: modalFadeInKb 0.2s ease-out;
+}
+
+.kb-variation-chip:hover {
+    border-color: rgba(129, 140, 248, 0.4);
+    background: rgba(30, 41, 59, 1);
+}
+
+.kb-variation-chip-idx {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #818cf8;
+    background: rgba(99, 102, 241, 0.15);
+    padding: 0.1rem 0.4rem;
+    border-radius: 6px;
+}
+
+.kb-variation-chip-text {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kb-variation-chip-remove {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 0.75rem;
+    padding: 0 0.15rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.15s ease;
+}
+
+.kb-variation-chip-remove:hover {
+    color: #f87171;
+    transform: scale(1.15);
+}
+
+.kb-variations-empty {
+    color: #64748b;
+    font-size: 0.78rem;
+    font-style: italic;
+    padding: 0.4rem 0;
+}
+
+/* Badge de variação exibida na tabela KBTable */
+.kb-variation-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: rgba(99, 102, 241, 0.14);
+    border: 1px solid rgba(129, 140, 248, 0.28);
+    color: #a5b4fc;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    cursor: default;
+    transition: all 0.2s ease;
+}
+
+.kb-variation-badge:hover {
+    background: rgba(99, 102, 241, 0.25);
+    border-color: rgba(129, 140, 248, 0.5);
+    color: #e0e7ff;
+}
+
+/* Badge de metadado exibida na tabela KBTable */
+.kb-metadata-table-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: rgba(16, 185, 129, 0.14);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    color: #34d399;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    cursor: default;
+    transition: all 0.2s ease;
+}
+
+.kb-metadata-table-badge:hover {
+    background: rgba(16, 185, 129, 0.24);
+    border-color: rgba(16, 185, 129, 0.6);
+    color: #6ee7b7;
+}
+
+

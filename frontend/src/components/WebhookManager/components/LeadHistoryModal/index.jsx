@@ -232,6 +232,7 @@ const LeadHistoryModal = ({
 
     const getMessageTypeLabel = (type) => {
         switch (type) {
+            case 'template': return '📋 Template';
             case 'image': return '🖼️ Imagem';
             case 'audio': return '🎙️ Áudio';
             case 'video': return '🎥 Vídeo';
@@ -240,7 +241,7 @@ const LeadHistoryModal = ({
         }
     };
 
-    // Consolida e filtra eventos para que as respostas do agente apareçam APENAS na linha do disparo do usuário, mas NUNCA esconde disparos de Follow-Up
+    // Consolida e filtra eventos para que as respostas do agente apareçam APENAS na linha do disparo do usuário, mas NUNCA esconde disparos de Follow-Up ou Templates
     const displayEvents = React.useMemo(() => {
         if (!events || events.length === 0) return [];
 
@@ -258,7 +259,7 @@ const LeadHistoryModal = ({
 
                 for (let j = i - 1; j >= 0; j--) {
                     const prev = events[j];
-                    if (prev.event_type === 'followup') continue;
+                    if (prev.event_type === 'followup' || prev.message_type === 'template' || prev.is_template) continue;
                     const isPrevUser = !isAgentEvent(prev) && (prev.dono === 'usuario' || prev.dono === 'cliente' || (!prev.dono && prev.event_type !== 'memory'));
                     
                     if (isPrevUser) break;
@@ -284,6 +285,7 @@ const LeadHistoryModal = ({
         return events
             .filter(evt => {
                 if (evt.event_type === 'followup') return true;
+                if (evt.message_type === 'template' || evt.is_template) return true;
                 if (hiddenIds.has(evt.id)) return false;
                 const isAgent = isAgentEvent(evt);
                 if (isAgent) {
@@ -444,8 +446,10 @@ const LeadHistoryModal = ({
                 {selectedPipelineEvent && (
                     <AutomationPipelineModal
                         event={selectedPipelineEvent}
+                        events={events}
                         webhookId={webhook?.id}
                         onClose={() => setSelectedPipelineEvent(null)}
+                        onNavigateEvent={setSelectedPipelineEvent}
                     />
                 )}
 

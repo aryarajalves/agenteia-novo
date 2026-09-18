@@ -9,7 +9,11 @@ from .shortcuts import (
     _has_previous_assistant_closing,
     _count_payment_issue_occurrences,
     _is_generic_doubt_or_vague_topic,
-    check_programmatic_shortcuts
+    _is_explicit_farewell,
+    _agent_has_active_qualification_funnel,
+    check_programmatic_shortcuts,
+    is_user_answering_assistant_question,
+    is_user_accepting_assistant_offer
 )
 from .enrichment import (
     enrich_user_message,
@@ -30,7 +34,11 @@ __all__ = [
     "_has_previous_assistant_closing",
     "_count_payment_issue_occurrences",
     "_is_generic_doubt_or_vague_topic",
+    "_is_explicit_farewell",
+    "_agent_has_active_qualification_funnel",
     "check_programmatic_shortcuts",
+    "is_user_answering_assistant_question",
+    "is_user_accepting_assistant_offer",
     "enrich_user_message",
     "_get_kb_reference_context",
     "sanitize_and_split_questions",

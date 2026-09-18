@@ -101,6 +101,11 @@ const LeadHistoryTableRow = ({
         (typeof event.mensagem === 'string' && event.mensagem.toLowerCase().includes('follow-up')) ||
         (typeof event.message_type === 'string' && event.message_type.toLowerCase() === 'followup')
     );
+    const isTemplate = Boolean(
+        event.message_type === 'template' || 
+        event.is_template || 
+        (typeof event.agent_response === 'string' && event.agent_response.startsWith('[Template Oficial]'))
+    );
 
     return (
         <tr 
@@ -117,10 +122,14 @@ const LeadHistoryTableRow = ({
             <td style={{ padding: '1rem 0.5rem 1rem 1rem', fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>{event.id}</td>
             
             {/* Mensagem do Usuário / Trigger */}
-            <td style={{ padding: '1rem', fontSize: '0.85rem', color: isAgent && event.event_type !== 'followup' ? 'rgba(255,255,255,0.2)' : '#e2e8f0', maxWidth: '250px' }}>
+            <td style={{ padding: '1rem', fontSize: '0.85rem', color: isAgent && event.event_type !== 'followup' && !event.is_template && event.message_type !== 'template' ? 'rgba(255,255,255,0.2)' : '#e2e8f0', maxWidth: '250px' }}>
                 {event.event_type === 'followup' ? (
                     <span style={{ fontSize: '0.78rem', color: '#c084fc', fontWeight: 700 }}>
                         {event.mensagem || '🔄 Follow-Up Disparado'}
+                    </span>
+                ) : (event.message_type === 'template' || event.is_template) ? (
+                    <span style={{ fontSize: '0.78rem', color: '#a5b4fc', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        📋 Disparo Template WhatsApp
                     </span>
                 ) : !isAgent && (
                     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
@@ -171,6 +180,16 @@ const LeadHistoryTableRow = ({
                         }}>
                             🔄 FOLLOW-UP
                         </span>
+                    ) : (event.message_type === 'template' || event.is_template) ? (
+                        <span style={{ 
+                            fontSize: '0.6rem', fontWeight: 900, 
+                            background: 'rgba(99, 102, 241, 0.2)', 
+                            color: '#a5b4fc',
+                            padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase',
+                            border: '1px solid rgba(99, 102, 241, 0.4)'
+                        }}>
+                            📋 TEMPLATE
+                        </span>
                     ) : event.event_type === 'memory' && !isAgent ? (
                         <span style={{ 
                             fontSize: '0.6rem', fontWeight: 900, 
@@ -198,7 +217,9 @@ const LeadHistoryTableRow = ({
                     }}>
                         {getMessageTypeLabel(event.message_type)}
                     </span>
-                    <EventCostBadge event={event} compact={true} style={{ marginTop: '2px' }} />
+                    {isAgent && !event.agent_response && (
+                        <EventCostBadge event={event} compact={true} style={{ marginTop: '2px' }} />
+                    )}
                 </div>
             </td>
             
@@ -329,7 +350,7 @@ const LeadHistoryTableRow = ({
                                     flexShrink: 0
                                 }}
                             >⚡</button>
-                            {!isFollowUp && (event.agent_response || message) && (
+                            {!isFollowUp && !isTemplate && (event.agent_response || message) && (
                                 <button
                                     onClick={() => onSaveToCache ? onSaveToCache(event) : null}
                                     data-testid={`save-cache-btn-${event.id}`}

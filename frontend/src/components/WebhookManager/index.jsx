@@ -48,6 +48,7 @@ const WebhookManager = () => {
         chatwootLabels,
         labelsLoading,
         handleGenerateDescription,
+        syncingAgentId,
         fetchChatwootLabels
     } = useWebhooks(showToast);
 
@@ -94,6 +95,13 @@ const WebhookManager = () => {
         isSelectingAllTotal,
         handleSyncAll,
         isSyncing,
+        handleImportChat,
+        importProgress,
+        openImportProgress,
+        closeImportProgress,
+        isStartingImport,
+        cancelImport,
+        isCancellingImport,
         handleDeleteSelectedLeads,
         handleDeleteAllLeads,
         deletingLeads
@@ -286,6 +294,13 @@ const WebhookManager = () => {
                         onDeleteLead={(lead) => setConfirmLeadDelete({ isOpen: true, lead, isBulk: false })}
                         onSyncAll={() => handleSyncAll(leadsModal.webhook)}
                         isSyncing={isSyncing}
+                        onImportChat={() => handleImportChat(leadsModal.webhook)}
+                        onCancelImport={cancelImport}
+                        isCancellingImport={isCancellingImport}
+                        importProgress={importProgress}
+                        onCloseImportProgress={closeImportProgress}
+                        onOpenImportProgress={openImportProgress}
+                        isStartingImport={isStartingImport}
                         onSearch={(q) => fetchLeads(leadsModal.webhook, 1, leadsModal.pageSize, q, leadsModal.podeEnviar, leadsModal.dateStart, leadsModal.dateEnd, leadsModal.janelaAberta, leadsModal.semMensagens)}
                         onFilterChange={(f) => fetchLeads(leadsModal.webhook, 1, f.pageSize ?? leadsModal.pageSize, f.search ?? leadsModal.search, f.podeEnviar ?? leadsModal.podeEnviar, f.dateStart ?? leadsModal.dateStart, f.dateEnd ?? leadsModal.dateEnd, f.janelaAberta ?? leadsModal.janelaAberta, f.semMensagens ?? leadsModal.semMensagens)}
                         onPageChange={(p) => fetchLeads(leadsModal.webhook, p, leadsModal.pageSize, leadsModal.search, leadsModal.podeEnviar, leadsModal.dateStart, leadsModal.dateEnd, leadsModal.janelaAberta, leadsModal.semMensagens)}
@@ -339,6 +354,7 @@ const WebhookManager = () => {
                         editError={editError}
                         agents={agents}
                         handleGenerateDescription={handleGenerateDescription}
+                        syncingAgentId={syncingAgentId}
                         editAllowedInput={editAllowedInput}
                         setEditAllowedInput={setEditAllowedInput}
                         editBlockedInput={editBlockedInput}

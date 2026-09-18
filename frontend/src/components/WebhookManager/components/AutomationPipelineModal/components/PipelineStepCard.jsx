@@ -3,9 +3,13 @@ import PipelineStepAudioPlayer from './PipelineStepAudioPlayer';
 import PipelineStepMediaPreview from './PipelineStepMediaPreview';
 import PipelineStepExtractedVars from './PipelineStepExtractedVars';
 import PipelineStepCacheDiagnostics from './PipelineStepCacheDiagnostics';
+import PipelineStepMemoryAction from './PipelineStepMemoryAction';
+import PipelineStepReasoning from './PipelineStepReasoning';
+import { showToast } from '../../../utils/helpers';
 
 export default function PipelineStepCard({
     step,
+    eventId,
     isAllCollapsed = false,
     onMaximize,
     onOpenImage
@@ -20,10 +24,14 @@ export default function PipelineStepCard({
     const handleCopyStep = (e) => {
         e.stopPropagation();
         const textToCopy = step.content || (typeof step.detail === 'string' ? step.detail : JSON.stringify(step.detail || step, null, 2));
-        if (textToCopy && navigator.clipboard) {
-            navigator.clipboard.writeText(textToCopy);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+        if (textToCopy && navigator?.clipboard?.writeText) {
+            Promise.resolve(navigator.clipboard.writeText(textToCopy)).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+                showToast('Copiado para a área de transferência!', 'success');
+            }).catch(() => {
+                showToast('Erro ao copiar conteúdo.', 'error');
+            });
         }
     };
 
@@ -33,6 +41,8 @@ export default function PipelineStepCard({
     const isExtractedVars = step.title?.includes("Variáveis Extraídas") && step.metadata;
     const isExtractContent = step.title?.includes("Conteúdo Extraído");
     const isError = step.category === 'errors' || step.title?.includes('❌');
+    const isQualifiedStep = Boolean(step.title?.includes('Lead Qualificado'));
+    const isAgentResponse = Boolean(step.title?.includes('Resposta gerada') || step.title?.includes('Resposta da IA') || step.title?.includes('Resposta direta'));
     
     const isCacheHit = Boolean(
         step.metadata?.from_semantic_cache === true || 
@@ -76,16 +86,16 @@ export default function PipelineStepCard({
             <div style={{ 
                 position: 'absolute', left: '-36px', top: '10px', width: '12px', height: '12px', 
                 borderRadius: '50%', 
-                background: isError ? '#ef4444' : (isCacheHit ? '#10b981' : (isCachePartial ? '#f59e0b' : '#6366f1')), 
+                background: isError ? '#ef4444' : (isCacheHit || isQualifiedStep ? '#10b981' : (isCachePartial ? '#f59e0b' : '#6366f1')), 
                 border: '4px solid #0f172a',
-                boxShadow: isError ? '0 0 12px #ef4444' : (isCacheHit ? '0 0 14px rgba(16, 185, 129, 0.8)' : '0 0 12px #6366f1'), 
+                boxShadow: isError ? '0 0 12px #ef4444' : (isCacheHit || isQualifiedStep ? '0 0 14px rgba(16, 185, 129, 0.8)' : '0 0 12px #6366f1'), 
                 zIndex: 1
             }} />
 
             {/* Card do Passo */}
             <div style={{ 
-                background: isError ? 'rgba(239, 68, 68, 0.05)' : (isCacheHit ? 'rgba(16, 185, 129, 0.08)' : (isCachePartial ? 'rgba(245, 158, 11, 0.06)' : 'rgba(30, 41, 59, 0.5)')), 
-                border: isError ? '1px solid rgba(239, 68, 68, 0.2)' : (isCacheHit ? '1px solid rgba(16, 185, 129, 0.35)' : (isCachePartial ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(255,255,255,0.05)')), 
+                background: isError ? 'rgba(239, 68, 68, 0.05)' : (isCacheHit || isQualifiedStep ? 'rgba(16, 185, 129, 0.08)' : (isCachePartial ? 'rgba(245, 158, 11, 0.06)' : 'rgba(30, 41, 59, 0.5)')), 
+                border: isError ? '1px solid rgba(239, 68, 68, 0.2)' : (isCacheHit || isQualifiedStep ? '1px solid rgba(16, 185, 129, 0.35)' : (isCachePartial ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(255,255,255,0.05)')), 
                 borderRadius: '20px', 
                 padding: isCollapsed ? '1rem 1.25rem' : '1.5rem',
                 transition: 'all 0.2s ease'
@@ -208,8 +218,70 @@ export default function PipelineStepCard({
                                 💰 R$ {Number(step.metadata.cost).toFixed(4)}
                             </span>
                         )}
+
+                        {isQualifiedStep && step.metadata?.funnel_name && (
+                            <span style={{
+                                fontSize: '0.68rem',
+                                background: 'rgba(59, 130, 246, 0.15)',
+                                color: '#60a5fa',
+                                border: '1px solid rgba(59, 130, 246, 0.3)',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontWeight: 800
+                            }}>
+                                🎯 {step.metadata.funnel_name}
+                            </span>
+                        )}
+
+                        {isQualifiedStep && step.metadata?.lead_classification && (
+                            <span style={{
+                                fontSize: '0.68rem',
+                                background: String(step.metadata.lead_classification).toLowerCase().includes('quente') 
+                                    ? 'rgba(239, 68, 68, 0.15)' 
+                                    : String(step.metadata.lead_classification).toLowerCase().includes('morno') 
+                                        ? 'rgba(245, 158, 11, 0.15)' 
+                                        : 'rgba(148, 163, 184, 0.15)',
+                                color: String(step.metadata.lead_classification).toLowerCase().includes('quente')
+                                    ? '#f87171'
+                                    : String(step.metadata.lead_classification).toLowerCase().includes('morno')
+                                        ? '#fbbf24'
+                                        : '#94a3b8',
+                                border: `1px solid ${
+                                    String(step.metadata.lead_classification).toLowerCase().includes('quente') 
+                                        ? 'rgba(239, 68, 68, 0.3)' 
+                                        : String(step.metadata.lead_classification).toLowerCase().includes('morno')
+                                            ? 'rgba(245, 158, 11, 0.3)'
+                                            : 'rgba(148, 163, 184, 0.3)'
+                                }`,
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontWeight: 800
+                            }}>
+                                🌡️ {step.metadata.lead_classification} {step.metadata.lead_score ? `(${step.metadata.lead_score}/100)` : ''}
+                            </span>
+                        )}
+
+                        {isQualifiedStep && step.metadata?.labels_applied?.length > 0 && (
+                            <span style={{
+                                fontSize: '0.68rem',
+                                background: 'rgba(16, 185, 129, 0.2)',
+                                color: '#34d399',
+                                border: '1px solid rgba(16, 185, 129, 0.4)',
+                                padding: '2px 8px',
+                                borderRadius: '6px',
+                                fontWeight: 800,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                            }}>
+                                🏷️ {step.metadata.labels_applied.join(', ')}
+                            </span>
+                        )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {/* Botão de Ver Mensagens da Memória (se for etapa de memória) */}
+                        <PipelineStepMemoryAction step={step} onMaximize={onMaximize} variant="header" />
+
                         {/* Botão de Copiar Conteúdo do Passo */}
                         <button
                             onClick={handleCopyStep}
@@ -328,6 +400,55 @@ export default function PipelineStepCard({
                             />
                         )}
 
+                        {/* Bloco visual de etiquetas e classificação para a etapa de qualificação */}
+                        {isQualifiedStep && step.metadata && (
+                            <div style={{
+                                background: 'rgba(15, 23, 42, 0.6)',
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                borderRadius: '12px',
+                                padding: '0.85rem 1rem',
+                                marginBottom: '1rem',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '8px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8' }}>
+                                        Etiquetas no Contato:
+                                    </span>
+                                    {step.metadata.labels_applied?.length > 0 ? (
+                                        step.metadata.labels_applied.map((lbl, idx) => (
+                                            <span key={idx} style={{
+                                                fontSize: '0.78rem',
+                                                background: 'rgba(16, 185, 129, 0.2)',
+                                                color: '#34d399',
+                                                border: '1px solid rgba(16, 185, 129, 0.4)',
+                                                padding: '2px 8px',
+                                                borderRadius: '6px',
+                                                fontWeight: 700
+                                            }}>
+                                                🏷️ {lbl}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>
+                                            {step.metadata.lead_classification ? `Nenhuma etiqueta aplicada (Lead ${step.metadata.lead_classification})` : 'Nenhuma etiqueta aplicada'}
+                                        </span>
+                                    )}
+                                    
+                                    {step.metadata.labels_removed?.length > 0 && (
+                                        <span style={{
+                                            fontSize: '0.72rem',
+                                            color: '#64748b',
+                                            marginLeft: 'auto'
+                                        }}>
+                                            (Removidas: {step.metadata.labels_removed.join(', ')})
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         <div style={{ 
                             background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', padding: '1.25rem',
                             color: '#cbd5e1', fontSize: '0.85rem', lineHeight: '1.6', fontFamily: 'monospace',
@@ -339,6 +460,7 @@ export default function PipelineStepCard({
                             ) : (
                                 <>
                                     {displayedContent}
+                                    <PipelineStepMemoryAction step={step} onMaximize={onMaximize} variant="body" />
                                     {isLarge && (
                                         <button 
                                             onClick={() => onMaximize && onMaximize(step)}
@@ -354,6 +476,10 @@ export default function PipelineStepCard({
                                 </>
                             )}
                         </div>
+
+                        {isAgentResponse && (
+                            <PipelineStepReasoning step={step} eventId={eventId || step.eventId || step.metadata?.event_id} />
+                        )}
                     </>
                 )}
             </div>

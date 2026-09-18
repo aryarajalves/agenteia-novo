@@ -5,7 +5,11 @@ import logging
 import openai
 
 from .prompts import get_date_context, _build_pre_router_system_prompt
-from .shortcuts import check_programmatic_shortcuts
+from .shortcuts import (
+    check_programmatic_shortcuts,
+    is_user_answering_assistant_question,
+    _is_purchase_declaration
+)
 from .enrichment import enrich_user_message, _get_kb_reference_context
 from .post_processing import sanitize_and_split_questions, format_debug_and_memory
 
@@ -91,16 +95,106 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         is_ad=is_ad,
         similarity_info=similarity_info,
         cleaned_message=cleaned_message,
-        message=message
+        message=message,
+        context_variables=context_variables
     )
     if shortcut_result is not None:
+        shortcut_result.setdefault("eh_saudacao", False)
+        shortcut_result.setdefault("eh_agradecimento", False)
+        shortcut_result.setdefault("eh_agradecimento_recorrente", False)
+        shortcut_result.setdefault("eh_mensagem_automatica", False)
+        shortcut_result.setdefault("eh_resposta_ao_agente", False)
+        shortcut_result.setdefault("precisa_esclarecimento", False)
+        shortcut_result.setdefault("resposta_esclarecimento", None)
+        shortcut_result.setdefault("resposta_direta", None)
+        shortcut_result.setdefault("perguntas_extraidas", None)
+        shortcut_result.setdefault("lista_perguntas_extraidas", [])
+        shortcut_result.setdefault("chamada_ferramenta", None)
+        shortcut_result.setdefault("data_extraida", None)
+        shortcut_result.setdefault("precisa_rag", False)
+        shortcut_result.setdefault("eh_anuncio", is_ad)
+        shortcut_result.setdefault("detalhe_anuncio", similarity_info)
+        shortcut_result.setdefault("mensagem_original", raw_user_message)
+        shortcut_result.setdefault("mensagem_melhorada", None)
         return shortcut_result
 
     # Se a mensagem contém algo além de saudação/anúncio, usamos o conteúdo limpo no processamento
     message = cleaned_message
 
     api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
+    client = openai.AsyncOpenAI(api_key=api_key) if api_key else None
+
+    # Análise Semântica 100% via LLM (gpt-4o-mini) para detecção de interesse ou aceite de envio do link do curso
+    if client and history and len(message.strip()) > 0:
+        from .link_intent_ai import analyze_link_intent_with_llm
+        link_analysis = await analyze_link_intent_with_llm(message=message, history=history, client=client)
+        if link_analysis.get("quer_link") is True:
+            target_q = "Qual é o link do curso / link de inscrição?"
+            extra_qs = link_analysis.get("duvidas_adicionais") or []
+            if isinstance(extra_qs, str):
+                extra_qs = [extra_qs]
+            if link_analysis.get("outra_duvida"):
+                extra_qs.append(str(link_analysis.get("outra_duvida")))
+            lista_q = [target_q]
+            for eq in extra_qs:
+                if eq and str(eq).strip() and str(eq).strip().lower() not in ["null", "none"] and str(eq).strip() not in lista_q:
+                    lista_q.append(str(eq).strip())
+
+            # Se no histórico o assistente ofereceu formas de pagamento ou informações adicionais, garante que constem na lista
+            last_asst_lower = ""
+            for h in reversed(history):
+                r = (h.get("role") if isinstance(h, dict) else getattr(h, "role", "")).lower()
+                if r in ("assistant", "agent", "bot"):
+                    last_asst_lower = str(h.get("content") if isinstance(h, dict) else getattr(h, "content", "")).lower()
+                    break
+            if "pagamento" in last_asst_lower and not any("pagamento" in q.lower() for q in lista_q):
+                lista_q.append("Quais são as formas de pagamento do curso?")
+            if ("mais informações" in last_asst_lower or "informacoes" in last_asst_lower or "como funciona" in last_asst_lower) and not any("como funciona" in q.lower() for q in lista_q):
+                lista_q.insert(0, "Como funciona o curso?")
+
+            perguntas_str = "\n".join(lista_q)
+            
+            logger.info(f"🎯 [LINK INTENT AI] Decisão 100% LLM: usuário quer o link ({link_analysis.get('motivo')}). RAG ATIVADO com query: '{perguntas_str}'")
+            return {
+                "eh_saudacao": False,
+                "eh_agradecimento": False,
+                "eh_agradecimento_recorrente": False,
+                "eh_mensagem_automatica": False,
+                "eh_resposta_ao_agente": True,
+                "precisa_esclarecimento": False,
+                "resposta_esclarecimento": None,
+                "id_agente_alvo": main_agent.id,
+                "resposta_direta": None,
+                "perguntas_extraidas": perguntas_str,
+                "lista_perguntas_extraidas": lista_q,
+                "data_extraida": None,
+                "precisa_rag": True,
+                "chamada_ferramenta": None,
+                "eh_anuncio": is_ad,
+                "detalhe_anuncio": similarity_info,
+                "mensagem_original": raw_user_message,
+                "mensagem_melhorada": target_q,
+                "tipo_mensagem": "Solicitação de Link do Curso (Detectado 100% por LLM)",
+                "_model_used": "gpt-4o-mini",
+                "_usage": link_analysis.get("_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}),
+                "_debug_prompt": link_analysis.get("_debug_prompt", "")
+            }
+
+    if not api_key or not client:
+        clean_thanks = raw_user_message.lower().strip("!., \t\n")
+        if clean_thanks in ["obrigado", "obrigada", "valeu", "gratidao"]:
+            return {
+                "eh_saudacao": True,
+                "eh_agradecimento": True,
+                "eh_agradecimento_recorrente": False,
+                "id_agente_alvo": main_agent.id,
+                "resposta_direta": "Por nada! Se precisar de mais alguma coisa, é só chamar.",
+                "perguntas_extraidas": None,
+                "lista_perguntas_extraidas": [],
+                "precisa_rag": False,
+                "eh_anuncio": False,
+                "detalhe_anuncio": None
+            }
         return {
             "eh_saudacao": False, 
             "eh_agradecimento": False,
@@ -109,8 +203,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             "eh_anuncio": False,
             "detalhe_anuncio": None
         }
-        
-    client = openai.AsyncOpenAI(api_key=api_key)
     
     # Enriquecimento da Mensagem com IA baseado no Histórico
     if client and history and len(message.strip()) < 150:
@@ -159,10 +251,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
     desc_duvida = custom_duvida.strip() if custom_duvida and custom_duvida.strip() else "Registra apenas perguntas objetivas/fáticas com dados ausentes (ex: preço/endereço ausente). PROIBIDO para objeções ou medos do cliente."
     tools_desc += f"- registrar_duvida_sem_resposta: {desc_duvida} Parâmetros/Schema: " + '{"type": "object", "properties": {"pergunta": {"type": "string", "description": "A pergunta objetiva exata do usuário"}}, "required": ["pergunta"]}\n'
 
-    if getattr(main_agent, "qualification_questions", None):
-        custom_qual = agent_tool_prompts.get("lead_qualificado")
-        desc_qual = custom_qual.strip() if custom_qual and custom_qual.strip() else "Registra que o lead respondeu todas as perguntas de qualificação."
-        tools_desc += f"- lead_qualificado: {desc_qual} Parâmetros/Schema: " + '{"type": "object", "properties": {"respostas": {"type": "object", "description": "Objeto contendo as respostas para cada pergunta"}}, "required": ["respostas"]}\n'
 
     template_vars = dict(
         initial_msg=initial_msg,
@@ -203,13 +291,24 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         )
         result = json.loads(response.choices[0].message.content.strip())
         
-        has_real_question = "?" in raw_user_message or any(term in raw_user_message.lower() for term in [
-            "qual", "como", "quanto", "quem", "onde", "quando", "pode", "precisa",
-            "faz", "curso", "valor", "preço", "preco", "gostaria", "tenho interesse", "funciona",
-            "endereço", "endereco", "horario", "horário", "ajuda",
-            "inscrição", "incrição", "requisito", "formação", "formacao", "posso", "consigo",
-            "serve", "aula", "aulas", "plano", "planos", "comprar", "alugar", "saber mais"
-        ])
+        is_answering = is_user_answering_assistant_question(raw_user_message, history)
+        question_triggers_regex = (
+            r'\b(?:quem\s+(?:[ée]|s[aã]o|ministra|ensina|criou|fez|d[aá]|atende|trabalha)|'
+            r'o\s+que\s+(?:[ée]|ensina|tem|vou\s+aprender|est[aá]\s+incluso)|'
+            r'qual\s+(?:[ée]|o\s+valor|o\s+pre[çc]o|a\s+dura[çc][aã]o|o\s+hor[aá]rio|a\s+ementa|o\s+conte[uú]do|a\s+plataforma|o\s+link|a\s+garantia|o\s+curso)|'
+            r'quais\s+(?:s[aã]o|os\s+conte[uú]dos|as\s+formas|os\s+m[oó]dulos|os\s+b[oô]nus|os\s+procedimentos|os\s+cursos)|'
+            r'como\s+(?:funciona|[ée]|fa[çc]o|posso|acessar|entrar|comprar|alugar|emitir|receber)|'
+            r'quanto\s+(?:custa|[ée]|tempo|vale)|'
+            r'quantas?\s+(?:aulas?|horas?|sess[oõ]es?|dias?)|'
+            r'onde\s+(?:fica|[ée]|comprar|alugar|encontrar|acessar|assistir)|'
+            r'quando\s+(?:come[çc]a|[ée]|inicia|vai\s+ser|acontece)|'
+            r'por\s*que|porque|pra\s+que|'
+            r'(?:tem|possui|oferece|disponibiliza|d[aá]|emite)\s+(?:certificado|garantia|suporte|acesso|nota|desconto|material|apostila|grupo)|'
+            r'aceita\s+(?:cart[aã]o|pix|boleto|parcelamento)|'
+            r'(?:posso|consigo|d[aá]\s+pra)\s+(?:fazer|alugar|parcelar|comprar|assistir|trabalhar|atender)|'
+            r'vale\s+a\s+pena)\b'
+        )
+        has_real_question = bool(re.search(question_triggers_regex, raw_user_message, re.IGNORECASE)) or (not is_answering and "?" in raw_user_message)
         
         msg_clean_no_punct = cleaned_message.lower().strip()
         for char in ["?", "!", ".", ",", ";", ":", "-", "_", "(", ")", "[", "]", "{", "}"]:
@@ -229,7 +328,8 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             msg_clean_no_punct=msg_clean_no_punct,
             common_confirmations=common_confirmations,
             has_reaction_emoji=has_reaction_emoji,
-            history=history
+            history=history,
+            context_variables=context_variables
         )
         
         result = format_debug_and_memory(
@@ -247,6 +347,9 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             response=response
         )
         
+        if _is_purchase_declaration(raw_user_message):
+            result["eh_compra_informada"] = True
+
         return result
     except Exception as e:
         logger.error(f"❌ Erro no Pre-Router (OpenAI): {e}")
@@ -261,5 +364,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             "data_extraida": None,
             "eh_anuncio": is_ad,
             "detalhe_anuncio": similarity_info,
+            "eh_compra_informada": _is_purchase_declaration(raw_user_message),
             "pre_router_error": str(e)
         }

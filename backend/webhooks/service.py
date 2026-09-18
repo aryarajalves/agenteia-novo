@@ -131,6 +131,9 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
     
     data_to_pass = {**data, "valid_name": valid_name, "fallback_name": fallback_name, "is_memory": is_memory}
 
+    lead_id = None
+    is_new = False
+
     async with engine.begin() as conn:
         existing = await conn.execute(text(f"""
             SELECT id FROM {table_name} 
@@ -147,6 +150,8 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
 
         now_utc = datetime.utcnow()
         if row:
+            lead_id = row[0]
+            is_new = False
             if is_agent:
                 two_min_ago = now_utc - timedelta(seconds=120)
                 await conn.execute(text(f"""
@@ -239,11 +244,12 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                     WHERE id = :id
                 """), {**data_to_pass, "webhook_config_id": webhook_config_id, "id": row[0], "now_utc": now_utc})
         else:
+            is_new = True
             logger.info(f"🆕 Inserindo NOVO lead na tabela {table_name}: {phone_raw} (is_agent={is_agent}, is_memory={is_memory}, nome={valid_name or fallback_name})")
             insert_data = {**data_to_pass, "contato_nome": valid_name or fallback_name}
             if is_agent:
                 # Criando lead a partir de uma mensagem enviada pelo agente (disparo ativo)
-                await conn.execute(text(f"""
+                ins_res = await conn.execute(text(f"""
                     INSERT INTO {table_name}
                         (webhook_config_id, conta_id, inbox_id, inbox_nome, conversa_id,
                          mensagem_id, contato_id, telefone, labels, contato_nome, ultima_resposta_agente,
@@ -254,10 +260,12 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                          :mensagem_id, :contato_id, :telefone, COALESCE(:labels, '[]'), :contato_nome, :mensagem,
                          :now_utc, :message_type, :link, TRUE,
                          NULL, :now_utc, :now_utc)
+                    RETURNING id
                 """), {"webhook_config_id": webhook_config_id, "now_utc": now_utc, **insert_data})
+                lead_id = ins_res.scalar()
             else:
                 # Criando lead a partir de uma mensagem enviada pelo cliente ou outra plataforma
-                await conn.execute(text(f"""
+                ins_res = await conn.execute(text(f"""
                     INSERT INTO {table_name}
                         (webhook_config_id, conta_id, inbox_id, inbox_nome, conversa_id,
                          mensagem_id, contato_id, telefone, labels, contato_nome, mensagem,
@@ -269,8 +277,26 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                          :message_type, :link, TRUE,
                          CASE WHEN :is_memory = TRUE THEN NULL ELSE CAST(:now_utc AS TIMESTAMP) END,
                          :now_utc, :now_utc)
+                    RETURNING id
                 """), {"webhook_config_id": webhook_config_id, "now_utc": now_utc, **insert_data})
-            logger.info(f"✅ Lead {phone_raw} inserido com sucesso em {table_name}.")
+                lead_id = ins_res.scalar()
+            logger.info(f"✅ Lead {phone_raw} (ID: {lead_id}) inserido com sucesso em {table_name}.")
+
+    # Broadcast em tempo real via WebSocket para o frontend
+    try:
+        from core.websocket import manager
+        await manager.broadcast({
+            "type": "lead_created" if is_new else "lead_updated",
+            "event": "lead_created" if is_new else "lead_updated",
+            "webhook_id": webhook_config_id,
+            "action": "create" if is_new else "update",
+            "lead_id": lead_id,
+            "telefone": phone_raw,
+            "contato_nome": valid_name or fallback_name,
+            "table_name": table_name
+        })
+    except Exception as ws_err:
+        logger.warning(f"Erro ao transmitir broadcast WS do lead: {ws_err}")
 
 
 async def delete_contact_data(db: AsyncSession, webhook_id: int, table_name: str, phones: list, lead_ids: list = None):
@@ -370,8 +396,8 @@ async def delete_contact_data(db: AsyncSession, webhook_id: int, table_name: str
     if all_keys:
         await db.execute(text("DELETE FROM user_memory WHERE session_id = ANY(:keys)"), {"keys": all_keys})
         await db.execute(text("DELETE FROM session_summaries WHERE session_id = ANY(:keys)"), {"keys": all_keys})
-        await db.execute(text("DELETE FROM interaction_logs WHERE session_id = ANY(:keys)"), {"keys": all_keys})
-        logger.info("✅ Memórias, sumários e logs de interação de todas as plataformas removidos.")
+        # interaction_logs é preservado para não apagar o histórico de tokens e custo gasto no dashboard
+        logger.info("✅ Memórias e sumários removidos (interaction_logs preservados para métricas de custo).")
 
 async def handle_keyword_handoffs(db: AsyncSession, config, event, extracted: dict, cw_url_default: str, cw_token_default: str):
     """Lógica de transbordo por palavra-chave."""

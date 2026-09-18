@@ -54,8 +54,11 @@ def handle_post_execution_and_dispatch(
     resolved_prompt = actual_debug.get("resolved_prompt") or db_agent.system_prompt
     rag_context = actual_debug.get("rag_context", "")
 
+    user_msg_sent = actual_debug.get("user_message_sent") or event.mensagem
     display_history = history.copy() if history else []
-    if event.mensagem:
+    if user_msg_sent:
+        display_history.append({"role": "user", "content": user_msg_sent})
+    elif event.mensagem:
         display_history.append({"role": "user", "content": event.mensagem})
 
     is_bypassed = False
@@ -64,6 +67,8 @@ def handle_post_execution_and_dispatch(
 
     debug_payload = {
         "modelo": str(result.get("model")) if isinstance(result, dict) else str(getattr(db_agent, 'model', 'gpt-4o-mini')),
+        "mensagem_original": event.mensagem,
+        "mensagem_enviada_ao_agente": user_msg_sent,
         "prompt_sistema": str(resolved_prompt) if resolved_prompt else "",
         "prompt_pre_router": str(result.get("_debug_prompt")) if isinstance(result, dict) and result.get("_debug_prompt") else None,
         "contexto_rag": str(rag_context) if rag_context else "",
@@ -108,6 +113,7 @@ def handle_post_execution_and_dispatch(
     }
     if ai_metadata["usage"]:
         ai_metadata["cost"] = webhook_tasks._get_cost(ai_metadata["model"], ai_metadata["usage"])
+    ai_metadata["event_id"] = event_id
 
     tool_calls = result.get("debug", {}).get("tool_calls", []) if isinstance(result, dict) else []
     if tool_calls:
@@ -222,12 +228,53 @@ def handle_post_execution_and_dispatch(
     total_execution_cost = round(sum(step.get("cost", 0) for step in processing_steps_list), 6) if processing_steps_list else None
 
     send_success = True
+    is_question_funnel = bool(result.get("from_question_funnel")) if isinstance(result, dict) else False
+    funnel_steps = result.get("funnel_steps", []) if isinstance(result, dict) else []
+
     if is_simulated:
         webhook_tasks._add_step(db, event_id, "📤 Resposta Final Enviada (MOCK)", f"Mensagem simulada enviada com sucesso no ambiente MOCK:\n\n{response_text}")
         send_success = True
     elif is_error:
         webhook_tasks._add_step(db, event_id, "🛑 Disparo Cancelado devido a Erro de IA", f"O envio de mensagem via ZapVoice/WhatsApp foi cancelado para não enviar erro técnico ao cliente final.\n\nDetalhes do erro: {response_text}")
         send_success = False
+    elif is_question_funnel and funnel_steps and event.conversa_id and event.conta_id:
+        webhook_tasks._add_step(db, event_id, "🎯 Disparando Funil por Dúvida", f"Iniciando envio sequencial de {len(funnel_steps)} passos pré-configurados.")
+        import time
+        send_success = True
+        for idx_st, st in enumerate(funnel_steps):
+            st_type = st.get("type", "text")
+            st_delay = int(st.get("delay_seconds", 0) or 0)
+            if idx_st == 0 and st_delay == 0 and response_delay > 0:
+                time.sleep(response_delay)
+            elif st_delay > 0:
+                time.sleep(st_delay)
+            st_attachments = None
+            st_content = st.get("content") or ""
+            if st_type in ("audio", "video", "image", "document") and st.get("media_url"):
+                media_url_clean = str(st.get("media_url")).strip()
+                if "minio:9000" in media_url_clean or "minio/zap-voice" in media_url_clean:
+                    fname = media_url_clean.split("?")[0].split("/")[-1]
+                    public_base = (os.getenv("BACKEND_PUBLIC_URL") or os.getenv("CLOUDFLARE_TUNNEL_URL") or os.getenv("PUBLIC_URL") or os.getenv("BACKEND_URL", "http://localhost:8002")).rstrip("/")
+                    media_url_clean = f"{public_base}/api/question-funnels/media/{fname}"
+                elif media_url_clean.startswith("/"):
+                    public_base = (os.getenv("BACKEND_PUBLIC_URL") or os.getenv("CLOUDFLARE_TUNNEL_URL") or os.getenv("PUBLIC_URL") or os.getenv("BACKEND_URL", "http://localhost:8002")).rstrip("/")
+                    media_url_clean = f"{public_base}{media_url_clean}"
+
+                st_attachments = [{
+                    "file_type": st.get("media_type") or st_type,
+                    "data_url": media_url_clean
+                }]
+                webhook_tasks._add_step(db, event_id, f"🎙️ Enviando {st_type.upper()} do Funil", f"Passo #{idx_st+1}: {media_url_clean}")
+            is_last = (idx_st == len(funnel_steps) - 1)
+            step_meta = zapvoice_metadata if is_last else None
+            step_cost = total_execution_cost if is_last else None
+            step_ok = webhook_tasks._send_zapvoice_message(
+                db, event_id, event.conversa_id, event.conta_id, st_content, config,
+                split_paragraphs=False, delay=0, meta_data=step_meta, total_cost=step_cost,
+                attachments=st_attachments
+            )
+            if not step_ok:
+                send_success = False
     elif response_text and event.conversa_id and event.conta_id:
         split_enabled = getattr(config, 'split_response_enabled', True)
         if split_enabled is None:
@@ -256,31 +303,34 @@ def handle_post_execution_and_dispatch(
 
     # 3. REGISTRAR ETAPA DE VARIÁVEIS EXTRAÍDAS
     try:
-        ai_vars_stmt = select(GlobalContextVariableModel).where(GlobalContextVariableModel.extraction_method == "ai")
-        ai_vars_res = db.execute(ai_vars_stmt)
-        ai_vars = ai_vars_res.scalars().all()
+        all_vars_stmt = select(GlobalContextVariableModel)
+        all_vars_res = db.execute(all_vars_stmt)
+        all_vars = all_vars_res.scalars().all()
         
-        if ai_vars:
-            mem_stmt = select(UserMemoryModel).where(
-                UserMemoryModel.session_id == str(event.conversa_id)
-            )
+        if all_vars:
+            all_sids = list({str(session_id), str(lead_internal_id), str(event.conversa_id)} - {"None", "", None})
+            mem_stmt = select(UserMemoryModel).where(UserMemoryModel.session_id.in_(all_sids))
             mem_res = db.execute(mem_stmt)
             mems = mem_res.scalars().all()
-            mem_dict = {m.key: m.value for m in mems}
+            mem_dict = {m.key: m.value for m in mems if m.value is not None and str(m.value).strip() != ""}
             
             saved_vars = {}
             pending_vars = []
-            for v in ai_vars:
-                if v.key in mem_dict and mem_dict[v.key] is not None and str(mem_dict[v.key]).strip() != "":
+            for v in all_vars:
+                if v.key in mem_dict:
                     saved_vars[v.key] = mem_dict[v.key]
-                else:
+                elif v.key in ["contact_name", "nome", "nome_cliente"] and (event.contato_nome or "").strip():
+                    saved_vars[v.key] = event.contato_nome.strip()
+                elif v.key in ["contact_phone", "telefone", "telefone_cliente"] and (event.telefone or "").strip():
+                    saved_vars[v.key] = event.telefone.strip()
+                elif v.extraction_method == "ai":
                     pending_vars.append(v.key)
             
             detail_text = ""
             if saved_vars:
                 detail_text += "✅ **Variáveis Extraídas e Salvas:**\n"
                 for k, val in saved_vars.items():
-                    detail_text += f"- {k}: {val}\n"
+                    detail_text += f"- **`{k}`**: {val}\n"
             else:
                 detail_text += "ℹ️ Nenhuma variável de IA foi extraída nesta sessão até o momento.\n"
             
@@ -288,7 +338,7 @@ def handle_post_execution_and_dispatch(
                 if saved_vars: detail_text += "\n"
                 detail_text += "⏳ **Variáveis Pendentes de Extração:**\n"
                 for k in pending_vars:
-                    detail_text += f"- {k} (Aguardando menção no diálogo)\n"
+                    detail_text += f"- `{k}` (Aguardando menção no diálogo)\n"
             
             webhook_tasks._add_step(
                 db, event_id, "📊 Variáveis Extraídas", 

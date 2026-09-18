@@ -48,6 +48,15 @@ Este arquivo registra todas as alterações manuais de schema (ALTER TABLE) real
 | 2026-09-02 | semantic_caches | category_tag | add_category_tag_to_semantic_cache.py | Adição de coluna para vincular perguntas/respostas a um produto específico ou categoria (ex: 'Método Laser Day', NULL para Geral/Todos). |
 | 2026-09-02 | agent_config | qualification_final_action | add_qualification_final_action_column.py | Adição de pergunta / ação final de fechamento e direcionamento (CTA) executada pela IA logo após o lead responder todas as etapas do funil de qualificação. |
 | 2026-09-03 | agent_config | unanswered_handoff_limit, unanswered_question_prompt | add_unanswered_question_config_columns.py | Configuração do limite de dúvidas sem resposta na mesma conversa antes do transbordo humano (0 ou NULL para nunca transferir por dúvidas) e modelo/diretriz de resposta personalizada para a ferramenta `registrar_duvida_sem_resposta`. |
+| 2026-09-04 | agent_config | qualification_final_action_trigger | add_qualification_final_action_trigger_column.py | Adição de condição de disparo da pergunta/ação final de fechamento pós-qualificação (all, hot, hot_warm, warm, cold ou array JSON). |
+| 2026-09-04 | agent_config, leads | qualification_funnels (agent_config), active_qualification_funnel_id (leads) | add_qualification_funnels_columns.py | Suporte a múltiplos funis de qualificação independentes (armazenados em JSON no agente) e atribuição de funil ativo por contato via API para disparos específicos (Mentoria, Evento Presencial, Curso, etc.). |
+| 2026-09-04 | knowledge_items | question_variations | add_question_variations_column.py | Adição de coluna JSON para armazenar múltiplas variações e formas alternativas da mesma pergunta na Base de Conhecimento, melhorando o vetor de busca e a indexação FTS. |
+| 2026-09-05 | webhook_configs, leads | followup_funnels (webhook_configs), active_followup_funnel_id (leads) | add_followup_funnels_columns.py | Suporte a múltiplos fluxos de follow-up independentes por produto (armazenados em JSON no webhook) e atribuição de fluxo de follow-up ativo por contato via API para disparos em massa. |
+| 2026-09-14 | agent_config | rag_multi_query_enabled (DEFAULT TRUE), rag_parent_expansion_enabled (DEFAULT FALSE) | update_rag_defaults.py | Atualização dos valores padrão de RAG: MULTIQUERY passa a ser ativo por padrão (DEFAULT TRUE) e PARENTEXPANSION passa a ser desativado por padrão (DEFAULT FALSE). |
+| 2026-09-15 | question_funnels, leads | TODAS (question_funnels), executed_question_funnels (leads) | add_question_funnels_tables.py | Criação da tabela `question_funnels` para funis de conversão por dúvida (áudio humanizado PTT e mensagens sequenciais com delays) e coluna `executed_question_funnels` para rastrear histórico por lead. |
+
+
+
 
 
 

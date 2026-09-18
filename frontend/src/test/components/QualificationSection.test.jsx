@@ -21,10 +21,30 @@ const mockSetQualificationQuestions = vi.fn();
 const mockSetQualificationLabels = vi.fn();
 const mockSetQualificationCriteria = vi.fn();
 const mockSetQualificationFinalAction = vi.fn();
+const mockSetQualificationFunnels = vi.fn();
+const mockSetActiveFunnelId = vi.fn();
 
 const mockConfigValues = {
     id: '1',
     isNew: false,
+    qualificationFunnels: [
+        {
+            id: 'funnel_default',
+            name: 'Padrão / Principal',
+            is_default: true,
+            questions: [
+                { title: 'Experiência', prompt: 'Descobrir se o lead já atua na área', criteria: 'Sim ou Não', text: 'Experiência', instruction: 'Descobrir se o lead já atua na área' },
+                { title: 'Aparelho', prompt: 'Verificar se tem laser próprio', criteria: '', text: 'Aparelho', instruction: 'Verificar se tem laser próprio' }
+            ],
+            labels: ['Lead-Qualificado'],
+            criteria: 'Classifique quente se score >= 8',
+            final_action: 'Pergunte se eu posso enviar o link do curso para ele.',
+            final_action_trigger: 'all'
+        }
+    ],
+    setQualificationFunnels: mockSetQualificationFunnels,
+    activeFunnelId: 'funnel_default',
+    setActiveFunnelId: mockSetActiveFunnelId,
     qualificationQuestions: [
         { title: 'Experiência', prompt: 'Descobrir se o lead já atua na área', criteria: 'Sim ou Não', text: 'Experiência', instruction: 'Descobrir se o lead já atua na área' },
         { title: 'Aparelho', prompt: 'Verificar se tem laser próprio', criteria: '', text: 'Aparelho', instruction: 'Verificar se tem laser próprio' }
@@ -36,6 +56,8 @@ const mockConfigValues = {
     setQualificationCriteria: mockSetQualificationCriteria,
     qualificationFinalAction: 'Pergunte se eu posso enviar o link do curso para ele.',
     setQualificationFinalAction: mockSetQualificationFinalAction,
+    qualificationFinalActionTrigger: 'all',
+    setQualificationFinalActionTrigger: vi.fn(),
     toolsList: [{ id: 't1', name: 'lead_qualificado' }],
     selectedTools: ['t1']
 };
@@ -49,31 +71,32 @@ describe('QualificationSection Component', () => {
         vi.clearAllMocks();
     });
 
-    it('deve renderizar a seção de funil de qualificação e as etapas existentes', () => {
+    it('deve renderizar a barra de múltiplos funis e as etapas do funil ativo', () => {
         render(<QualificationSection />);
-        expect(screen.getByText(/Funil de Qualificação & Sondagem Estratégica/i)).toBeInTheDocument();
+        expect(screen.getByText(/Funil de Qualificação Ativo/i)).toBeInTheDocument();
+        expect(screen.getByText(/Etapas de Sondagem do Funil Ativo/i)).toBeInTheDocument();
         expect(screen.getByText(/🎯 Experiência/i)).toBeInTheDocument();
         expect(screen.getByText(/Descobrir se o lead já atua na área/i)).toBeInTheDocument();
         expect(screen.getByText(/🎯 Aparelho/i)).toBeInTheDocument();
     });
 
-    it('deve abrir o formulário ao clicar em Nova Etapa / Prompt e cadastrar uma nova etapa', () => {
+    it('deve abrir o modal ao clicar em Nova Etapa / Prompt e cadastrar uma nova etapa', () => {
         render(<QualificationSection />);
         
         const openFormBtn = screen.getByText(/➕ Nova Etapa \/ Prompt/i);
         fireEvent.click(openFormBtn);
 
-        expect(screen.getByText(/Cadastrar Etapa de Sondagem do Lead/i)).toBeInTheDocument();
+        expect(screen.getByTestId('qualification-stage-modal')).toBeInTheDocument();
 
-        const titleInput = screen.getByPlaceholderText(/Ex: Experiência do Lead/i);
-        const promptInput = screen.getByPlaceholderText(/Descubra se ela já atua com estética/i);
-        const criteriaInput = screen.getByPlaceholderText(/Considerar concluído quando o lead/i);
+        const titleInput = screen.getByTestId('stage-modal-title');
+        const promptInput = screen.getByTestId('stage-modal-prompt');
+        const criteriaInput = screen.getByTestId('stage-modal-criteria');
 
         fireEvent.change(titleInput, { target: { value: 'Orçamento' } });
         fireEvent.change(promptInput, { target: { value: 'Perguntar qual o valor disponível para investimento' } });
         fireEvent.change(criteriaInput, { target: { value: 'Valor numérico informado' } });
 
-        const saveBtn = screen.getByText(/Salvar Etapa no Funil/i);
+        const saveBtn = screen.getByTestId('stage-modal-save-btn');
         fireEvent.click(saveBtn);
 
         expect(mockSetQualificationQuestions).toHaveBeenCalledWith(expect.arrayContaining([
@@ -85,16 +108,18 @@ describe('QualificationSection Component', () => {
         ]));
     });
 
-    it('deve permitir iniciar e salvar a edição inline de uma etapa', () => {
+    it('deve abrir o modal para editar uma etapa existente', () => {
         render(<QualificationSection />);
         
         const stageCard = screen.getByText(/🎯 Experiência/i);
         fireEvent.click(stageCard);
 
-        const titleEditInput = screen.getByPlaceholderText(/Nome da Etapa/i);
+        expect(screen.getByTestId('qualification-stage-modal')).toBeInTheDocument();
+
+        const titleEditInput = screen.getByTestId('stage-modal-title');
         fireEvent.change(titleEditInput, { target: { value: 'Experiência Profissional' } });
 
-        const saveEditBtn = screen.getByTitle(/Salvar alteração/i);
+        const saveEditBtn = screen.getByTestId('stage-modal-save-btn');
         fireEvent.click(saveEditBtn);
 
         expect(mockSetQualificationQuestions).toHaveBeenCalledWith(expect.arrayContaining([
@@ -115,9 +140,17 @@ describe('QualificationSection Component', () => {
         });
     });
 
-    it('deve renderizar a seção de pergunta/ação final pós-qualificação e permitir alterar o valor', () => {
+    it('deve alternar entre as abas internas do funil e permitir alterar a ação final', () => {
         render(<QualificationSection />);
 
+        // Valida que as 4 sub-abas internas estão presentes
+        expect(screen.getByTestId('subtab-funnel-stages')).toBeInTheDocument();
+        expect(screen.getByTestId('subtab-funnel-labels')).toBeInTheDocument();
+        expect(screen.getByTestId('subtab-funnel-final-action')).toBeInTheDocument();
+        expect(screen.getByTestId('subtab-funnel-scoring')).toBeInTheDocument();
+
+        // Clica na aba de Ação Final
+        fireEvent.click(screen.getByTestId('subtab-funnel-final-action'));
         expect(screen.getByText(/🎯 Pergunta \/ Ação Final Pós-Qualificação \(Fechamento\)/i)).toBeInTheDocument();
         
         const finalInput = screen.getByTestId('qualification-final-action-input');
@@ -126,5 +159,13 @@ describe('QualificationSection Component', () => {
 
         fireEvent.change(finalInput, { target: { value: 'Pergunte se posso mandar o link de inscrição.' } });
         expect(mockSetQualificationFinalAction).toHaveBeenCalledWith('Pergunte se posso mandar o link de inscrição.');
+
+        // Clica na aba de Etiquetas
+        fireEvent.click(screen.getByTestId('subtab-funnel-labels'));
+        expect(screen.getByText(/🏷️ Etiquetas do ZapVoice/i)).toBeInTheDocument();
+
+        // Clica na aba de Lead Scoring
+        fireEvent.click(screen.getByTestId('subtab-funnel-scoring'));
+        expect(screen.getByText(/🔥 Diretrizes e Critérios do Lead Scoring/i)).toBeInTheDocument();
     });
 });

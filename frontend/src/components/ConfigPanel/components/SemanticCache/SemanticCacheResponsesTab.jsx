@@ -121,8 +121,8 @@ const SemanticCacheResponsesTab = ({
             )}
 
             {loading ? (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                    <div className="saving-spinner" style={{ margin: '0 auto 12px' }} />
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    <div className="tab-loading-spinner" style={{ marginBottom: '12px' }} />
                     <p>Carregando respostas do cache...</p>
                 </div>
             ) : cacheItems.length === 0 ? (

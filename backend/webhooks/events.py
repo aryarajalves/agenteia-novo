@@ -106,7 +106,7 @@ async def list_webhook_events(
         SELECT id, webhook_config_id, event_type, message_type, conta_id, inbox_id, inbox_nome,
                conversa_id, mensagem_id, contato_id, telefone, labels, contato_nome, mensagem,
                link, status, task_id, agent_response, legenda, dono, scheduled_at, created_at,
-               updated_at, is_automatic, processing_steps
+               updated_at, is_automatic, processing_steps, raw_payload
         FROM webhook_events WHERE {where_str} ORDER BY created_at DESC LIMIT :limit OFFSET :offset
     """)
     res = await db.execute(query, params)
@@ -126,10 +126,11 @@ async def list_webhook_events(
             if any(msg in resp or resp in msg for resp in agent_responses_in_batch if resp):
                 continue
 
-        # Enriquecer com informações de custo e se foi pelo cache semântico (de graça) ou pago (IA)
+        # Enriquecer com informações de custo e se foi pelo cache semântico (de graça), zapvoice ou pago (IA)
         p_steps_raw = item.get("processing_steps")
         is_cache = False
         is_partial = False
+        is_zapvoice_import = False
         cost = 0.0
         if p_steps_raw:
             try:
@@ -137,6 +138,8 @@ async def list_webhook_events(
                 if isinstance(p_steps, list):
                     for s in p_steps:
                         meta = s.get("metadata") or {}
+                        if meta.get("is_zapvoice_import") or meta.get("origin") == "zapvoice_import":
+                            is_zapvoice_import = True
                         if meta.get("from_semantic_cache") is True:
                             is_cache = True
                         elif meta.get("from_semantic_cache") == "partial":
@@ -144,10 +147,16 @@ async def list_webhook_events(
                         elif meta.get("from_semantic_cache") == "funnel" or meta.get("funnel_active"):
                             is_partial = True
 
-                        if meta.get("cost"):
-                            cost += float(meta.get("cost", 0))
+                        step_cost = meta.get("cost") or s.get("cost")
+                        if step_cost:
+                            try:
+                                cost += float(step_cost)
+                            except (ValueError, TypeError):
+                                pass
 
                         title = (s.get("step") or "").lower()
+                        if title.startswith("📥 importação do zapvoice") or title.startswith("📥 importacao do zapvoice"):
+                            is_zapvoice_import = True
                         if "cache semântico" in title or "cache semantico" in title:
                             if "funil" in title or "qualificação" in title or "qualificacao" in title or "parcial" in title:
                                 is_partial = True
@@ -156,14 +165,34 @@ async def list_webhook_events(
             except Exception:
                 pass
 
-        if cost > 0:
-            is_cache = False
-            is_partial = True
+        raw_p = item.get("raw_payload")
+        if raw_p:
+            try:
+                raw_data = json.loads(raw_p) if isinstance(raw_p, str) else raw_p
+                if isinstance(raw_data, dict) and (raw_data.get("origin") == "zapvoice_import" or raw_data.get("is_zapvoice_import")):
+                    is_zapvoice_import = True
+            except Exception:
+                pass
 
-        item["from_semantic_cache"] = is_cache
-        item["is_partial_cache"] = is_partial
-        item["is_free"] = (is_cache and cost == 0.0) or (item.get("event_type") == "followup" and cost == 0.0)
-        item["cost"] = round(cost, 4)
+        if is_zapvoice_import:
+            item["is_zapvoice_import"] = True
+            item["origin"] = "zapvoice_import"
+            item["from_semantic_cache"] = False
+            item["is_partial_cache"] = False
+            item["is_free"] = False
+            item["cost"] = 0.0
+            if item.get("message_type") == "template" or (isinstance(raw_p, str) and '"is_template": true' in raw_p.lower()):
+                item["is_template"] = True
+        else:
+            if cost > 0:
+                is_cache = False
+                is_partial = True
+
+            item["is_zapvoice_import"] = False
+            item["from_semantic_cache"] = is_cache
+            item["is_partial_cache"] = is_partial
+            item["is_free"] = (is_cache and cost == 0.0) or (item.get("event_type") == "followup" and cost == 0.0)
+            item["cost"] = round(cost, 4)
 
         filtered_items.append(item)
 
@@ -344,3 +373,138 @@ async def get_webhook_event_detail_by_id(event_id: int, db: AsyncSession = Depen
         "created_at": event.created_at,
         "server_now": get_now_br()
     }
+
+
+@router.post("/events/{event_id}/explain-response")
+async def explain_webhook_event_response(event_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Analisa criticamente por que a IA gerou aquela resposta no evento de automação.
+    Retorna a 1ª parte da resposta, a própria pergunta e o passo a passo do raciocínio.
+    """
+    event = await db.get(WebhookEventModel, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    raw_steps = event.processing_steps
+    steps = raw_steps if isinstance(raw_steps, list) else json.loads(raw_steps or "[]")
+
+    # 1. Se já existir o raciocínio nos metadados da etapa, retornar do cache imediato
+    for s in steps:
+        if isinstance(s, dict) and "Resposta gerada pelo agente" in s.get("step", ""):
+            meta = s.get("metadata") or {}
+            if meta.get("reasoning") and isinstance(meta.get("reasoning"), dict):
+                return meta["reasoning"]
+
+    # 2. Localizar dados de Raio-X e Resposta do Agente
+    raiox_detail = None
+    agent_resp_text = event.agent_response or ""
+
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+        step_name = s.get("step", "")
+        if "Raio-X" in step_name:
+            detail_val = s.get("detail", "{}")
+            if isinstance(detail_val, str):
+                try:
+                    raiox_detail = json.loads(detail_val)
+                except Exception:
+                    raiox_detail = {"prompt_sistema": detail_val}
+            elif isinstance(detail_val, dict):
+                raiox_detail = detail_val
+        elif "Resposta gerada pelo agente" in step_name:
+            if not agent_resp_text and s.get("detail"):
+                agent_resp_text = str(s.get("detail"))
+
+    if not agent_resp_text:
+        raise HTTPException(status_code=400, detail="Este evento não possui uma resposta gerada pelo agente para ser analisada.")
+
+    resolved_prompt = ""
+    user_message = event.mensagem or ""
+    if raiox_detail:
+        resolved_prompt = raiox_detail.get("prompt_sistema", "") or ""
+        if not user_message:
+            user_message = raiox_detail.get("mensagem_enviada_ao_agente") or raiox_detail.get("mensagem_original") or ""
+
+    MAX_PROMPT_CHARS = 10000
+    if len(resolved_prompt) > MAX_PROMPT_CHARS:
+        resolved_prompt = resolved_prompt[:MAX_PROMPT_CHARS] + "\n\n[... prompt truncado para análise ...]"
+
+    meta_prompt = f"""Você é um auditor especialista em sistemas de IA conversacional e funis de vendas.
+
+Analise criticamente o contexto da conversa, as regras do prompt do sistema e a resposta gerada pela IA, e decomponha com clareza o motivo da resposta e o encadeamento de passos.
+
+### Prompt do Sistema (Instruções e Regras dadas à IA):
+{resolved_prompt}
+
+### Mensagem Recebida do Usuário:
+"{user_message}"
+
+### Resposta Gerada pela IA:
+"{agent_resp_text}"
+
+Identifique com precisão cirúrgica:
+1. "primeira_parte": A primeira sentença/frase da resposta (normalmente um acolhimento, simpatia, validação ou saudação) e o motivo exato pelo qual ela foi escolhida, citando explicitamente a regra do prompt que exigiu essa primeira parte (ex: regra de negação/continuidade do funil, diretriz de tom, etc.).
+2. "pergunta_conducao": A pergunta ou condução realizada no corpo da resposta e o motivo exato pelo qual essa pergunta foi feita (ex: qual etapa do funil de qualificação estava pendente, ou qual exemplo/diretriz do prompt foi seguido).
+3. "passo_a_passo": Uma lista de 3 a 5 passos sequenciais numerados explicando a linha de raciocínio da IA desde o recebimento da mensagem do usuário até a conclusão do texto.
+4. "summary": Resumo executivo em 1-2 frases do raciocínio central da IA.
+5. "fatores": Lista de até 4 fatores determinantes com "titulo", "explicacao" e "relevancia" ("alta", "media").
+
+Retorne APENAS um JSON válido no seguinte formato:
+{{
+  "summary": "Resumo do raciocínio em 1-2 frases.",
+  "primeira_parte": {{
+    "texto": "Trecho da primeira parte da resposta",
+    "motivo": "Explicação detalhada e direta de por que a IA gerou esse início, citando as regras do prompt correspondentes."
+  }},
+  "pergunta_conducao": {{
+    "texto": "Trecho da pergunta ou condução formulada",
+    "motivo": "Explicação detalhada de por que essa pergunta específica foi formulada pela IA."
+  }},
+  "passo_a_passo": [
+    "Passo 1: ...",
+    "Passo 2: ...",
+    "Passo 3: ..."
+  ],
+  "fatores": [
+    {{
+      "titulo": "Nome da Regra ou Fator",
+      "explicacao": "Como esse fator orientou a resposta.",
+      "relevancia": "alta"
+    }}
+  ]
+}}
+"""
+
+    from agent_core.clients import get_openai_client
+    try:
+        client = get_openai_client()
+        completion = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": meta_prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+
+        data = json.loads(completion.choices[0].message.content)
+
+        # Salvar o raciocínio gerado dentro do metadata do passo para cache permanente
+        updated_steps = False
+        for s in steps:
+            if isinstance(s, dict) and "Resposta gerada pelo agente" in s.get("step", ""):
+                if "metadata" not in s or not isinstance(s["metadata"], dict):
+                    s["metadata"] = {}
+                s["metadata"]["reasoning"] = data
+                updated_steps = True
+                break
+
+        if updated_steps:
+            event.processing_steps = json.dumps(steps, ensure_ascii=False)
+            await db.commit()
+
+        return data
+
+    except Exception as e:
+        logger.error(f"Erro ao explicar resposta da automação no evento {event_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar explicação da resposta: {str(e)}")
+

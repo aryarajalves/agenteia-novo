@@ -95,7 +95,30 @@ const KBTable = () => {
                                     #{item.id || item.originalIndex + 1}
                                 </span>
                             </td>
-                            <td>{item.question}</td>
+                            <td>
+                                <div style={{ fontWeight: 600, color: '#f1f5f9' }}>{item.question}</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px', alignItems: 'center' }}>
+                                    {Array.isArray(item.question_variations) && item.question_variations.length > 0 && (
+                                        <span 
+                                            className="kb-variation-badge" 
+                                            title={`Variações:\n${item.question_variations.map((v, i) => `${i + 1}. ${v}`).join('\n')}`}
+                                            data-testid={`variation-badge-${item.id || item.originalIndex}`}
+                                        >
+                                            🔀 +{item.question_variations.length} {item.question_variations.length === 1 ? 'variação' : 'variações'}
+                                        </span>
+                                    )}
+                                    {item.metadata_val && item.metadata_val.split('|').map(m => m.trim()).filter(Boolean).map((meta, mIdx) => (
+                                        <span 
+                                            key={mIdx}
+                                            className="kb-metadata-table-badge" 
+                                            title={`Metadado: ${meta}`}
+                                            data-testid={`metadata-badge-${item.id || item.originalIndex}-${mIdx}`}
+                                        >
+                                            🏷️ {meta}
+                                        </span>
+                                    ))}
+                                </div>
+                            </td>
                             <td>{item.answer}</td>
                             <td>
                                 <div className="kb-row-actions">

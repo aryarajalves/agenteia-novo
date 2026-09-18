@@ -5,13 +5,13 @@ import LinkExistingCacheSection from './LinkExistingCacheSection';
 import CacheThresholdControl from '../../ConfigPanel/components/Modals/CacheThresholdControl';
 import ProductCategoryTagSelector from '../../ConfigPanel/components/Modals/ProductCategoryTagSelector';
 import FullscreenTextareaModal from '../../WebhookManager/components/FullscreenTextareaModal';
+import AlternateQueriesInput from '../../ConfigPanel/components/Modals/AlternateQueriesInput';
 
 const ApproveCacheModal = ({ modal, agentId, onConfirm, onLinkExisting, onCancel, isSaving, defaultThreshold = 92 }) => {
     const [mode, setMode] = useState('new'); // 'new' | 'link'
     const [query, setQuery] = useState('');
     const [response, setResponse] = useState('');
     const [alternateQueries, setAlternateQueries] = useState([]);
-    const [newAltInput, setNewAltInput] = useState('');
     const [similarityThreshold, setSimilarityThreshold] = useState(null);
     const [categoryTag, setCategoryTag] = useState('');
     const [isMaximized, setIsMaximized] = useState(false);
@@ -27,7 +27,6 @@ const ApproveCacheModal = ({ modal, agentId, onConfirm, onLinkExisting, onCancel
             setQuery(modal.userMsg || '');
             setResponse(modal.msg?.content || '');
             setAlternateQueries([]);
-            setNewAltInput('');
             setSimilarityThreshold(null);
             setCategoryTag('');
             setIsMaximized(false);
@@ -54,19 +53,6 @@ const ApproveCacheModal = ({ modal, agentId, onConfirm, onLinkExisting, onCancel
     }, [modal, agentId]);
 
     if (!modal) return null;
-
-    const handleAddAlt = (e) => {
-        if (e) e.preventDefault();
-        const clean = newAltInput.trim();
-        if (clean && !alternateQueries.includes(clean)) {
-            setAlternateQueries([...alternateQueries, clean]);
-            setNewAltInput('');
-        }
-    };
-
-    const handleRemoveAlt = (index) => {
-        setAlternateQueries(alternateQueries.filter((_, i) => i !== index));
-    };
 
     const handleSubmitNew = (e) => {
         e.preventDefault();
@@ -230,93 +216,13 @@ const ApproveCacheModal = ({ modal, agentId, onConfirm, onLinkExisting, onCancel
                                 />
                             </div>
 
-                            {/* Variações */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                                    ➕ Outras Perguntas / Variações que ativam esta resposta (Opcional)
-                                </label>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <input
-                                        type="text"
-                                        data-testid="approve-cache-alt-input"
-                                        value={newAltInput}
-                                        onChange={(e) => setNewAltInput(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                handleAddAlt();
-                                            }
-                                        }}
-                                        placeholder="Ex: o curso é online ou presencial?"
-                                        style={{
-                                            flex: 1,
-                                            background: 'rgba(15, 23, 42, 0.9)',
-                                            border: '1px solid rgba(56, 189, 248, 0.35)',
-                                            borderRadius: '8px',
-                                            padding: '9px 13px',
-                                            fontSize: '0.88rem',
-                                            color: '#fff',
-                                            outline: 'none',
-                                            boxSizing: 'border-box'
-                                        }}
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleAddAlt}
-                                        disabled={!newAltInput.trim()}
-                                        data-testid="add-alt-query-btn"
-                                        style={{
-                                            padding: '9px 14px',
-                                            borderRadius: '8px',
-                                            background: newAltInput.trim() ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                                            border: '1px solid rgba(56, 189, 248, 0.4)',
-                                            color: newAltInput.trim() ? '#38bdf8' : '#64748b',
-                                            fontWeight: 600,
-                                            fontSize: '0.85rem',
-                                            cursor: newAltInput.trim() ? 'pointer' : 'default'
-                                        }}
-                                    >
-                                        ➕ Adicionar
-                                    </button>
-                                </div>
-
-                                {alternateQueries.length > 0 && (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                                        {alternateQueries.map((alt, idx) => (
-                                            <div
-                                                key={idx}
-                                                style={{
-                                                    background: 'rgba(56, 189, 248, 0.12)',
-                                                    border: '1px solid rgba(56, 189, 248, 0.35)',
-                                                    borderRadius: '16px',
-                                                    padding: '4px 10px',
-                                                    fontSize: '0.8rem',
-                                                    color: '#bae6fd',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '6px'
-                                                }}
-                                            >
-                                                <span>💬 {alt}</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveAlt(idx)}
-                                                    style={{
-                                                        background: 'transparent',
-                                                        border: 'none',
-                                                        color: '#f87171',
-                                                        cursor: 'pointer',
-                                                        fontSize: '0.85rem',
-                                                        padding: 0
-                                                    }}
-                                                >
-                                                    ✕
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            {/* Variações de Perguntas com Edição Inline */}
+                            <AlternateQueriesInput
+                                queries={alternateQueries}
+                                onChange={setAlternateQueries}
+                                testIdInput="approve-cache-alt-input"
+                                testIdAddBtn="add-alt-query-btn"
+                            />
 
                             {/* Tag de Produto / Categoria */}
                             <ProductCategoryTagSelector

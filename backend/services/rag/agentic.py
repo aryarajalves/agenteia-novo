@@ -11,18 +11,30 @@ async def rerank_results(query: str, items: list[dict], model: str = "gpt-4o-min
         context_to_rank = ""
         for i, item in enumerate(items):
             meta_str = f"{m_label}: {item.get('metadata_val', '')}\n" if item.get('metadata_val') else ""
-            context_to_rank += f"[{i}] {meta_str}{q_label}: {item['question']}\n{a_label}: {item['answer']}\n\n"
+            vars_list = item.get("question_variations") or []
+            vars_str = f" (Variações: {', '.join(vars_list)})" if vars_list else ""
+            context_to_rank += f"[{i}] {meta_str}{q_label}: {item['question']}{vars_str}\n{a_label}: {item['answer']}\n\n"
             
         prompt = f"""
-Sua tarefa é reordenar os conhecimentos abaixo do mais relevante para o menos relevante em relação à Pergunta do Usuário.
+Sua tarefa é avaliar e reordenar os conhecimentos abaixo do mais relevante para o menos relevante em relação à Pergunta do Usuário.
 
 Pergunta do Usuário: "{query}"
 
 Conhecimentos Disponíveis:
 {context_to_rank}
 
-Responda APENAS com uma lista JSON de índices na nova ordem de importância.
-Exemplo de resposta: [2, 0, 1]
+Diretrizes:
+1. Analise o quanto cada conhecimento responde de forma direta, útil e precisa à pergunta do usuário.
+2. Atribua uma nota de relevância de 0 a 100 para cada conhecimento com base em sua utilidade real para a pergunta.
+3. Ordene a lista da maior nota (mais relevante) para a menor nota (menos relevante).
+
+Responda EXCLUSIVAMENTE em formato JSON:
+{{
+  "ranking": [
+    {{"index": 0, "score": 95}},
+    {{"index": 1, "score": 80}}
+  ]
+}}
 """
         response = await call_rag_llm(
             model=model,
@@ -32,6 +44,8 @@ Exemplo de resposta: [2, 0, 1]
         )
         
         content = response.choices[0].message.content.strip()
+        new_order = []
+        score_by_idx = {}
         try:
             # Tenta limpar markdown se houver
             if "```json" in content:
@@ -40,31 +54,71 @@ Exemplo de resposta: [2, 0, 1]
                 content = content.split("```")[1].split("```")[0].strip()
             
             # Remove possíveis textos explicativos antes/depois do JSON
-            if content.find("[") != -1:
-                content = content[content.find("["):content.rfind("]")+1]
-            elif content.find("{") != -1:
+            if content.find("{") != -1 and content.rfind("}") != -1:
                 content = content[content.find("{"):content.rfind("}")+1]
+            elif content.find("[") != -1 and content.rfind("]") != -1:
+                content = content[content.find("["):content.rfind("]")+1]
 
-            new_order = json.loads(content)
-            if isinstance(new_order, dict) and new_order.values():
-                 new_order = list(new_order.values())[0] if isinstance(list(new_order.values())[0], list) else []
-            elif isinstance(new_order, dict):
-                 new_order = []
+            parsed_data = json.loads(content)
+            
+            # Formato 1: {"ranking": [{"index": 0, "score": 95}, ...]}
+            if isinstance(parsed_data, dict):
+                raw_list = parsed_data.get("ranking") or parsed_data.get("items") or parsed_data.get("results")
+                if not isinstance(raw_list, list) and parsed_data.values():
+                    first_val = list(parsed_data.values())[0]
+                    if isinstance(first_val, list):
+                        raw_list = first_val
+                if isinstance(raw_list, list):
+                    for entry in raw_list:
+                        if isinstance(entry, dict) and "index" in entry:
+                            idx = entry.get("index")
+                            sc = entry.get("score")
+                            if isinstance(idx, int) and 0 <= idx < len(items):
+                                new_order.append(idx)
+                                if isinstance(sc, (int, float)):
+                                    norm_sc = float(sc) / 100.0 if float(sc) > 1.0 else float(sc)
+                                    score_by_idx[idx] = round(max(0.0, min(1.0, norm_sc)), 4)
+                        elif isinstance(entry, int) and 0 <= entry < len(items):
+                            new_order.append(entry)
+            # Formato 2: Lista simples [2, 0, 1] ou de dicts
+            elif isinstance(parsed_data, list):
+                for entry in parsed_data:
+                    if isinstance(entry, dict) and "index" in entry:
+                        idx = entry.get("index")
+                        sc = entry.get("score")
+                        if isinstance(idx, int) and 0 <= idx < len(items):
+                            new_order.append(idx)
+                            if isinstance(sc, (int, float)):
+                                norm_sc = float(sc) / 100.0 if float(sc) > 1.0 else float(sc)
+                                score_by_idx[idx] = round(max(0.0, min(1.0, norm_sc)), 4)
+                    elif isinstance(entry, int) and 0 <= entry < len(items):
+                        new_order.append(entry)
         except Exception as json_e:
             print(f"[RERANK JSON ERROR] Failed to parse: {json_e} | Content: {content[:100]}...")
             new_order = []
+            score_by_idx = {}
 
         reranked_items = []
         seen_indices = set()
         for idx in new_order:
             if 0 <= idx < len(items) and idx not in seen_indices:
-                items[idx]["search_type"] = "hybrid + reranked"
-                reranked_items.append(items[idx])
+                it = dict(items[idx])
+                it["search_type"] = "hybrid + reranked"
+                it["vector_score"] = it.get("relevance_score")
+                if idx in score_by_idx:
+                    it["relevance_score"] = score_by_idx[idx]
+                    it["rerank_score"] = score_by_idx[idx]
+                reranked_items.append(it)
                 seen_indices.add(idx)
         
         for i, item in enumerate(items):
             if i not in seen_indices:
-                reranked_items.append(item)
+                it = dict(item)
+                it["vector_score"] = it.get("relevance_score")
+                if i in score_by_idx:
+                    it["relevance_score"] = score_by_idx[i]
+                    it["rerank_score"] = score_by_idx[i]
+                reranked_items.append(it)
                 
         return reranked_items, response.usage
         
@@ -86,7 +140,10 @@ async def evaluate_rag_relevance(query: str, items: list[dict], model: str = "gp
         context = ""
         for i, item in enumerate(items):
             meta_prefix = f"{m_label}: {item.get('metadata_val', '')} | " if item.get('metadata_val') else ""
-            context += f"Conhecimento [{i}] (ID: {item['id']}): {meta_prefix}{item['question'] if q_label == 'Pergunta' else q_label + ': ' + item['question']} -> {item['answer'][:400] if a_label == 'Resposta' else a_label + ': ' + item['answer'][:400]}\n"
+            vars_list = item.get("question_variations") or []
+            vars_str = f" [Variações: {', '.join(vars_list)}]" if vars_list else ""
+            q_text = item['question'] if q_label == 'Pergunta' else q_label + ': ' + item['question']
+            context += f"Conhecimento [{i}] (ID: {item['id']}): {meta_prefix}{q_text}{vars_str} -> {item['answer'][:400] if a_label == 'Resposta' else a_label + ': ' + item['answer'][:400]}\n"
             
         prompt = f"""
 Sua tarefa é agir como um filtro de relevância para um sistema RAG (Busca de Conhecimento).
@@ -149,6 +206,7 @@ Exemplo de resposta:
                 reason = discarded_reasons.get(str(i)) or discarded_reasons.get(i) or "Baixa similaridade semântica/avaliação de relevância negativa."
                 item_copy = dict(item)
                 item_copy["discard_reason"] = reason
+                item_copy["discard_filter"] = "AGENTIC EVAL"
                 discarded_items.append(item_copy)
 
         if not relevant_items and items and items[0].get("distance", 1.0) < 0.6:

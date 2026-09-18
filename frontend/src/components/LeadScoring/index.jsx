@@ -184,11 +184,12 @@ const LeadScoring = () => {
 
     // Obter classe correspondente para a temperatura do lead
     const getClassificationClass = (classification) => {
-        if (!classification) return 'frio';
+        if (!classification) return 'indefinida';
         const clean = classification.toLowerCase();
         if (clean.includes('quente')) return 'quente';
         if (clean.includes('morno')) return 'morno';
-        return 'frio';
+        if (clean.includes('frio')) return 'frio';
+        return 'indefinida';
     };
 
     // Filtrar e ordenar leads
@@ -300,8 +301,8 @@ const LeadScoring = () => {
                                 <div className="lead-card-header" onClick={() => toggleExpand(leadUniqueId)}>
                                     <div className="lead-main-info">
                                         <div className={`lead-score-circle score-${scoreClass}`}>
-                                            <span className="lead-score-value">{hasScore ? lead.lead_score : '?'}</span>
-                                            <span className="lead-score-max">/13</span>
+                                            <span className="lead-score-value">{hasScore ? lead.lead_score : '-'}</span>
+                                            {hasScore && <span className="lead-score-max">/13</span>}
                                         </div>
 
                                         <div className="lead-meta-details">

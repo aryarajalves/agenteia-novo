@@ -66,7 +66,8 @@ describe('AddItemForm - Metadata Tags System', () => {
             question: 'Pergunta 1',
             answer: 'Resposta 1',
             metadata_val: 'Painel Inicial | WhatsApp',
-            category: 'Geral'
+            category: 'Geral',
+            question_variations: []
         });
     });
 });

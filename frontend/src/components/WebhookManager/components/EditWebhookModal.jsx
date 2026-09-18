@@ -19,6 +19,7 @@ const EditWebhookModal = ({
     editError,
     agents = [],
     handleGenerateDescription,
+    syncingAgentId,
     editAllowedInput,
     setEditAllowedInput,
     editBlockedInput,
@@ -209,6 +210,16 @@ const EditWebhookModal = ({
         }
     }, [editTab, geralSubTab, fetchZapvoiceTemplates]);
 
+    useEffect(() => {
+        if (editTab === 'zapvoice' && fetchChatwootLabels) {
+            fetchChatwootLabels({
+                zapvoice_url: safeEditForm.zapvoice_url,
+                zapvoice_api_token: safeEditForm.zapvoice_api_token,
+                zapvoice_client_id: safeEditForm.zapvoice_client_id
+            });
+        }
+    }, [editTab, safeEditForm.zapvoice_url, safeEditForm.zapvoice_api_token, safeEditForm.zapvoice_client_id, fetchChatwootLabels]);
+
     // Bloquear scroll ao montar o modal
     useEffect(() => {
         const originalStyle = window.getComputedStyle(document.body).overflow;
@@ -293,6 +304,7 @@ const EditWebhookModal = ({
                                     setEditForm={setEditForm}
                                     agentsList={agentsList}
                                     handleGenerateDescription={handleGenerateDescription}
+                                    syncingAgentId={syncingAgentId}
                                 />
                             )}
 

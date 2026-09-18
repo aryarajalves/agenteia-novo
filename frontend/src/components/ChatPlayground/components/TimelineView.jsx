@@ -18,7 +18,14 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
     if (debug.pre_router) {
         const pr = debug.pre_router;
         const tipoMsg = pr.tipo_mensagem || (pr.eh_saudacao ? 'Saudação' : pr.eh_agradecimento ? 'Agradecimento' : 'Classificação de Intenção');
-        const ragStatus = pr.precisa_rag === true ? 'Necessário' : pr.precisa_rag === false ? 'Dispensado / Otimizado' : 'Automático';
+        const isShortcut = pr._model_used === 'shortcut-logic' || Boolean(pr.resposta_direta) || Boolean(pr.tipo_mensagem?.includes('Atalho')) || Boolean(pr.eh_saudacao) || Boolean(pr.eh_agradecimento);
+        const ragStatus = pr.precisa_rag === true
+            ? 'Necessário'
+            : isShortcut
+                ? 'Dispensado (Atalho)'
+                : pr.precisa_rag === false
+                    ? 'Dispensado / Otimizado'
+                    : 'Não Consultado';
         const toolStatus = pr.precisa_ferramenta ? (pr.chamada_ferramenta?.nome || 'Ativa') : 'Nenhuma';
 
         steps.push({
@@ -29,6 +36,7 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
             tipoMsg,
             ragStatus,
             toolStatus,
+            isShortcut,
             hasDecisionBtn: !!onOpenPreRouterDecision,
             hasPromptBtn: !!pr._debug_prompt && !!onOpenPreRouterPrompt
         });
@@ -52,6 +60,77 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
         }
     }
 
+    // 3.5 Consulta ao Cache Semântico de Respostas Aprovadas
+    const sc = debug.semantic_cache;
+    if (sc || debug.cache_hit || debug.from_semantic_cache) {
+        const isHitDirect = sc?.status === 'hit_direct' || debug.from_semantic_cache || (debug.cache_hit && !sc?.funnel_active && sc?.status !== 'hit_qualification');
+        const isHitQual = sc?.status === 'hit_qualification' || (sc?.funnel_active && debug.cache_hit);
+        const isPartial = sc?.status === 'partial_hit';
+        const isMiss = sc?.status === 'miss';
+        const isDisabled = sc?.status === 'disabled';
+
+        if (isHitDirect) {
+            const sim = sc?.similarity_pct || (debug.cached_similarity ? `${(debug.cached_similarity * 100).toFixed(1)}%` : null);
+            const query = sc?.matched_query || debug.cached_original_query || 'Pergunta correspondente';
+            const matchedQueries = sc?.matched_queries || debug.matched_queries || [];
+            steps.push({
+                icon: '⚡',
+                title: 'Cache Semântico: Resposta Homologada (Custo Zero)',
+                desc: `Hit ${sim ? `(${sim})` : ''}: "${query}". Resposta entregue instantaneamente com 0 tokens de LLM.`,
+                isSemanticCache: true,
+                cacheStatus: 'hit_direct',
+                badgeLabel: '⚡ Custo Zero',
+                simLabel: sim,
+                matchedQueries: matchedQueries.length > 0 ? matchedQueries : [query]
+            });
+        } else if (isHitQual) {
+            const sim = sc?.similarity_pct || (debug.cached_similarity ? `${(debug.cached_similarity * 100).toFixed(1)}%` : null);
+            const query = sc?.matched_query || debug.cached_original_query || 'Pergunta correspondente';
+            const matchedQueries = sc?.matched_queries || debug.matched_queries || [];
+            steps.push({
+                icon: '⚡',
+                title: 'Cache Semântico + Funil de Qualificação Ativo',
+                desc: `Hit ${sim ? `(${sim})` : ''}: "${query}". Resposta oficial homologada no cache injetada com fidelidade no prompt e IA acionada para avançar no funil de perguntas.`,
+                isSemanticCache: true,
+                cacheStatus: 'hit_qualification',
+                badgeLabel: '⚡ Cache + Funil Ativo',
+                simLabel: sim,
+                matchedQueries: matchedQueries.length > 0 ? matchedQueries : [query]
+            });
+        } else if (isPartial) {
+            const matchedQueries = sc?.matched_queries || debug.matched_queries || [];
+            steps.push({
+                icon: '⚡',
+                title: 'Cache Semântico Parcial (Multi-Perguntas)',
+                desc: sc.message || 'Respostas oficiais injetadas para tópicos resolvidos e IA acionada para responder à dúvida complementar.',
+                isSemanticCache: true,
+                cacheStatus: 'partial_hit',
+                badgeLabel: '⚡ Hit Parcial',
+                matchedQueries: matchedQueries
+            });
+        } else if (isMiss) {
+            const closest = sc?.closest_candidate ? ` Maior similaridade: ${sc.closest_similarity_pct} ("${sc.closest_candidate}").` : '';
+            steps.push({
+                icon: '⚡',
+                title: 'Cache Semântico Consultado (Sem Match)',
+                desc: `Limiar: ${sc?.threshold_pct || '85%'}.${closest} Encaminhado para a Base de Conhecimento e IA.`,
+                isSemanticCache: true,
+                cacheStatus: 'miss',
+                badgeLabel: 'Sem Match',
+                simLabel: sc?.closest_similarity_pct
+            });
+        } else if (isDisabled) {
+            steps.push({
+                icon: '⚡',
+                title: 'Cache Semântico Desativado',
+                desc: 'O cache semântico está desligado nas configurações deste agente.',
+                isSemanticCache: true,
+                cacheStatus: 'disabled',
+                badgeLabel: 'Desativado'
+            });
+        }
+    }
+
     // 4. Variáveis de Contexto
     if (debug.context_variables && Object.keys(debug.context_variables).length > 0) {
         const vars = debug.context_variables;
@@ -68,18 +147,26 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
         });
     }
 
+    const isGlobalShortcut = debug.pre_router?._model_used === 'shortcut-logic' || Boolean(debug.pre_router?.resposta_direta) || Boolean(debug.pre_router?.tipo_mensagem?.includes('Atalho')) || Boolean(debug.pre_router?.eh_saudacao) || Boolean(debug.pre_router?.eh_agradecimento);
+
     // 6. RAG / Base de Conhecimento
+    const ragQueriesList = debug.rag_queries || (debug.rag_query ? [debug.rag_query] : (debug.pre_router?.lista_perguntas_extraidas || (debug.pre_router?.perguntas_extraidas ? [debug.pre_router.perguntas_extraidas] : [])));
+    const ragQueryDisplay = ragQueriesList.length > 0 ? ragQueriesList.join(' | ') : null;
+
     if (debug.rag_items && debug.rag_items.length > 0) {
         steps.push({
             icon: '📚',
             title: 'RAG Recuperou Contexto',
-            desc: `${debug.rag_items.length} fonte(s) da Base de Conhecimento consultada(s)`
+            desc: `${debug.rag_items.length} fonte(s) da Base de Conhecimento consultada(s)${ragQueryDisplay ? ` • Consulta: "${ragQueryDisplay}"` : ''}`,
+            ragQueries: ragQueriesList
         });
-    } else if (debug.pre_router?.precisa_rag === false) {
+    } else if (debug.pre_router?.precisa_rag === false || isGlobalShortcut) {
         steps.push({
             icon: '⚡',
-            title: 'RAG Otimizado pelo Pre-Router',
-            desc: 'Busca dispensada pelo Pre-Router para maximizar velocidade'
+            title: isGlobalShortcut ? 'RAG Dispensado (Atalho Programático)' : 'RAG Otimizado pelo Pre-Router',
+            desc: isGlobalShortcut
+                ? 'Busca na Base de Conhecimento dispensada por se tratar de um atalho direto com 0 tokens.'
+                : 'Busca dispensada pelo Pre-Router para maximizar velocidade'
         });
     } else if (debug.rag_skipped) {
         steps.push({
@@ -88,7 +175,12 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
             desc: debug.rag_skip_reason || 'Pulado por simplicidade'
         });
     } else if (debug.rag_items && debug.rag_items.length === 0) {
-        steps.push({ icon: '🔍', title: 'RAG Consultou', desc: 'Nenhum resultado relevante encontrado' });
+        steps.push({
+            icon: '🔍',
+            title: 'RAG Consultou',
+            desc: `Nenhum resultado relevante encontrado${ragQueryDisplay ? ` • Consulta: "${ragQueryDisplay}"` : ''}`,
+            ragQueries: ragQueriesList
+        });
     }
 
     // 7. Pesquisa Web
@@ -108,7 +200,15 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
     }
 
     // 9. Processamento LLM Principal
-    steps.push({ icon: '🧠', title: 'LLM Processou', desc: `${debug.full_prompt?.length || 0} mensagens totais no prompt` });
+    if (isGlobalShortcut) {
+        steps.push({
+            icon: '⚡',
+            title: 'Atalho Direto (Zero LLM)',
+            desc: 'Resposta gerada programaticamente pelo Pre-Router com 0 tokens e custo R$ 0,00.'
+        });
+    } else {
+        steps.push({ icon: '🧠', title: 'LLM Processou', desc: `${debug.full_prompt?.length || 0} mensagens totais no prompt` });
+    }
 
     // 10. Guardrails / Filtros
     if (debug.guardrails_active) {
@@ -137,7 +237,7 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
                 <div key={i} className={`timeline-step ${step.isViolation ? 'violation' : ''}`}>
                     <div className="step-icon">{step.icon}</div>
                     <div className="step-content">
-                        <div className="step-title" style={{ color: step.isViolation ? '#f43f5e' : step.isContextVars ? '#f59e0b' : step.isPreRouter ? '#fbbf24' : step.isWebhook ? '#60a5fa' : '' }}>
+                        <div className="step-title" style={{ color: step.isViolation ? '#f43f5e' : step.isContextVars ? '#f59e0b' : step.isSemanticCache ? (step.cacheStatus === 'miss' ? '#94a3b8' : step.cacheStatus === 'hit_qualification' ? '#22d3ee' : '#34d399') : step.isPreRouter ? '#fbbf24' : step.isWebhook ? '#60a5fa' : '' }}>
                             {step.title}
                         </div>
 
@@ -147,7 +247,13 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
                                     <span style={{ background: 'rgba(251, 191, 36, 0.15)', border: '1px solid rgba(251, 191, 36, 0.3)', color: '#fbbf24', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
                                         🏷️ {step.tipoMsg}
                                     </span>
-                                    <span style={{ background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.3)', color: '#818cf8', padding: '2px 8px', borderRadius: '12px' }}>
+                                    <span style={{ 
+                                        background: (step.ragStatus?.includes('Dispensado') || step.ragStatus === 'Não Consultado') ? 'rgba(16, 185, 129, 0.15)' : 'rgba(99, 102, 241, 0.15)', 
+                                        border: (step.ragStatus?.includes('Dispensado') || step.ragStatus === 'Não Consultado') ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(99, 102, 241, 0.3)', 
+                                        color: (step.ragStatus?.includes('Dispensado') || step.ragStatus === 'Não Consultado') ? '#34d399' : '#818cf8', 
+                                        padding: '2px 8px', 
+                                        borderRadius: '12px' 
+                                    }}>
                                         📚 RAG: {step.ragStatus}
                                     </span>
                                     <span style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', padding: '2px 8px', borderRadius: '12px' }}>
@@ -179,13 +285,14 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
                                         <button
                                             onClick={onOpenPreRouterPrompt}
                                             style={{
-                                                background: 'rgba(255, 255, 255, 0.05)',
-                                                border: '1px solid rgba(255, 255, 255, 0.2)',
-                                                color: '#e2e8f0',
+                                                background: 'rgba(251, 191, 36, 0.1)',
+                                                border: '1px solid rgba(251, 191, 36, 0.3)',
+                                                color: '#fbbf24',
                                                 padding: '4px 10px',
                                                 borderRadius: '6px',
                                                 fontSize: '0.75rem',
                                                 cursor: 'pointer',
+                                                fontWeight: 'bold',
                                                 transition: 'all 0.2s',
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
@@ -193,10 +300,10 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
                                             }}
                                             className="playground-action-btn"
                                         >
-                                            📄 Ver Prompt do Pre-Router
+                                            📝 Ver Prompt Enviado
                                             {step.preRouterData?._debug_prompt && (
                                                 <span style={{
-                                                    background: 'rgba(251, 191, 36, 0.15)',
+                                                    background: 'rgba(251, 191, 36, 0.2)',
                                                     border: '1px solid rgba(251, 191, 36, 0.3)',
                                                     color: '#fbbf24',
                                                     padding: '1px 6px',
@@ -234,6 +341,42 @@ const TimelineView = ({ debug, onOpenPreRouterDecision, onOpenPreRouterPrompt })
                                         <span>{String(v)}</span>
                                     </span>
                                 ))}
+                            </div>
+                        ) : step.isSemanticCache ? (
+                            <div style={{ marginTop: '6px', fontSize: '0.8rem' }}>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                                    <span style={{
+                                        background: step.cacheStatus === 'miss' ? 'rgba(148, 163, 184, 0.15)' : step.cacheStatus === 'hit_qualification' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                                        border: `1px solid ${step.cacheStatus === 'miss' ? 'rgba(148, 163, 184, 0.3)' : step.cacheStatus === 'hit_qualification' ? 'rgba(6, 182, 212, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
+                                        color: step.cacheStatus === 'miss' ? '#94a3b8' : step.cacheStatus === 'hit_qualification' ? '#22d3ee' : '#34d399',
+                                        padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold'
+                                    }}>
+                                        {step.badgeLabel}
+                                    </span>
+                                    {step.simLabel && (
+                                        <span style={{
+                                            background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.3)',
+                                            color: '#818cf8', padding: '2px 8px', borderRadius: '12px', fontWeight: 600
+                                        }}>
+                                            🎯 {step.simLabel}
+                                        </span>
+                                    )}
+                                </div>
+                                <div style={{ color: '#cbd5e1', fontSize: '0.78rem' }}>
+                                    {step.desc}
+                                </div>
+                                {step.matchedQueries && step.matchedQueries.length > 0 && (
+                                    <div style={{ marginTop: '6px', padding: '6px 8px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '6px', borderLeft: '2px solid #34d399', fontSize: '0.75rem' }}>
+                                        <div style={{ color: '#86efac', fontWeight: 600, marginBottom: '2px' }}>
+                                            {step.matchedQueries.length > 1 ? 'Perguntas respondidas pelo Cache:' : 'Pergunta respondida pelo Cache:'}
+                                        </div>
+                                        <ul style={{ margin: 0, paddingLeft: '16px', color: '#e2e8f0' }}>
+                                            {step.matchedQueries.map((q, qIdx) => (
+                                                <li key={qIdx} style={{ margin: '1px 0' }}>"{q}"</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             step.desc && <div className="step-desc" style={{ color: step.isViolation ? '#fda4af' : '' }}>

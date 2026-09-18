@@ -25,6 +25,9 @@ MODEL_INFO = {
     "gpt-4o-mini": {"input": 0.00000015, "output": 0.0000006, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
     "gpt-4o": {"input": 0.0000025, "output": 0.00001, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
     "gpt-4-turbo": {"input": 0.00001, "output": 0.00003, "supports_tools": True, "supports_temperature": True, "context_window": "128k", "provider": "openai"},
+    "text-embedding-3-small": {"input": 0.00000002, "output": 0.0, "supports_tools": False, "supports_temperature": False, "context_window": "8k", "provider": "openai"},
+    "text-embedding-3-large": {"input": 0.00000013, "output": 0.0, "supports_tools": False, "supports_temperature": False, "context_window": "8k", "provider": "openai"},
+    "text-embedding-ada-002": {"input": 0.00000010, "output": 0.0, "supports_tools": False, "supports_temperature": False, "context_window": "8k", "provider": "openai"},
 
     # == Gemini Models (Preços por token) ==
     "gemini-2.5-pro": {"input": 0.00000125, "output": 0.00001, "supports_tools": True, "supports_temperature": True, "context_window": "2M", "provider": "gemini"},
@@ -350,10 +353,13 @@ class AgentConfig(BaseModel):
     knowledge_base_ids: list[int] = [] # Linked KBs (Multi)
     rag_retrieval_count: int = 5 # RAG Top-K
     rag_translation_enabled: bool = False
-    rag_multi_query_enabled: bool = False
+    rag_multi_query_enabled: bool = True
     rag_rerank_enabled: bool = True
     rag_agentic_eval_enabled: bool = True
-    rag_parent_expansion_enabled: bool = True
+    rag_parent_expansion_enabled: bool = False
+    rag_relevance_threshold: float = 0.0
+    rag_kb_routing_enabled: bool = False
+    rag_kb_routing_variable: str | None = None
     tool_ids: list[int] = [] # Selected tools
     simulated_time: str | None = None # HH:MM for time override
     
@@ -395,6 +401,8 @@ class AgentConfig(BaseModel):
     qualification_labels: Optional[str] = None
     qualification_criteria: Optional[str] = None
     qualification_final_action: Optional[str] = None
+    qualification_final_action_trigger: Optional[str] = "all"
+    qualification_funnels: Optional[Any] = None
     unanswered_handoff_limit: Optional[int] = 2
     unanswered_question_prompt: Optional[str] = None
 

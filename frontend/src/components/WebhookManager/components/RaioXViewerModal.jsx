@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { showToast } from '../utils/helpers';
 
 export const RaioXViewerModal = ({ data, onClose }) => {
     const [activeTab, setActiveTab] = useState('prompt');
@@ -77,7 +78,15 @@ export const RaioXViewerModal = ({ data, onClose }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                                 <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' }}>System Prompt</span>
                                 <button 
-                                    onClick={() => navigator.clipboard.writeText(parsed.prompt_sistema || "")} 
+                                    onClick={() => {
+                                        if (navigator?.clipboard?.writeText) {
+                                            Promise.resolve(navigator.clipboard.writeText(parsed.prompt_sistema || "")).then(() => {
+                                                showToast('Prompt copiado para a área de transferência!', 'success');
+                                            }).catch(() => {
+                                                showToast('Erro ao copiar prompt.', 'error');
+                                            });
+                                        }
+                                    }} 
                                     style={{ fontSize: '0.65rem', padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', cursor: 'pointer' }}
                                 >Copiar Prompt</button>
                             </div>

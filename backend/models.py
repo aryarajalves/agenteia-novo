@@ -90,6 +90,7 @@ class KnowledgeItemModel(Base):
     metadata_val = Column(Text)
     category = Column(String, nullable=True, default="Geral")
     source_metadata = Column(Text, nullable=True) # JSON store for page_number, source_file, etc.
+    question_variations = Column(JSON, nullable=True, default=list) # Formas alternativas de perguntar
     embedding = Column(Vector(1536), nullable=True) # OpenAI small is 1536 dims
     parent_id = Column(Integer, ForeignKey("knowledge_items.id", ondelete="SET NULL"), nullable=True)
     
@@ -129,11 +130,13 @@ class AgentConfigModel(Base):
     # RAG Settings
     rag_retrieval_count = Column(Integer, default=5) # New: Top-K config
     rag_translation_enabled = Column(Boolean, default=False)
-    rag_multi_query_enabled = Column(Boolean, default=False)
+    rag_multi_query_enabled = Column(Boolean, default=True)
     rag_rerank_enabled = Column(Boolean, default=True)
     rag_agentic_eval_enabled = Column(Boolean, default=True)
-    rag_parent_expansion_enabled = Column(Boolean, default=True)
+    rag_parent_expansion_enabled = Column(Boolean, default=False)
     rag_relevance_threshold = Column(Float, default=0.0)  # Relevância mínima (0-1) para um item ser enviado ao contexto do RAG. 0 = sem filtro.
+    rag_kb_routing_enabled = Column(Boolean, default=False)  # Roteamento Agêntico de Bases
+    rag_kb_routing_variable = Column(String, nullable=True)  # Nome da variável de contexto usada para guiar o roteamento (ex: curso_interesse)
     # Semantic Cache Settings
     semantic_cache_enabled = Column(Boolean, default=True)
     semantic_cache_threshold = Column(Float, default=0.92)  # Similaridade mínima (0.70 a 0.99)
@@ -199,6 +202,8 @@ class AgentConfigModel(Base):
     qualification_labels = Column(Text, nullable=True) # JSON array de etiquetas a serem aplicadas no Chatwoot
     qualification_criteria = Column(Text, nullable=True) # Diretrizes e critérios do lead scoring
     qualification_final_action = Column(Text, nullable=True) # Pergunta / Prompt final de fechamento após qualificação
+    qualification_final_action_trigger = Column(String(100), default="all", nullable=True) # Condição de disparo do fechamento (all, hot, hot_warm, warm, cold)
+    qualification_funnels = Column(JSON, nullable=True) # Lista de múltiplos funis de qualificação independentes
     unanswered_handoff_limit = Column(Integer, default=2, nullable=True) # Limite de dúvidas sem resposta antes de transferir para suporte humano (0 ou NULL desativa)
     unanswered_question_prompt = Column(Text, nullable=True) # Diretriz personalizada de resposta ao chamar registrar_duvida_sem_resposta
 
@@ -395,6 +400,7 @@ class WebhookConfigModel(Base):
     window_close_label = Column(String, nullable=True)   # Etiqueta a remover no Chatwoot quando janela 24h expirar
     followup_enabled = Column(Boolean, default=False)    # Ativar follow-up automático
     followup_steps = Column(Text, nullable=True)         # JSON: [{delay_hours}, ...]
+    followup_funnels = Column(Text, nullable=True)       # JSON: [{id, name, is_default, steps: [...]}, ...]
     followup_business_hours = Column(Text, nullable=True) # JSON: {enabled, start, end, weekdays, saturday, sunday}
     followup_cancel_label = Column(String, nullable=True) # Etiqueta(s) no ZapVoice para desativar 100% o follow-up/disparos
     followup_required_label = Column(String, nullable=True) # Etiqueta(s) no ZapVoice necessárias para ativar o follow-up
@@ -716,6 +722,9 @@ class LeadModel(Base):
     lead_score = Column(Integer, nullable=True)
     lead_classification = Column(String(50), nullable=True)
     lead_justification = Column(Text, nullable=True)
+    active_qualification_funnel_id = Column(String(100), nullable=True) # Funil de qualificação específico atribuído via API para disparos
+    active_followup_funnel_id = Column(String(100), nullable=True) # Fluxo de follow-up específico atribuído via API para disparos
+    executed_question_funnels = Column(JSON, default=list, nullable=True) # Lista de IDs de QuestionFunnels já disparados para este contato
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -750,6 +759,31 @@ class SemanticCacheModel(Base):
         Index("idx_semantic_cache_agent_id", "agent_id"),
         Index("idx_semantic_cache_client_id", "client_id"),
     )
+
+
+class QuestionFunnelModel(Base):
+    """Modelo para armazenar Funis Pré-Configurados por Dúvida (Áudio Humanizado + Mensagens com Delays)."""
+    __tablename__ = "question_funnels"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agent_id = Column(Integer, ForeignKey("agent_config.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    trigger_question = Column(Text, nullable=False)
+    trigger_variations = Column(JSON, default=list, nullable=True) # Variações da pergunta
+    similarity_threshold = Column(Float, default=0.82, nullable=True) # Similaridade mínima para ativação (padrão 82%)
+    frequency_mode = Column(String(50), default="once_per_lead", nullable=True) # 'once_per_lead' ou 'always'
+    is_active = Column(Boolean, default=True)
+    embedding = Column(JSON, nullable=True) # Vetor de embedding da dúvida principal
+    variation_embeddings = Column(JSON, default=list, nullable=True) # Vetores de embedding das variações
+    steps = Column(JSON, default=list, nullable=False) # Lista de passos sequenciais [{step_number, type, media_url, delay_seconds, content, transcription}]
+    total_executions = Column(Integer, default=0) # Contador de execuções
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_question_funnels_agent_id", "agent_id"),
+    )
+
 
 
 

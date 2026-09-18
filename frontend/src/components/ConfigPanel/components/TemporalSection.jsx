@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useConfig } from '../ConfigContext';
 import TemporalConfigGuideModal from './Modals/TemporalConfigGuideModal';
 
@@ -85,10 +85,32 @@ const TemporalSection = () => {
                         >
                             📋 Painel (Texto Fixo)
                         </button>
+                        <button
+                            type="button"
+                            data-testid="btn-greeting-mode-disabled"
+                            onClick={() => setGreetingMode('disabled')}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: greetingMode === 'disabled' ? '#ef4444' : 'transparent',
+                                color: greetingMode === 'disabled' ? '#fff' : '#94a3b8',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            🚫 Desativado
+                        </button>
                     </div>
                 </div>
 
-                {greetingMode === 'panel' ? (
+                {greetingMode === 'disabled' ? (
+                    <div style={{ fontSize: '0.78rem', color: '#f87171', background: 'rgba(239, 68, 68, 0.08)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                        🚫 <strong>Saudação Inicial Desativada:</strong> O Pre-Router não aplicará saudações automáticas ou pré-formatadas. A mensagem inicial do usuário será processada diretamente pelo fluxo padrão do agente.
+                    </div>
+                ) : greetingMode === 'panel' ? (
                     <div style={{ marginTop: '6px' }}>
                         <label style={{ fontSize: '0.78rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
                             Mensagem de Saudação Fixa do Painel:
@@ -173,10 +195,32 @@ const TemporalSection = () => {
                         >
                             📋 Painel (Texto Fixo)
                         </button>
+                        <button
+                            type="button"
+                            data-testid="btn-question-mode-disabled"
+                            onClick={() => setQuestionMode('disabled')}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: questionMode === 'disabled' ? '#ef4444' : 'transparent',
+                                color: questionMode === 'disabled' ? '#fff' : '#94a3b8',
+                                fontSize: '0.8rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            🚫 Desativado
+                        </button>
                     </div>
                 </div>
 
-                {questionMode === 'panel' ? (
+                {questionMode === 'disabled' ? (
+                    <div style={{ fontSize: '0.78rem', color: '#f87171', background: 'rgba(239, 68, 68, 0.08)', padding: '8px 12px', borderRadius: '8px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                        🚫 <strong>Continuação Desativada:</strong> O agente responderá apenas à primeira dúvida do usuário, sem anexar nenhuma pergunta de sondagem ou continuação obrigatória ao final da resposta.
+                    </div>
+                ) : questionMode === 'panel' ? (
                     <div style={{ marginTop: '6px' }}>
                         <label style={{ fontSize: '0.78rem', color: '#cbd5e1', display: 'block', marginBottom: '4px' }}>
                             Mensagem/Pergunta de Continuação Fixa (Anexada após a 1ª resposta):

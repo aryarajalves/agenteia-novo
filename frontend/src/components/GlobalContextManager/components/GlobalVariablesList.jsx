@@ -5,6 +5,7 @@ export default function GlobalVariablesList({
     variables,
     saving,
     onUpdate,
+    onEditRequest,
     onDeleteRequest,
     onChangeField
 }) {
@@ -18,6 +19,7 @@ export default function GlobalVariablesList({
                     variable={v}
                     saving={saving}
                     onUpdate={onUpdate}
+                    onEditRequest={onEditRequest}
                     onDeleteRequest={onDeleteRequest}
                     onChangeField={onChangeField}
                 />

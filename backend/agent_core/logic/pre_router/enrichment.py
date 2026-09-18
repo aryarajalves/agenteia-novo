@@ -8,23 +8,11 @@ async def enrich_user_message(message: str, history: list, client) -> str:
     if not history or not message.strip():
         return message
 
-    # Se a mensagem contiver um e-mail do usuário, NUNCA reescrevemos
+    # 1. Se a mensagem contiver um e-mail do usuário, NUNCA reescrevemos
     if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', message):
         return message
 
-    # Se a mensagem já for estruturada (>70 chars ou >10 palavras), não reescrevemos
-    words = message.strip().split()
-    if len(message.strip()) > 70 or len(words) > 10:
-        return message
-
-    # Se a mensagem já tiver assunto explícito e não contiver pronomes vagos, não reescrevemos
-    vague_pronouns = {"ele", "ela", "eles", "elas", "isso", "aquilo", "dele", "dela", "deles", "delas", "nele", "nela", "nisso"}
-    msg_words_lower = {w.strip("?!.,:;-_()[]{}").lower() for w in words}
-    if len(words) >= 5 and not (msg_words_lower & vague_pronouns):
-        if any(term in message.lower() for term in ["sobre", "curso", "método", "metodo", "laser", "tatuagem", "micropigmentação", "valor", "preço"]):
-            return message
-
-    # Se a mensagem for uma confirmação ou encerramento puro, não reescrevemos
+    # 2. Se a mensagem for uma confirmação ou encerramento puro, não reescrevemos
     msg_clean_check = message.strip().lower()
     for char in ["?", "!", ".", ",", ";", ":", "-", "_", "(", ")", "[", "]", "{", "}"]:
         msg_clean_check = msg_clean_check.replace(char, "")
@@ -41,6 +29,41 @@ async def enrich_user_message(message: str, history: list, client) -> str:
     ]
     if msg_clean_check in confirmation_closings:
         return message
+
+    # 3. Se o usuário está respondendo a uma pergunta de qualificação do assistente, NUNCA enriquecemos
+    from .shortcuts import is_user_accepting_assistant_offer, is_user_answering_assistant_question
+    if is_user_answering_assistant_question(message, history):
+        return message
+
+    # 4. Análise Semântica 100% via LLM para link do curso
+    if client:
+        try:
+            from .link_intent_ai import analyze_link_intent_with_llm
+            intent = await analyze_link_intent_with_llm(message, history, client)
+            if intent.get("quer_link") is True:
+                return "Qual é o link do curso / link de inscrição?"
+        except Exception as e_intent:
+            logger.warning(f"Erro ao analisar intenção de link em enrich_user_message: {e_intent}")
+
+    # Fallback para outras ofertas (pagamento, material)
+    is_accepting, offer_topic = is_user_accepting_assistant_offer(message, history)
+    if is_accepting:
+        if offer_topic == "pagamento":
+            return "Quais são as formas de pagamento do curso?"
+        elif offer_topic == "material":
+            return "Qual é o conteúdo e material do curso?"
+
+    # Se a mensagem já for estruturada (>70 chars ou >10 palavras), não reescrevemos
+    words = message.strip().split()
+    if len(message.strip()) > 70 or len(words) > 10:
+        return message
+
+    # Se a mensagem já tiver assunto explícito e não contiver pronomes vagos, não reescrevemos
+    vague_pronouns = {"ele", "ela", "eles", "elas", "isso", "aquilo", "dele", "dela", "deles", "delas", "nele", "nela", "nisso"}
+    msg_words_lower = {w.strip("?!.,:;-_()[]{}").lower() for w in words}
+    if len(words) >= 5 and not (msg_words_lower & vague_pronouns):
+        if any(term in message.lower() for term in ["sobre", "curso", "método", "metodo", "laser", "tatuagem", "micropigmentação", "valor", "preço"]):
+            return message
 
     history_text = ""
     for h in history:
@@ -157,15 +180,46 @@ async def _get_kb_reference_context(main_agent, message: str, async_db=None):
                 }
 
             # Carrega catálogo de perguntas via SQL sem realizar embeddings/busca vetorial antes do Pre-Router
-            stmt = select(KnowledgeItemModel.question).where(KnowledgeItemModel.knowledge_base_id.in_(kb_ids))
+            stmt = select(KnowledgeItemModel.question, KnowledgeItemModel.question_variations).where(KnowledgeItemModel.knowledge_base_id.in_(kb_ids))
             res = await db_session.execute(stmt)
-            all_questions = [q for q in res.scalars().all() if q and q.strip()]
+            catalog_rows = []
+            if hasattr(res, 'all'):
+                try:
+                    catalog_rows = res.all()
+                except Exception:
+                    pass
+            if not catalog_rows and hasattr(res, 'scalars'):
+                try:
+                    catalog_rows = res.scalars().all()
+                except Exception:
+                    pass
 
-            if all_questions:
+            all_questions = []
+            if catalog_rows:
                 ctx = "\n### BASE DE CONHECIMENTO CADASTRADA (REFERÊNCIA DE CATÁLOGO PARA ALINHAMENTO):\n"
                 ctx += "Utilize o catálogo de perguntas cadastradas abaixo para ALINHAR E REESCREVER a dúvida do usuário no formato de pergunta oficial:\n"
-                for idx, q in enumerate(all_questions[:100], 1): # limite defensivo de 100 perguntas
-                    ctx += f"{idx}. \"{q}\"\n"
+                for idx, row in enumerate(catalog_rows[:100], 1): # limite defensivo de 100 perguntas
+                    if isinstance(row, (tuple, list)):
+                        q = row[0]
+                        q_vars = row[1] if len(row) > 1 else None
+                    else:
+                        q = str(row) if row else ""
+                        q_vars = None
+
+                    if not q or not str(q).strip():
+                        continue
+                    q = str(q).strip()
+                    all_questions.append(q)
+                    clean_vars = []
+                    if isinstance(q_vars, str):
+                        try:
+                            clean_vars = json.loads(q_vars)
+                        except Exception:
+                            clean_vars = []
+                    elif isinstance(q_vars, list):
+                        clean_vars = q_vars
+                    vars_text = f" (ou: {', '.join(clean_vars[:3])})" if clean_vars else ""
+                    ctx += f"{idx}. \"{q}\"{vars_text}\n"
 
                 info = {
                     "fase": "Catálogo de Referência (Pré-Router)",

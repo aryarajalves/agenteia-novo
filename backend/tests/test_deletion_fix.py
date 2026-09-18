@@ -79,7 +79,8 @@ async def test_soft_deletion_vs_full_purge(client, db_session):
     assert res.scalar() == 0
     res = await db_session.execute(select(func.count(UserMemoryModel.id)).where(UserMemoryModel.session_id == phone2))
     assert res.scalar() == 0
+    # InteractionLog deve ser mantido mesmo após exclusão de contato para não afetar métricas de custo
     res = await db_session.execute(select(func.count(InteractionLog.id)).where(InteractionLog.session_id == phone2))
-    assert res.scalar() == 0
+    assert res.scalar() == 1, "Interaction logs devem ser preservados para manter custos e tokens no dashboard"
     res = await db_session.execute(select(func.count(KnowledgeItemModel.id)).where(KnowledgeItemModel.metadata_val == f"phone:{phone2}"))
     assert res.scalar() == 0

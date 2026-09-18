@@ -7,11 +7,11 @@ from typing import Optional
 from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from sqlalchemy import text, select
 
 from database import get_db
 from core.timezone import get_now_br
-from models import WebhookConfigModel
+from models import WebhookConfigModel, GlobalContextVariableModel, UserMemoryModel
 from .schemas import LeadBulkDeleteRequest
 from .service import delete_contact_data
 
@@ -24,8 +24,42 @@ async def full_purge_lead_by_phone(webhook_id: int, phone: str, db: AsyncSession
     config = await db.get(WebhookConfigModel, webhook_id)
     if not config: 
         raise HTTPException(status_code=404, detail="Webhook não encontrado")
+    
+    conversa_id = None
+    conta_id = None
+    try:
+        suffix = phone[-8:] if len(phone) >= 8 else phone
+        conv_q = text(f"SELECT conversa_id, conta_id FROM {config.leads_table} WHERE (telefone = :tel OR RIGHT(telefone, 8) = :suffix) AND webhook_config_id = :wid LIMIT 1")
+        conv_res = await db.execute(conv_q, {"tel": phone, "suffix": suffix, "wid": webhook_id})
+        c_row = conv_res.fetchone()
+        if c_row:
+            conversa_id = c_row[0]
+            conta_id = c_row[1]
+        
+        if not conversa_id:
+            evt_q = text("SELECT conversa_id, conta_id FROM webhook_events WHERE (telefone = :tel OR RIGHT(telefone, 8) = :suffix) AND webhook_config_id = :wid ORDER BY id DESC LIMIT 1")
+            evt_res = await db.execute(evt_q, {"tel": phone, "suffix": suffix, "wid": webhook_id})
+            evt_row = evt_res.fetchone()
+            if evt_row:
+                conversa_id = evt_row[0]
+                conta_id = evt_row[1]
+    except Exception as e_q:
+        logger.warning(f"Aviso ao buscar conversa_id para full_purge: {e_q}")
+
     await delete_contact_data(db, webhook_id, config.leads_table, [phone])
     await db.commit()
+
+    if conversa_id:
+        try:
+            from zapvoice_utils import get_default_reset_labels, reset_conversation_labels
+            zv_url = (getattr(config, "zapvoice_url", None) or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
+            zv_token = getattr(config, "zapvoice_api_token", None) or os.getenv("ZAPVOICE_API_TOKEN", "")
+            if zv_url and zv_token:
+                eff_aid = conta_id or getattr(config, "zapvoice_client_id", None) or os.getenv("ZAPVOICE_CLIENT_ID", "")
+                reset_labels = get_default_reset_labels(config)
+                await reset_conversation_labels(zv_url, eff_aid, conversa_id, zv_token, reset_labels)
+        except Exception as e_rst:
+            logger.warning(f"Aviso ao resetar etiquetas no full_purge: {e_rst}")
 
 
 @router.get("/{webhook_id}/leads/ids")
@@ -224,45 +258,7 @@ async def list_webhook_leads(
             l["total_disparos"] = disparos_por_tel[tel]
             l["sem_mensagem_usuario"] = not tem_msg_usuario_por_tel[tel]
     
-    zv_url = (config.zapvoice_url or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
-    if zv_url and not zv_url.endswith("/api"):
-        zv_url = f"{zv_url}/api"
-    zv_token = config.zapvoice_api_token or os.getenv("ZAPVOICE_API_TOKEN", "")
-    
-    if zv_url and zv_token and leads:
-        try:
-            from zapvoice_utils import sync_conversation_labels
-            from database.connection import async_session
-            sem = asyncio.Semaphore(3)
-            
-            async def sync_lead_labels_bg(lead_id, c_id, conv_id):
-                async with sem:
-                    try:
-                        success, final_labels = await sync_conversation_labels(
-                            zapvoice_url=zv_url,
-                            client_id=str(c_id),
-                            conversation_id=int(conv_id),
-                            token=zv_token
-                        )
-                        if success:
-                            async with async_session() as db_session:
-                                update_q = text(f"UPDATE {config.leads_table} SET labels = :labels, updated_at = CURRENT_TIMESTAMP WHERE id = :id")
-                                await db_session.execute(update_q, {
-                                    "labels": json.dumps(final_labels, ensure_ascii=False),
-                                    "id": lead_id
-                                })
-                                await db_session.commit()
-                    except Exception as e_sync:
-                        logger.error(f"Erro em background ao sincronizar etiquetas do lead {lead_id}: {e_sync}")
-            
-            for l in leads:
-                c_id = l.get("conta_id") or l.get("inbox_id")
-                conv_id = l.get("conversa_id")
-                if c_id and conv_id and str(c_id) != "None" and str(conv_id) != "None":
-                    asyncio.create_task(sync_lead_labels_bg(l["id"], c_id, conv_id))
-        except Exception as e_bg:
-            logger.warning(f"Aviso na sincronização em background: {e_bg}")
-    
+
     logger.info(f"✅ Encontrados {len(leads)} leads de um total de {total}.")
     return {"total": total, "leads": leads, "page": page, "page_size": page_size}
 
@@ -279,18 +275,67 @@ async def delete_leads_batch(webhook_id: int, req: LeadBulkDeleteRequest, db: As
 
     try:
         is_sqlite = db.bind.dialect.name == "sqlite"
-        if is_sqlite:
-            safe_ids_str = ",".join(str(int(i)) for i in req.lead_ids)
-            query = text(f"SELECT telefone FROM {config.leads_table} WHERE id IN ({safe_ids_str}) AND webhook_config_id = :wid")
-            res = await db.execute(query, {"wid": webhook_id})
-        else:
-            query = text(f"SELECT telefone FROM {config.leads_table} WHERE id = ANY(:ids) AND webhook_config_id = :wid")
-            res = await db.execute(query, {"ids": req.lead_ids, "wid": webhook_id})
-        phones = [r[0] for r in res.fetchall() if r[0]]
+        phones = []
+        conv_info_list = []
+        try:
+            async with db.begin_nested():
+                if is_sqlite:
+                    safe_ids_str = ",".join(str(int(i)) for i in req.lead_ids)
+                    query = text(f"SELECT id, telefone, conversa_id, conta_id FROM {config.leads_table} WHERE id IN ({safe_ids_str}) AND webhook_config_id = :wid")
+                    res = await db.execute(query, {"wid": webhook_id})
+                else:
+                    query = text(f"SELECT id, telefone, conversa_id, conta_id FROM {config.leads_table} WHERE id = ANY(:ids) AND webhook_config_id = :wid")
+                    res = await db.execute(query, {"ids": req.lead_ids, "wid": webhook_id})
+                rows = res.fetchall()
+                phones = [r[1] for r in rows if r[1]]
+                conv_info_list = [(r[2], r[3]) for r in rows if r[2]]
+        except Exception:
+            async with db.begin_nested():
+                if is_sqlite:
+                    safe_ids_str = ",".join(str(int(i)) for i in req.lead_ids)
+                    query = text(f"SELECT id, telefone FROM {config.leads_table} WHERE id IN ({safe_ids_str}) AND webhook_config_id = :wid")
+                    res = await db.execute(query, {"wid": webhook_id})
+                else:
+                    query = text(f"SELECT id, telefone FROM {config.leads_table} WHERE id = ANY(:ids) AND webhook_config_id = :wid")
+                    res = await db.execute(query, {"ids": req.lead_ids, "wid": webhook_id})
+                rows = res.fetchall()
+                phones = [r[1] for r in rows if r[1]]
         
         logger.info(f"🗑️ Deletando em lote {len(req.lead_ids)} leads e limpando dados para {len(phones)} telefones.")
         await delete_contact_data(db, webhook_id, config.leads_table, phones, lead_ids=req.lead_ids)
         await db.commit()
+
+        # Resetar etiquetas das conversas no ZapVoice para o padrão em segundo plano (não bloqueante)
+        try:
+            from zapvoice_utils import get_default_reset_labels, bulk_reset_conversation_labels
+            zv_url = (getattr(config, "zapvoice_url", None) or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
+            zv_token = getattr(config, "zapvoice_api_token", None) or os.getenv("ZAPVOICE_API_TOKEN", "")
+            default_aid = getattr(config, "zapvoice_client_id", None) or os.getenv("ZAPVOICE_CLIENT_ID", "")
+            if conv_info_list and zv_url and zv_token:
+                reset_labels = get_default_reset_labels(config)
+                asyncio.create_task(
+                    bulk_reset_conversation_labels(
+                        zapvoice_url=zv_url,
+                        default_client_id=default_aid,
+                        conv_info_list=conv_info_list,
+                        token=zv_token,
+                        labels=reset_labels,
+                        concurrency=15
+                    )
+                )
+        except Exception as e_conv:
+            logger.warning(f"Erro ao agendar reset de etiquetas em lote ZapVoice: {e_conv}")
+
+        try:
+            from core.websocket import manager
+            await manager.broadcast({
+                "type": "lead_deleted",
+                "webhook_id": webhook_id,
+                "lead_ids": req.lead_ids,
+                "action": "delete_batch"
+            })
+        except Exception as ws_err:
+            logger.warning(f"Erro ao transmitir broadcast WS delete_leads_batch: {ws_err}")
         return Response(status_code=204)
     except Exception as e:
         await db.rollback()
@@ -311,14 +356,34 @@ async def delete_single_lead(webhook_id: int, lead_id: int, db: AsyncSession = D
         conta_id = None
         
         async with db.begin_nested():
-            query = text(f"SELECT telefone, conversa_id, conta_id FROM {config.leads_table} WHERE id = :lid AND webhook_config_id = :wid")
-            res = await db.execute(query, {"lid": lead_id, "wid": webhook_id})
-            row = res.fetchone()
-            if row:
-                phone = row[0]
-                conversa_id = row[1]
-                conta_id = row[2]
+            try:
+                query = text(f"SELECT telefone, conversa_id, conta_id FROM {config.leads_table} WHERE id = :lid AND webhook_config_id = :wid")
+                res = await db.execute(query, {"lid": lead_id, "wid": webhook_id})
+                row = res.fetchone()
+                if row:
+                    phone = row[0]
+                    conversa_id = row[1]
+                    conta_id = row[2]
+            except Exception:
+                query = text(f"SELECT telefone FROM {config.leads_table} WHERE id = :lid AND webhook_config_id = :wid")
+                res = await db.execute(query, {"lid": lead_id, "wid": webhook_id})
+                row = res.fetchone()
+                if row:
+                    phone = row[0]
             
+            # Se conversa_id ou conta_id não estiver no registro de leads, tentar recuperar do histórico recente
+            if phone and (not conversa_id or not conta_id):
+                try:
+                    suffix = phone[-8:] if len(phone) >= 8 else phone
+                    evt_q = text("SELECT conversa_id, conta_id FROM webhook_events WHERE (telefone = :tel OR RIGHT(telefone, 8) = :suffix) AND webhook_config_id = :wid ORDER BY id DESC LIMIT 1")
+                    evt_res = await db.execute(evt_q, {"tel": phone, "suffix": suffix, "wid": webhook_id})
+                    evt_row = evt_res.fetchone()
+                    if evt_row:
+                        conversa_id = conversa_id or evt_row[0]
+                        conta_id = conta_id or evt_row[1]
+                except Exception as e_evt:
+                    logger.warning(f"Aviso ao buscar conversa_id de webhook_events: {e_evt}")
+
             await db.execute(text(f"DELETE FROM {config.leads_table} WHERE id = :lid"), {"lid": lead_id})
             
             if phone:
@@ -326,19 +391,44 @@ async def delete_single_lead(webhook_id: int, lead_id: int, db: AsyncSession = D
                 
         await db.commit()
         
-        if conversa_id and conta_id and config.delete_message:
-            url = (config.chatwoot_url or os.getenv("CHATWOOT_URL", "")).rstrip("/")
-            token = config.chatwoot_api_token or os.getenv("CHATWOOT_API_TOKEN", "")
-            if url and token:
-                headers = {"api_access_token": token, "Content-Type": "application/json"}
-                full_url = f"{url}/api/v1/accounts/{conta_id}/conversations/{conversa_id}/messages"
-                payload = {"content": config.delete_message, "message_type": "outgoing"}
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client_http:
-                        await client_http.post(full_url, json=payload, headers=headers)
-                except Exception as e:
-                    logger.error(f"Erro ao enviar mensagem de despedida Chatwoot: {e}")
+        # Resetar etiquetas no ZapVoice para o padrão e enviar despedida (se configurado)
+        if conversa_id:
+            try:
+                from zapvoice_utils import get_default_reset_labels, reset_conversation_labels
+                effective_aid = conta_id or getattr(config, "zapvoice_client_id", None) or os.getenv("ZAPVOICE_CLIENT_ID", "")
+                zv_url = (getattr(config, "zapvoice_url", None) or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
+                zv_token = getattr(config, "zapvoice_api_token", None) or os.getenv("ZAPVOICE_API_TOKEN", "")
+                
+                if zv_url and zv_token:
+                    reset_labels = get_default_reset_labels(config)
+                    await reset_conversation_labels(zv_url, effective_aid, conversa_id, zv_token, reset_labels)
                     
+                    if config.delete_message:
+                        zv_api_url = zv_url if zv_url.endswith("/api") else f"{zv_url}/api"
+                        headers = {
+                            "Authorization": f"Bearer {zv_token}",
+                            "Content-Type": "application/json"
+                        }
+                        if effective_aid:
+                            headers["X-Client-ID"] = str(effective_aid)
+                        full_url = f"{zv_api_url}/chat/conversations/{conversa_id}/messages"
+                        payload = {"content": config.delete_message, "message_type": "outgoing"}
+                        async with httpx.AsyncClient(timeout=10.0, verify=False) as client_http:
+                            await client_http.post(full_url, json=payload, headers=headers)
+            except Exception as e_zv:
+                logger.error(f"Erro ao processar reset de etiquetas/despedida ZapVoice: {e_zv}")
+                    
+        try:
+            from core.websocket import manager
+            await manager.broadcast({
+                "type": "lead_deleted",
+                "webhook_id": webhook_id,
+                "lead_id": lead_id,
+                "action": "delete"
+            })
+        except Exception as ws_err:
+            logger.warning(f"Erro ao transmitir broadcast WS delete_single_lead: {ws_err}")
+
         return Response(status_code=204)
     except Exception as e:
         await db.rollback()
@@ -352,15 +442,54 @@ async def delete_all_leads(webhook_id: int, db: AsyncSession = Depends(get_db)):
     if not config: 
         raise HTTPException(status_code=404, detail="Webhook não encontrado")
     
-    query = text(f"SELECT id, telefone FROM {config.leads_table} WHERE webhook_config_id = :wid")
-    res = await db.execute(query, {"wid": webhook_id})
-    rows = res.fetchall()
-    ids = [r[0] for r in rows]
-    phones = [r[1] for r in rows]
+    ids = []
+    phones = []
+    conv_info_list = []
+    try:
+        async with db.begin_nested():
+            query = text(f"SELECT id, telefone, conversa_id, conta_id FROM {config.leads_table} WHERE webhook_config_id = :wid")
+            res = await db.execute(query, {"wid": webhook_id})
+            rows = res.fetchall()
+            ids = [r[0] for r in rows]
+            phones = [r[1] for r in rows if r[1]]
+            conv_info_list = [(r[2], r[3]) for r in rows if r[2]]
+    except Exception:
+        async with db.begin_nested():
+            query = text(f"SELECT id, telefone FROM {config.leads_table} WHERE webhook_config_id = :wid")
+            res = await db.execute(query, {"wid": webhook_id})
+            rows = res.fetchall()
+            ids = [r[0] for r in rows]
+            phones = [r[1] for r in rows if r[1]]
     
     if ids:
         await delete_contact_data(db, webhook_id, config.leads_table, phones, lead_ids=ids)
     await db.commit()
+
+    # Resetar etiquetas das conversas no ZapVoice para o padrão
+    try:
+        from zapvoice_utils import get_default_reset_labels, reset_conversation_labels
+        zv_url = (getattr(config, "zapvoice_url", None) or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
+        zv_token = getattr(config, "zapvoice_api_token", None) or os.getenv("ZAPVOICE_API_TOKEN", "")
+        if conv_info_list and zv_url and zv_token:
+            reset_labels = get_default_reset_labels(config)
+            for conv_id, acc_id in conv_info_list:
+                eff_aid = acc_id or getattr(config, "zapvoice_client_id", None) or os.getenv("ZAPVOICE_CLIENT_ID", "")
+                try:
+                    await reset_conversation_labels(zv_url, eff_aid, conv_id, zv_token, reset_labels)
+                except Exception as e_lbl:
+                    logger.warning(f"Aviso ao resetar etiquetas da conversa {conv_id} em delete_all: {e_lbl}")
+    except Exception as e_all:
+        logger.warning(f"Erro ao resetar etiquetas em delete_all ZapVoice: {e_all}")
+
+    try:
+        from core.websocket import manager
+        await manager.broadcast({
+            "type": "lead_deleted",
+            "webhook_id": webhook_id,
+            "action": "delete_all"
+        })
+    except Exception as ws_err:
+        logger.warning(f"Erro ao transmitir broadcast WS delete_all_leads: {ws_err}")
 
 
 @router.post("/{webhook_id}/leads/sync-all")
@@ -418,6 +547,17 @@ async def sync_all_leads_endpoint(webhook_id: int, db: AsyncSession = Depends(ge
             await asyncio.gather(*tasks)
             await db.commit()
             
+        try:
+            from core.websocket import manager
+            await manager.broadcast({
+                "type": "leads_synced",
+                "webhook_id": webhook_id,
+                "action": "sync",
+                "updated_count": updated_count
+            })
+        except Exception as ws_err:
+            logger.warning(f"Erro ao transmitir broadcast WS sync_all_leads: {ws_err}")
+
         return {"ok": True, "message": f"Sincronização concluída com sucesso. {updated_count} contatos atualizados."}
     except Exception as e:
         logger.error(f"Erro na sincronização em massa: {e}")
@@ -440,15 +580,39 @@ async def get_lead_followup_pipeline(webhook_id: int, lead_id: int, db: AsyncSes
 
     lead_dict = dict(zip(res.keys(), row))
 
-    steps_raw = config.followup_steps
-    steps = []
-    if isinstance(steps_raw, str) and steps_raw.strip():
+    # Suporte a Múltiplos Fluxos de Follow-Up por Produto
+    lead_followup_funnel_id = lead_dict.get("active_followup_funnel_id")
+    active_funnel_id = "followup_default"
+    active_funnel_name = "Padrão / Principal"
+    
+    funnels = []
+    if config.followup_funnels:
         try:
-            steps = json.loads(steps_raw)
+            funnels = json.loads(config.followup_funnels) if isinstance(config.followup_funnels, str) else config.followup_funnels
         except Exception:
-            steps = []
-    elif isinstance(steps_raw, list):
-        steps = steps_raw
+            funnels = []
+
+    steps = []
+    if funnels and isinstance(funnels, list) and len(funnels) > 0:
+        matched_funnel = None
+        if lead_followup_funnel_id:
+            matched_funnel = next((f for f in funnels if f.get("id") == lead_followup_funnel_id), None)
+        if not matched_funnel:
+            matched_funnel = next((f for f in funnels if f.get("is_default")), funnels[0])
+            
+        if matched_funnel:
+            active_funnel_id = matched_funnel.get("id", "followup_default")
+            active_funnel_name = matched_funnel.get("name", "Padrão / Principal")
+            steps = matched_funnel.get("steps", [])
+    else:
+        steps_raw = config.followup_steps
+        if isinstance(steps_raw, str) and steps_raw.strip():
+            try:
+                steps = json.loads(steps_raw)
+            except Exception:
+                steps = []
+        elif isinstance(steps_raw, list):
+            steps = steps_raw
 
     bh_raw = config.followup_business_hours
     business_hours = None
@@ -585,9 +749,14 @@ async def get_lead_followup_pipeline(webhook_id: int, lead_id: int, db: AsyncSes
             "contato_nome": lead_dict.get("contato_nome") or lead_dict.get("nome"),
             "telefone": lead_dict.get("telefone"),
             "followup_step": current_step,
+            "active_followup_funnel_id": lead_followup_funnel_id,
             "ultima_mensagem_em": ultima_msg_em,
             "labels": lead_labels,
             "pode_enviar_mensagem": lead_dict.get("pode_enviar_mensagem", True)
+        },
+        "active_funnel": {
+            "id": active_funnel_id,
+            "name": active_funnel_name
         },
         "webhook": {
             "id": config.id,
@@ -603,3 +772,175 @@ async def get_lead_followup_pipeline(webhook_id: int, lead_id: int, db: AsyncSes
         "executed_events": executed_events,
         "server_now": get_now_br()
     }
+
+
+@router.get("/{webhook_id}/leads/{lead_id}/variables")
+async def get_lead_variables(
+    webhook_id: int,
+    lead_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retorna todas as variáveis globais do sistema e seus valores capturados/extraídos para um contato específico."""
+    config = await db.get(WebhookConfigModel, webhook_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Webhook não encontrado")
+
+    # Buscar dados do lead na tabela de leads
+    query_lead = text(f"SELECT * FROM {config.leads_table} WHERE id = :lid AND webhook_config_id = :wid")
+    res_lead = await db.execute(query_lead, {"lid": lead_id, "wid": webhook_id})
+    row = res_lead.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Contato não encontrado")
+
+    lead_dict = dict(zip(res_lead.keys(), row))
+    telefone = lead_dict.get("telefone") or ""
+    clean_tel = telefone.lstrip("+")
+
+    # Coletar possíveis session_ids associados ao contato
+    candidate_sids = {str(lead_id), telefone, clean_tel, f"+{clean_tel}", f"tel_{clean_tel}"}
+    if lead_dict.get("conversa_id"):
+        candidate_sids.add(str(lead_dict["conversa_id"]))
+
+    # Buscar conversa_id em webhook_events caso existam
+    if clean_tel:
+        try:
+            evt_query = text("""
+                SELECT DISTINCT conversa_id 
+                FROM webhook_events 
+                WHERE webhook_config_id = :wid 
+                AND (telefone = :t1 OR telefone = :t2)
+                AND conversa_id IS NOT NULL AND conversa_id != ''
+            """)
+            evt_res = await db.execute(evt_query, {"wid": webhook_id, "t1": clean_tel, "t2": f"+{clean_tel}"})
+            for (c_id,) in evt_res.fetchall():
+                if c_id:
+                    candidate_sids.add(str(c_id))
+        except Exception as e_evt:
+            logger.warning(f"Erro ao buscar conversa_ids de webhook_events: {e_evt}")
+
+    all_sids = list(candidate_sids - {"", None, "None"})
+
+    # Buscar todas as variáveis globais
+    vars_stmt = select(GlobalContextVariableModel).order_by(GlobalContextVariableModel.id.asc())
+    vars_res = await db.execute(vars_stmt)
+    all_vars = vars_res.scalars().all()
+
+    # Buscar memórias do usuário para os session_ids
+    mem_dict = {}
+    if all_sids:
+        mem_stmt = (
+            select(UserMemoryModel)
+            .where(UserMemoryModel.session_id.in_(all_sids))
+            .order_by(UserMemoryModel.updated_at.desc())
+        )
+        mem_res = await db.execute(mem_stmt)
+        mems = mem_res.scalars().all()
+        for m in mems:
+            if m.key not in mem_dict:
+                mem_dict[m.key] = m
+
+    variables_data = []
+    for v in all_vars:
+        mem = mem_dict.get(v.key)
+        val = None
+        has_val = False
+        origin = v.extraction_method or "integration"
+        value_origin = "pending"
+        is_default_value = False
+        is_extracted_from_conversation = False
+        matches_default = False
+        updated_at = None
+        source_message = None
+        confidence = None
+
+        has_default_val = v.value is not None and str(v.value).strip() != ""
+
+        if mem and mem.value is not None and str(mem.value).strip() != "":
+            val = mem.value
+            has_val = True
+            updated_at = mem.updated_at.isoformat() if mem.updated_at else None
+            source_message = mem.source_message
+            confidence = mem.confidence
+
+            # Se possui source_message gravada da conversa, foi extraída pela IA no diálogo
+            if source_message and str(source_message).strip():
+                value_origin = "conversation_extracted"
+                origin = "ai"
+                is_extracted_from_conversation = True
+                if has_default_val:
+                    matches_default = str(val).strip().lower() == str(v.value).strip().lower()
+            else:
+                # Se não tem source_message e coincide com o valor padrão cadastrado, trata-se do valor padrão inicial
+                if has_default_val and str(val).strip().lower() == str(v.value).strip().lower():
+                    value_origin = "initial_default"
+                    is_default_value = True
+                    origin = "default"
+                    matches_default = True
+                else:
+                    value_origin = "conversation_extracted"
+                    origin = "ai" if v.extraction_method == "ai" else "memory"
+                    is_extracted_from_conversation = True
+
+        elif v.key in ["contact_name", "nome", "nome_cliente"] and (lead_dict.get("contato_nome") or "").strip():
+            val = lead_dict.get("contato_nome").strip()
+            has_val = True
+            origin = "contact_profile"
+            value_origin = "contact_profile"
+        elif v.key in ["contact_phone", "telefone", "telefone_cliente"] and (telefone or "").strip():
+            val = telefone.strip()
+            has_val = True
+            origin = "contact_profile"
+            value_origin = "contact_profile"
+        elif v.key in ["lead_id", "id_lead", "id_contato"]:
+            val = str(lead_id)
+            has_val = True
+            origin = "system"
+            value_origin = "system"
+        elif has_default_val:
+            # Não há registro no UserMemoryModel, mas a variável tem valor padrão configurado
+            val = v.value
+            has_val = True
+            origin = "default"
+            value_origin = "initial_default"
+            is_default_value = True
+            matches_default = True
+        else:
+            value_origin = "pending"
+            origin = v.extraction_method or "integration"
+
+        variables_data.append({
+            "id": v.id,
+            "key": v.key,
+            "type": v.type or "string",
+            "description": v.description or "",
+            "extraction_method": v.extraction_method or "integration",
+            "extraction_prompt": v.extraction_prompt or "",
+            "default_value": v.value,
+            "value": val,
+            "has_value": has_val,
+            "origin": origin,
+            "value_origin": value_origin,
+            "is_default_value": is_default_value,
+            "is_extracted_from_conversation": is_extracted_from_conversation,
+            "matches_default": matches_default,
+            "updated_at": updated_at,
+            "source_message": source_message,
+            "confidence": confidence
+        })
+
+    total_captured = sum(1 for item in variables_data if item["has_value"])
+    total_pending = sum(1 for item in variables_data if not item["has_value"])
+
+    return {
+        "lead": {
+            "id": lead_dict.get("id"),
+            "contato_nome": lead_dict.get("contato_nome") or lead_dict.get("nome"),
+            "telefone": telefone,
+            "labels": lead_dict.get("labels") or ""
+        },
+        "total_variables": len(variables_data),
+        "total_captured": total_captured,
+        "total_pending": total_pending,
+        "variables": variables_data
+    }
+

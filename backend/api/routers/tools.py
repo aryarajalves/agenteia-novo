@@ -89,19 +89,41 @@ async def get_chatwoot_labels(
     db: AsyncSession = Depends(get_db)
 ):
     """Busca as etiquetas disponíveis no ZapVoice via API."""
-    url = zapvoice_url or os.getenv("ZAPVOICE_URL", "")
-    url = url.rstrip("/")
-    token = zapvoice_api_token or os.getenv("ZAPVOICE_API_TOKEN", "")
-
+    url = (zapvoice_url or "").rstrip("/")
+    token = zapvoice_api_token or ""
     client_id_header = zapvoice_client_id
-    if not client_id_header and url and token:
+
+    # Se não foram passados parâmetros ou se url aponta para localhost dentro do container, busca do WebhookConfig
+    if not url or "localhost" in url or not token or not client_id_header:
         result = await db.execute(
-            select(WebhookConfigModel).where(WebhookConfigModel.zapvoice_client_id.isnot(None)).limit(1)
+            select(WebhookConfigModel).where(
+                WebhookConfigModel.zapvoice_url.isnot(None),
+                WebhookConfigModel.zapvoice_api_token.isnot(None),
+                WebhookConfigModel.zapvoice_url.notlike("%localhost%")
+            ).order_by(WebhookConfigModel.id.desc()).limit(1)
         )
         config = result.scalars().first()
-        if config and config.zapvoice_client_id:
-            client_id_header = str(config.zapvoice_client_id)
-        logger.info(f"[LABELS] client_id_header encontrado via fallback: {client_id_header}")
+        if config:
+            if not url or "localhost" in url:
+                url = (config.zapvoice_url or "").rstrip("/")
+            if not token:
+                token = config.zapvoice_api_token or ""
+            if not client_id_header and config.zapvoice_client_id:
+                client_id_header = str(config.zapvoice_client_id)
+            logger.info(f"[LABELS] Config ZapVoice recuperada via fallback do WebhookConfig: url={url}, client_id={client_id_header}")
+        elif not client_id_header:
+            result_cid = await db.execute(
+                select(WebhookConfigModel).where(WebhookConfigModel.zapvoice_client_id.isnot(None)).limit(1)
+            )
+            config_cid = result_cid.scalars().first()
+            if config_cid and config_cid.zapvoice_client_id:
+                client_id_header = str(config_cid.zapvoice_client_id)
+
+    # Fallback para variáveis de ambiente caso ainda não tenha sido definido
+    if not url:
+        url = os.getenv("ZAPVOICE_URL", "").rstrip("/")
+    if not token:
+        token = os.getenv("ZAPVOICE_API_TOKEN", "")
 
     if not url or not token:
         logger.warning("ZAPVOICE_URL ou ZAPVOICE_API_TOKEN não configurados. Retornando lista vazia.")

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import MessageBubble from './MessageBubble';
 
 const TypingIndicator = () => (
@@ -23,6 +23,7 @@ const MessageList = ({
     handleThumbsDown,
     readFbFromStorage
 }) => {
+    const [activeDebugKey, setActiveDebugKey] = useState(null);
     const mainAgent = agents.find(a => a.id == selectedAgentId);
     const challengerAgent = agents.find(a => a.id == challengerAgentId);
 
@@ -37,19 +38,30 @@ const MessageList = ({
                     </div>
                 )}
                 <div className="messages-container" ref={scrollRef}>
-                    {messages.map((msg, idx) => (
-                        <MessageBubble 
-                            key={idx} 
-                            msg={msg} 
-                            msgIndex={idx} 
-                            isRegularUser={isRegularUser}
-                            feedbackState={feedbackState}
-                            handleThumbsUp={handleThumbsUp}
-                            handleThumbsDown={handleThumbsDown}
-                            readFbFromStorage={readFbFromStorage}
-                            selectedAgentId={selectedAgentId}
-                        />
-                    ))}
+                    {messages.map((msg, idx) => {
+                        const debugKey = `main_${idx}`;
+                        return (
+                            <MessageBubble 
+                                key={idx} 
+                                msg={msg} 
+                                msgIndex={idx} 
+                                isRegularUser={isRegularUser}
+                                feedbackState={feedbackState}
+                                handleThumbsUp={handleThumbsUp}
+                                handleThumbsDown={handleThumbsDown}
+                                readFbFromStorage={readFbFromStorage}
+                                selectedAgentId={selectedAgentId}
+                                showDebug={activeDebugKey === debugKey}
+                                setShowDebug={(nextVal) => {
+                                    setActiveDebugKey(prev => {
+                                        const isCurrentlyOpen = prev === debugKey;
+                                        const shouldOpen = typeof nextVal === 'function' ? nextVal(isCurrentlyOpen) : nextVal;
+                                        return shouldOpen ? debugKey : null;
+                                    });
+                                }}
+                            />
+                        );
+                    })}
                     {loading && (
                         <div className="message-row assistant-row">
                             <div className="avatar assistant-avatar">🤖</div>
@@ -69,19 +81,30 @@ const MessageList = ({
                         <span className="model-tag">({challengerModelOverride || challengerAgent?.model})</span>
                     </div>
                     <div className="messages-container" ref={battleScrollRef}>
-                        {battleMessages.map((msg, idx) => (
-                            <MessageBubble 
-                                key={idx} 
-                                msg={msg} 
-                                msgIndex={idx} 
-                                isRegularUser={isRegularUser}
-                                feedbackState={feedbackState}
-                                handleThumbsUp={handleThumbsUp}
-                                handleThumbsDown={handleThumbsDown}
-                                readFbFromStorage={readFbFromStorage}
-                                selectedAgentId={challengerAgentId}
-                            />
-                        ))}
+                        {battleMessages.map((msg, idx) => {
+                            const debugKey = `challenger_${idx}`;
+                            return (
+                                <MessageBubble 
+                                    key={idx} 
+                                    msg={msg} 
+                                    msgIndex={idx} 
+                                    isRegularUser={isRegularUser}
+                                    feedbackState={feedbackState}
+                                    handleThumbsUp={handleThumbsUp}
+                                    handleThumbsDown={handleThumbsDown}
+                                    readFbFromStorage={readFbFromStorage}
+                                    selectedAgentId={challengerAgentId}
+                                    showDebug={activeDebugKey === debugKey}
+                                    setShowDebug={(nextVal) => {
+                                        setActiveDebugKey(prev => {
+                                            const isCurrentlyOpen = prev === debugKey;
+                                            const shouldOpen = typeof nextVal === 'function' ? nextVal(isCurrentlyOpen) : nextVal;
+                                            return shouldOpen ? debugKey : null;
+                                        });
+                                    }}
+                                />
+                            );
+                        })}
                         {loading && (
                             <div className="message-row assistant-row">
                                 <div className="avatar assistant-avatar">🥊</div>

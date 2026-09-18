@@ -4,6 +4,7 @@ export default function GlobalVariableCard({
     variable: v,
     saving,
     onUpdate,
+    onEditRequest,
     onDeleteRequest,
     onChangeField
 }) {
@@ -87,15 +88,24 @@ export default function GlobalVariableCard({
                     onBlur={() => onUpdate(v)}
                     className="var-desc-input"
                 />
-                <div className="var-actions">
+                <div className="var-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {saving === v.id ? (
                         <span className="saving-indicator">Salvando...</span>
                     ) : (
-                        !v.is_default && (
-                            <button className="var-del-btn" onClick={() => onDeleteRequest(v)} title="Remover variável">
-                                🗑️
+                        <>
+                            <button 
+                                className="var-edit-btn" 
+                                onClick={() => onEditRequest(v)} 
+                                title="Editar variável"
+                            >
+                                ✏️ Editar
                             </button>
-                        )
+                            {!v.is_default && (
+                                <button className="var-del-btn" onClick={() => onDeleteRequest(v)} title="Remover variável">
+                                    🗑️
+                                </button>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

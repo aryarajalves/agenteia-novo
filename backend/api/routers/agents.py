@@ -63,6 +63,8 @@ async def create_agent(config: AgentConfig, db: AsyncSession = Depends(get_db), 
         rag_agentic_eval_enabled=config.rag_agentic_eval_enabled,
         rag_parent_expansion_enabled=config.rag_parent_expansion_enabled,
         rag_relevance_threshold=config.rag_relevance_threshold,
+        rag_kb_routing_enabled=config.rag_kb_routing_enabled,
+        rag_kb_routing_variable=config.rag_kb_routing_variable,
         security_competitor_blacklist=config.security_competitor_blacklist,
         security_forbidden_topics=config.security_forbidden_topics,
         security_discount_policy=config.security_discount_policy,
@@ -88,6 +90,8 @@ async def create_agent(config: AgentConfig, db: AsyncSession = Depends(get_db), 
         qualification_labels=config.qualification_labels,
         qualification_criteria=config.qualification_criteria,
         qualification_final_action=config.qualification_final_action,
+        qualification_final_action_trigger=config.qualification_final_action_trigger or "all",
+        qualification_funnels=getattr(config, 'qualification_funnels', None),
         unanswered_handoff_limit=config.unanswered_handoff_limit if config.unanswered_handoff_limit is not None else 2,
         unanswered_question_prompt=config.unanswered_question_prompt,
         router_enabled=config.router_enabled,
@@ -163,6 +167,8 @@ async def get_agent(agent_id: int, db: AsyncSession = Depends(get_db), _: None =
         rag_agentic_eval_enabled=a.rag_agentic_eval_enabled,
         rag_parent_expansion_enabled=a.rag_parent_expansion_enabled,
         rag_relevance_threshold=a.rag_relevance_threshold or 0.0,
+        rag_kb_routing_enabled=getattr(a, 'rag_kb_routing_enabled', False) or False,
+        rag_kb_routing_variable=getattr(a, 'rag_kb_routing_variable', None),
         semantic_cache_enabled=a.semantic_cache_enabled if a.semantic_cache_enabled is not None else True,
         semantic_cache_threshold=a.semantic_cache_threshold or 0.92,
         tool_ids=[t.id for t in a.tools],
@@ -192,6 +198,8 @@ async def get_agent(agent_id: int, db: AsyncSession = Depends(get_db), _: None =
         qualification_labels=a.qualification_labels,
         qualification_criteria=a.qualification_criteria,
         qualification_final_action=a.qualification_final_action,
+        qualification_final_action_trigger=getattr(a, 'qualification_final_action_trigger', 'all') or 'all',
+        qualification_funnels=getattr(a, 'qualification_funnels', None),
         router_enabled=a.router_enabled,
         router_simple_model=a.router_simple_model,
         router_complex_model=a.router_complex_model,
@@ -238,6 +246,8 @@ async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = De
     db_config.rag_agentic_eval_enabled = config.rag_agentic_eval_enabled
     db_config.rag_parent_expansion_enabled = config.rag_parent_expansion_enabled
     db_config.rag_relevance_threshold = config.rag_relevance_threshold
+    db_config.rag_kb_routing_enabled = config.rag_kb_routing_enabled
+    db_config.rag_kb_routing_variable = config.rag_kb_routing_variable
     db_config.security_competitor_blacklist = config.security_competitor_blacklist
     db_config.security_forbidden_topics = config.security_forbidden_topics
     db_config.security_discount_policy = config.security_discount_policy
@@ -263,6 +273,9 @@ async def update_agent(agent_id: int, config: AgentConfig, db: AsyncSession = De
     db_config.qualification_labels = config.qualification_labels
     db_config.qualification_criteria = config.qualification_criteria
     db_config.qualification_final_action = config.qualification_final_action
+    db_config.qualification_final_action_trigger = config.qualification_final_action_trigger or "all"
+    if config.qualification_funnels is not None:
+        db_config.qualification_funnels = config.qualification_funnels
     if config.unanswered_handoff_limit is not None:
         db_config.unanswered_handoff_limit = config.unanswered_handoff_limit
     db_config.unanswered_question_prompt = config.unanswered_question_prompt
@@ -315,6 +328,98 @@ async def toggle_agent_status(agent_id: int, db: AsyncSession = Depends(get_db),
     agent.is_active = not agent.is_active
     await db.commit()
     return {"message": f"Agent {'activated' if agent.is_active else 'paused'}", "is_active": agent.is_active}
+
+@router.post("/agents/{agent_id}/duplicate", response_model=AgentConfig)
+async def duplicate_agent(agent_id: int, db: AsyncSession = Depends(get_db), _: None = Depends(verify_api_key)):
+    """Duplica um agente existente com todas as suas configurações e associações."""
+    result = await db.execute(
+        select(AgentConfigModel)
+        .options(selectinload(AgentConfigModel.tools), selectinload(AgentConfigModel.knowledge_bases))
+        .where(AgentConfigModel.id == agent_id)
+    )
+    agent = result.scalars().first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    cols = {c.name: getattr(agent, c.name) for c in agent.__table__.columns if c.name != "id"}
+    cols["name"] = f"{agent.name} (Cópia)"
+    
+    new_agent = AgentConfigModel(**cols)
+    new_agent.tools = list(agent.tools)
+    new_agent.knowledge_bases = list(agent.knowledge_bases)
+    
+    db.add(new_agent)
+    await db.commit()
+    await db.refresh(new_agent)
+
+    reloaded = await db.execute(
+        select(AgentConfigModel)
+        .options(selectinload(AgentConfigModel.tools), selectinload(AgentConfigModel.knowledge_bases))
+        .where(AgentConfigModel.id == new_agent.id)
+    )
+    saved_agent = reloaded.scalars().first()
+    return db_to_pydantic_agent(saved_agent)
+
+@router.post("/agents/{agent_id}/generate-description")
+async def generate_agent_description(
+    agent_id: int, 
+    db: AsyncSession = Depends(get_db), 
+    _: None = Depends(verify_api_key)
+):
+    """Gera uma descrição concisa do agente usando IA para contextualizar o roteador de mensagens (Pre-Router)."""
+    result = await db.execute(
+        select(AgentConfigModel)
+        .options(selectinload(AgentConfigModel.tools), selectinload(AgentConfigModel.knowledge_bases))
+        .where(AgentConfigModel.id == agent_id)
+    )
+    agent = result.scalars().first()
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Chave OPENAI_API_KEY não configurada no servidor.")
+
+    import openai
+    client = openai.AsyncOpenAI(api_key=api_key)
+    
+    tools_summary = ", ".join([t.name for t in agent.tools]) if agent.tools else "Nenhuma"
+    prompt = (
+        f"Você é um assistente especialista em criar descrições curtas e operacionais de agentes de IA.\n"
+        f"Analise as informações do agente abaixo e gere um resumo de 1 ou 2 frases curtas (máximo 160 caracteres) "
+        f"descrevendo o papel, o nicho e quando este agente deve ser acionado pelo roteador de mensagens.\n\n"
+        f"Nome: {agent.name}\n"
+        f"Prompt do Sistema:\n{agent.system_prompt[:2000] if agent.system_prompt else 'Assistente geral'}\n"
+        f"Ferramentas Disponíveis: {tools_summary}\n\n"
+        f"Retorne APENAS a frase de descrição, sem aspas, sem introdução e sem explicações."
+    )
+    
+    model_to_use = getattr(agent, "router_simple_model", None) or "gpt-4o-mini"
+    
+    try:
+        completion = await client.chat.completions.create(
+            model=model_to_use,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=150
+        )
+        description = completion.choices[0].message.content.strip()
+        if description.startswith('"') and description.endswith('"'):
+            description = description[1:-1].strip()
+            
+        agent.description = description
+        await db.commit()
+        await db.refresh(agent)
+        
+        return {
+            "description": agent.description,
+            "message": "Descrição gerada com sucesso"
+        }
+    except Exception as e:
+        logger.error(f"Erro ao gerar descrição do agente {agent_id} com IA: {e}")
+        raise HTTPException(status_code=500, detail=f"Falha ao gerar descrição: {str(e)}")
 
 # --- PROMPT VERSIONING (DRAFTS) ---
 

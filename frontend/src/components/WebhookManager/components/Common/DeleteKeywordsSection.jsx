@@ -59,20 +59,19 @@ export const DeleteKeywordsSection = ({
             />
         </div>
 
-        {labelsList && labelsList.length > 0 && (
-            <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem', marginTop: '1rem' }}>
-                <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', marginBottom: '0.5rem' }}>🏷️ Substituir etiquetas ao resetar</label>
-                <LabelMultiSelect
-                    selected={deleteLabels || []}
-                    options={labelsList}
-                    onChange={onLabelsChange}
-                    accentColor="#818cf8"
-                />
-                <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '0.35rem 0 0', lineHeight: 1.4 }}>
-                    Ao resetar a conversa via palavra-chave, todas as etiquetas existentes no ZapVoice serão substituídas por esta lista.
-                </p>
-            </div>
-        )}
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '1rem', marginTop: '1rem' }}>
+            <label style={{ display: 'block', fontSize: '0.68rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', marginBottom: '0.5rem' }}>🏷️ Etiquetas padrão ao resetar / deletar contato (ZapVoice)</label>
+            <LabelMultiSelect
+                selected={deleteLabels || []}
+                options={labelsList || []}
+                onChange={onLabelsChange}
+                accentColor="#818cf8"
+                placeholder="Selecione ou digite etiqueta padrão..."
+            />
+            <p style={{ fontSize: '0.7rem', color: '#64748b', margin: '0.35rem 0 0', lineHeight: 1.4 }}>
+                Ao resetar a conversa via palavra-chave ou deletar o contato no AgentFlow, todas as etiquetas existentes no ZapVoice serão substituídas por estas etiquetas padrão (ex: robo, whatsapp).
+            </p>
+        </div>
     </div>
 );
 

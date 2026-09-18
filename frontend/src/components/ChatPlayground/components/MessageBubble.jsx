@@ -8,6 +8,7 @@ import {
     DebugPanel,
     SourceAttributionView
 } from './MessageBubbleModules';
+import { resolveMediaUrl } from '../../ConfigPanel/components/QuestionFunnels/utils/mediaUtils';
 
 const MessageBubble = ({ 
     msg, 
@@ -17,9 +18,13 @@ const MessageBubble = ({
     handleThumbsUp, 
     handleThumbsDown, 
     readFbFromStorage, 
-    selectedAgentId 
+    selectedAgentId,
+    showDebug: propShowDebug,
+    setShowDebug: propSetShowDebug
 }) => {
-    const [showDebug, setShowDebug] = useState(false);
+    const [localShowDebug, setLocalShowDebug] = useState(false);
+    const showDebug = propShowDebug !== undefined ? propShowDebug : localShowDebug;
+    const setShowDebug = propSetShowDebug || setLocalShowDebug;
     const [showAttribution, setShowAttribution] = useState(false);
     const [attributionState, setAttributionState] = useState(null);
     const [attributionData, setAttributionData] = useState(null);
@@ -115,10 +120,6 @@ const MessageBubble = ({
         return <UserMessageBubble msg={msg} />;
     }
 
-    if (msg.isLink) {
-        return <LinkMessageBubble msg={msg} />;
-    }
-
     const explainProps = {
         explanationState,
         setExplanationState,
@@ -137,12 +138,101 @@ const MessageBubble = ({
         handleSendDebateQuestion
     };
 
+    if (msg.isLink) {
+        return (
+            <>
+                <LinkMessageBubble
+                    msg={msg}
+                    msgIndex={msgIndex}
+                    isRegularUser={isRegularUser}
+                    feedbackState={feedbackState}
+                    handleThumbsUp={handleThumbsUp}
+                    handleThumbsDown={handleThumbsDown}
+                    readFbFromStorage={readFbFromStorage}
+                    selectedAgentId={selectedAgentId}
+                    showDebug={showDebug}
+                    setShowDebug={setShowDebug}
+                    showAttribution={showAttribution}
+                    setShowAttribution={setShowAttribution}
+                    handleFetchAttribution={handleFetchAttribution}
+                    explanationData={explanationData}
+                    debateCostBrl={debateCostBrl}
+                    explainProps={explainProps}
+                    setActiveModal={setActiveModal}
+                    setActivePreRouterTab={setActivePreRouterTab}
+                    setActiveResolvedPromptTab={setActiveResolvedPromptTab}
+                    attributionState={attributionState}
+                    attributionData={attributionData}
+                />
+                <PromptModal
+                    activeModal={activeModal}
+                    onClose={() => setActiveModal(null)}
+                    activePreRouterTab={activePreRouterTab}
+                    setActivePreRouterTab={setActivePreRouterTab}
+                    activeResolvedPromptTab={activeResolvedPromptTab}
+                    setActiveResolvedPromptTab={setActiveResolvedPromptTab}
+                />
+            </>
+        );
+    }
+
+
     return (
         <>
             <div className={`message-row assistant-row ${msg.isSplit ? 'is-split' : ''}`}>
                 <div className="avatar assistant-avatar" style={{ visibility: msg.isSplit ? 'hidden' : 'visible' }}>🤖</div>
                 <div className="message-bubble assistant-bubble">
-                    <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                    {(() => {
+                        const renderStepBody = (st, idx) => (
+                            <div key={idx ?? 0} className="funnel-step-bubble" style={{ background: 'rgba(15, 23, 42, 0.65)', borderRadius: '10px', padding: '0.65rem 0.85rem', border: '1px solid rgba(255,255,255,0.07)' }}>
+                                {st.type === 'audio' && (
+                                    <div>
+                                        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#34d399', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                            <span>🎙️</span> Mensagem de Áudio Gravado (PTT) {st.delay_seconds > 0 ? `· +${st.delay_seconds}s` : ''}
+                                        </div>
+                                        {st.media_url ? (
+                                            <audio controls src={resolveMediaUrl(st.media_url)} style={{ width: '100%', height: '38px', borderRadius: '8px' }} />
+                                        ) : (
+                                            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>[Áudio configurado sem URL]</div>
+                                        )}
+                                        {st.transcription && (
+                                            <div style={{ fontSize: '0.76rem', color: '#cbd5e1', marginTop: '0.4rem', background: 'rgba(0,0,0,0.25)', padding: '0.4rem 0.6rem', borderRadius: '6px', borderLeft: '3px solid #10b981' }}>
+                                                <span style={{ fontWeight: 600, color: '#34d399' }}>🧠 Transcrição / Memória: </span>
+                                                "{st.transcription}"
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                {st.type === 'text' && (
+                                    <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.92rem', color: '#f8fafc', lineHeight: '1.45' }}>
+                                        {st.content}
+                                    </div>
+                                )}
+                                {['image', 'video', 'document'].includes(st.type) && (
+                                    <div>
+                                        <div style={{ fontSize: '0.8rem', color: '#93c5fd', marginBottom: '0.2rem' }}>
+                                            📁 {st.type.toUpperCase()}: <a href={st.media_url} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>Ver Anexo</a>
+                                        </div>
+                                        {st.content && <div style={{ fontSize: '0.88rem', color: '#f8fafc' }}>{st.content}</div>}
+                                    </div>
+                                )}
+                            </div>
+                        );
+
+                        if (msg.funnel_step) {
+                            return renderStepBody(msg.funnel_step, 0);
+                        }
+
+                        if (msg.funnel_steps && Array.isArray(msg.funnel_steps) && msg.funnel_steps.length > 0) {
+                            return (
+                                <div className="funnel-steps-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                                    {msg.funnel_steps.map((st, idx) => renderStepBody(st, idx))}
+                                </div>
+                            );
+                        }
+
+                        return <div className="message-content" style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</div>;
+                    })()}
                     {msg.created_at && (
                         <div className="message-timestamp" data-testid="assistant-timestamp" style={{ 
                             fontSize: '0.8rem', 

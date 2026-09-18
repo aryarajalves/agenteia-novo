@@ -35,6 +35,28 @@
 .tool-pill { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
 
 .feedback-btns { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; vertical-align: middle; }
+.train-response-btn {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    color: #34d399;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    line-height: 1.4;
+}
+.train-response-btn:hover {
+    background: rgba(16, 185, 129, 0.25);
+    border-color: #10b981;
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+}
 .feedback-btn {
     background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px;
     padding: 2px 7px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s; line-height: 1.4;

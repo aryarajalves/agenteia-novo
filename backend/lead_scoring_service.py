@@ -8,7 +8,7 @@ from models import AgentConfigModel
 
 logger = logging.getLogger(__name__)
 
-async def calculate_lead_score(db: AsyncSession, agent_id: int, respostas) -> dict:
+async def calculate_lead_score(db: AsyncSession, agent_id: int, respostas, criteria: str = None) -> dict:
     """
     Calcula o lead score de um contato com base nas respostas dadas e nos critérios de qualificação configurados.
     
@@ -21,9 +21,9 @@ async def calculate_lead_score(db: AsyncSession, agent_id: int, respostas) -> di
     """
     logger.info(f"Iniciando cálculo de lead score para agente_id={agent_id}...")
     
-    # 1. Obter critérios do agente
-    qualification_criteria = None
-    if db:
+    # 1. Obter critérios do agente ou do funil específico
+    qualification_criteria = criteria
+    if not qualification_criteria and db:
         try:
             agent_res = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id))
             agent = agent_res.scalars().first()
@@ -32,15 +32,14 @@ async def calculate_lead_score(db: AsyncSession, agent_id: int, respostas) -> di
         except Exception as e:
             logger.error(f"Erro ao buscar AgentConfig no lead scoring: {e}")
 
-    # Fallback caso não haja critérios definidos
+    # Fallback caso não haja critérios definidos pelo usuário
     if not qualification_criteria or not qualification_criteria.strip():
-        qualification_criteria = (
-            "Avalie o lead de 0 a 13 com base no interesse, potencial financeiro para mentoria e urgência. "
-            "Classifique como: "
-            "Quente 🔥 (se pontuação >= 9), "
-            "Morno ⚡ (se pontuação de 5 a 8), "
-            "Frio ❄️ (se pontuação < 5)."
-        )
+        logger.info(f"Sem critérios customizados de lead scoring para o agente {agent_id}. Classificando lead como Indefinida.")
+        return {
+            "lead_score": None,
+            "lead_classification": "Indefinida",
+            "lead_justification": "Critérios de qualificação não definidos para este funil."
+        }
 
     # 2. Formatar respostas
     respostas_formatadas = ""

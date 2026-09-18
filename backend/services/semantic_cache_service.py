@@ -33,6 +33,37 @@ def cosine_similarity(v1: list, v2: list) -> float:
     return dot_product / (norm_v1 * norm_v2)
 
 
+def clean_user_question_intro(text: str) -> str:
+    """
+    Remove saudações iniciais e apresentações pessoais (ex: 'Me chamo X, ', 'Meu nome é Y, ')
+    preservando a pergunta/solicitação real do lead para busca vetorial precisa no Cache Semântico.
+    """
+    if not text:
+        return ""
+    q = clean_invisible_chars(text).strip()
+    
+    # 1. Padrão: saudação + apresentação pessoal (ex: "Oi, me chamo Aryaraj, qual é o seu nome?")
+    pattern_combo = r'^(?:(?:ol[áa]|oie?|oi|bom dia|boa tarde|boa noite)[\s,;:!-]+)*(?:me\s+chamo|meu\s+nome\s+[eé]|sou\s+[oa])\s+[^,;!?\n]+[,;!?\s]+'
+    cleaned = re.sub(pattern_combo, '', q, flags=re.IGNORECASE).strip()
+    if cleaned != q and len(cleaned) >= 3 and any(char.isalpha() for char in cleaned):
+        return cleaned
+
+    # 2. Padrão: apenas apresentação pessoal (ex: "Me chamo Aryaraj, qual é o seu nome?")
+    pattern_intro = r'^(?:me\s+chamo|meu\s+nome\s+[eé]|sou\s+[oa])\s+[^,;!?\n]+[,;!?\s]+'
+    cleaned = re.sub(pattern_intro, '', q, flags=re.IGNORECASE).strip()
+    if cleaned != q and len(cleaned) >= 3 and any(char.isalpha() for char in cleaned):
+        return cleaned
+
+    # 3. Padrão: apenas saudação inicial (ex: "Olá! Quanto custa?")
+    pattern_greeting = r'^(?:ol[áa]|oie?|oi|bom dia|boa tarde|boa noite)[\s,;:!-]+'
+    cleaned = re.sub(pattern_greeting, '', q, flags=re.IGNORECASE).strip()
+    if cleaned != q and len(cleaned) >= 3 and any(char.isalpha() for char in cleaned):
+        return cleaned
+
+    return q
+
+
+
 async def generate_embeddings_for_queries(queries: List[str]) -> Tuple[List[str], List[list]]:
     """Gera embeddings para uma lista de perguntas alternativas, retornando (queries_limpas, embeddings)."""
     clean_queries = []
@@ -147,7 +178,7 @@ async def lookup_semantic_cache(
             return None, 0.0, None
         return None, 0.0
 
-    clean_query = clean_invisible_chars(user_query)
+    clean_query = clean_user_question_intro(user_query)
     if not clean_query or len(clean_query) < 3:
         if return_diagnostics:
             return None, 0.0, None
@@ -289,20 +320,24 @@ def split_multi_questions(text: str) -> List[str]:
         else:
             expanded_qs.append(q)
 
-    # Limpar saudações na primeira pergunta
-    greetings = ["olá", "ola", "oie", "oi", "bom dia", "boa tarde", "boa noite"]
+    # Limpar saudações e apresentações pessoais na primeira pergunta
     cleaned = []
     for idx, q in enumerate(expanded_qs):
-        qc = q.strip()
-        if idx == 0:
-            for g in greetings:
-                if qc.lower().startswith(g):
-                    qc = re.sub(r'^(?:' + g + r')[\s,;:!-]*', '', qc, flags=re.IGNORECASE).strip()
-                    break
+        qc = clean_user_question_intro(q) if idx == 0 else q.strip()
         if qc and len(qc) >= 3:
             cleaned.append(qc)
 
-    return cleaned if len(cleaned) >= 2 else [clean_text]
+    # Filtrar partes que sejam exclusivamente apresentações pessoais ou saudações sem dúvida
+    pure_questions = []
+    for q in cleaned:
+        if re.match(r'^(?:(?:ol[áa]|oie?|oi|bom dia|boa tarde|boa noite)[\s,;:!-]*)*(?:me\s+chamo|meu\s+nome\s+[eé]|sou\s+[oa])\s+[^,;!?\n]+[,;!?\s]*$', q, flags=re.IGNORECASE):
+            continue
+        pure_questions.append(q)
+
+    if pure_questions:
+        return pure_questions
+    single_cleaned = clean_user_question_intro(clean_text)
+    return [single_cleaned] if single_cleaned else [clean_text]
 
 
 async def extract_sub_questions_ai(
@@ -321,7 +356,7 @@ async def extract_sub_questions_ai(
     # Mensagens muito curtas de 1 ou 2 palavras não precisam de IA
     words = clean_text.split()
     if len(words) <= 2 and "?" not in clean_text and "\n" not in clean_text:
-        return [clean_text]
+        return [clean_user_question_intro(clean_text) or clean_text]
 
     try:
         from agent_core.clients import get_openai_client
@@ -331,14 +366,19 @@ async def extract_sub_questions_ai(
                 "Você é um analisador semântico de mensagens de clientes no WhatsApp.\n"
                 "Sua única tarefa é identificar todas as perguntas, dúvidas ou pedidos individuais na mensagem do usuário e listá-los separadamente em JSON.\n\n"
                 "Diretrizes:\n"
-                "1. Remova saudações iniciais (Oi, Olá, Bom dia, Boa tarde) das perguntas.\n"
+                "1. Remova saudações iniciais (Oi, Olá, Bom dia, Boa tarde) e apresentações pessoais (ex: 'Me chamo [Nome]', 'Meu nome é [Nome]', 'Sou o [Nome]') das perguntas, isolando estritamente a dúvida ou solicitação do usuário.\n"
                 "2. Mantenha cada item como uma dúvida/pergunta direta, clara e auto-suficiente.\n"
-                "3. Se houver apenas 1 dúvida, retorne uma lista com 1 único item.\n"
-                "4. Se houver 2 ou mais dúvidas ou intenções distintas (ex: 'como funciona? me manda o link'), separe cada uma em um item da lista.\n\n"
+                "3. Se houver apenas 1 dúvida, retorne uma lista com 1 único item contendo a pergunta limpa (ex: 'Me chamo Aryaraj, qual é o seu nome?' -> ['Qual é o seu nome?']).\n"
+                "4. Se houver 2 ou mais dúvidas ou intenções distintas (ex: 'como funciona? me manda o link'), separe cada uma em um item da lista.\n"
+                "5. ⛔ REGRA ABSOLUTA DE NÃO-INVENÇÃO: Se a mensagem for apenas uma RESPOSTA a uma pergunta (ex: 'Sim já atuo', 'não tenho dúvidas', 'quero aumentar meu salário', 'começando do zero'), afirmação pessoal ou relato, e NÃO contiver perguntas ou pedidos explícitos de informação, retorne uma lista VAZIA: {\"perguntas\": []}. É PROIBIDO inventar ou transformar respostas ou objetivos do usuário em perguntas (ex: NUNCA transforme 'quero aumentar meu salário' em 'Como posso aumentar meu salário?').\n\n"
                 "Exemplos:\n"
+                "- 'Me chamo Aryaraj, qual é o seu nome?' -> ['Qual é o seu nome?']\n"
+                "- 'Oi, meu nome é Carlos, quanto custa o curso?' -> ['Quanto custa o curso?']\n"
                 "- 'Como funciona? Me manda o link' -> ['Como funciona o curso?', 'Me manda o link']\n"
                 "- 'quanto custa e aceita cartao parcelado' -> ['Qual o valor do curso?', 'Aceita cartão parcelado?']\n"
-                "- 'bom dia qual o horario das aulas' -> ['Qual o horário das aulas?']\n\n"
+                "- 'Sim já atuo, quero me qualificar para aumentar meu salário' -> []\n"
+                "- 'Não tenho dúvidas' -> []\n"
+                "- 'Começando do zero' -> []\n\n"
                 f"Mensagem do usuário:\n\"{clean_text}\"\n\n"
                 "Responda EXCLUSIVAMENTE em formato JSON:\n"
                 "{\"perguntas\": [\"pergunta 1\", \"pergunta 2\"]}"
@@ -393,9 +433,10 @@ async def lookup_multi_query_semantic_cache(
 
     sub_questions = await extract_sub_questions_ai(user_message)
     if len(sub_questions) < 2:
-        # Se for pergunta única, delega para o lookup tradicional com diagnóstico
+        # Se for pergunta única, delega para o lookup tradicional usando a pergunta limpa sem ruído
+        target_query = sub_questions[0] if sub_questions and len(sub_questions) == 1 and len(sub_questions[0].strip()) >= 3 else clean_user_question_intro(user_message)
         res = await lookup_semantic_cache(
-            db, agent_id, user_message, client_id, threshold, is_followup, return_diagnostics=True, active_product=active_product
+            db, agent_id, target_query, client_id, threshold, is_followup, return_diagnostics=True, active_product=active_product
         )
         if isinstance(res, (tuple, list)) and len(res) >= 3:
             item, sim, best_cand = res[0], res[1], res[2]
@@ -419,7 +460,7 @@ async def lookup_multi_query_semantic_cache(
             return v
 
         diag = [{
-            "sub_query": user_message.strip(),
+            "sub_query": target_query.strip(),
             "matched_item_id": _safe_val(getattr(best_cand, 'id', None)),
             "matched_query": _safe_val(getattr(best_cand, 'user_query', None)),
             "similarity": round(sim, 4),

@@ -239,7 +239,7 @@
   padding-bottom: 1px;
 }
 
-.tab-btn {
+.tabs-container .tab-btn {
   background: transparent;
   border: none;
   color: #64748b;
@@ -252,16 +252,16 @@
   border-radius: 8px 8px 0 0;
 }
 
-.tab-btn:hover {
+.tabs-container .tab-btn:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.02);
 }
 
-.tab-btn.active {
+.tabs-container .tab-btn.active {
   color: #3b82f6;
 }
 
-.tab-btn.active::after {
+.tabs-container .tab-btn.active::after {
   content: '';
   position: absolute;
   bottom: -1px;

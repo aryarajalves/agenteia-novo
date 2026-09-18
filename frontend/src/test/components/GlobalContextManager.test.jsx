@@ -151,4 +151,142 @@ describe('GlobalContextManager Component', () => {
             }));
         });
     });
+
+    it('não deve fechar o modal de adicionar variável ao clicar fora dele (no overlay)', async () => {
+        render(<GlobalContextManager />);
+
+        await waitFor(() => {
+            expect(screen.getByText('+ Nova Variável')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('+ Nova Variável'));
+        expect(screen.getByText('Criar Nova Variável Global')).toBeInTheDocument();
+
+        const overlay = document.querySelector('.add-var-overlay');
+        expect(overlay).toBeInTheDocument();
+        fireEvent.click(overlay);
+
+        expect(screen.getByText('Criar Nova Variável Global')).toBeInTheDocument();
+    });
+
+    it('deve renderizar o botão Editar e abrir o modal de edição ao clicar', async () => {
+        render(<GlobalContextManager />);
+
+        await waitFor(() => {
+            expect(screen.getByText('link_suporte')).toBeInTheDocument();
+        });
+
+        const editBtns = screen.getAllByText(/Editar/);
+        expect(editBtns.length).toBeGreaterThan(0);
+
+        fireEvent.click(editBtns[0]);
+
+        expect(screen.getByText('Editar Variável Global')).toBeInTheDocument();
+        expect(screen.getByText('Salvar Alterações')).toBeInTheDocument();
+
+        // Não deve fechar ao clicar no overlay
+        const overlay = document.querySelector('.add-var-overlay');
+        expect(overlay).toBeInTheDocument();
+        fireEvent.click(overlay);
+        expect(screen.getByText('Editar Variável Global')).toBeInTheDocument();
+    });
+
+    it('deve salvar as alterações ao submeter o modal de edição', async () => {
+        api.put.mockResolvedValue({ ok: true, json: () => Promise.resolve({ id: 2, key: 'link_suporte', value: 'https://wa.me/novo' }) });
+
+        render(<GlobalContextManager />);
+
+        await waitFor(() => {
+            expect(screen.getByText('link_suporte')).toBeInTheDocument();
+        });
+
+        const editBtns = screen.getAllByText(/Editar/);
+        fireEvent.click(editBtns[1]); // Clica no segundo botão de editar (link_suporte)
+
+        expect(screen.getByText('Editar Variável Global')).toBeInTheDocument();
+
+        const modal = document.querySelector('.add-var-modal');
+        const valueInput = modal.querySelector('input[placeholder="ex: https://wa.me/..."]');
+        fireEvent.change(valueInput, { target: { value: 'https://wa.me/novo' } });
+
+        const saveBtn = screen.getByText('Salvar Alterações');
+        fireEvent.click(saveBtn);
+
+        await waitFor(() => {
+            expect(api.put).toHaveBeenCalledWith('/global-variables/2', expect.objectContaining({
+                id: 2,
+                value: 'https://wa.me/novo'
+            }));
+        });
+    });
+
+    it('deve abrir o modal expandido ao clicar no botão de maximizar o prompt de extração ou descrição no modal de edição', async () => {
+        render(<GlobalContextManager />);
+
+        await waitFor(() => {
+            expect(screen.getByText('link_suporte')).toBeInTheDocument();
+        });
+
+        const editBtns = screen.getAllByText(/Editar/);
+        fireEvent.click(editBtns[1]); // link_suporte (tem extraction_method: ai)
+
+        expect(screen.getByText('Editar Variável Global')).toBeInTheDocument();
+
+        // Clica no botão de maximizar o prompt
+        const maxPromptBtn = screen.getByTestId('maximize-edit-prompt-btn');
+        expect(maxPromptBtn).toBeInTheDocument();
+        fireEvent.click(maxPromptBtn);
+
+        // Deve abrir o ExpandedFieldModal
+        expect(screen.getByTestId('expanded-field-modal')).toBeInTheDocument();
+        expect(screen.getAllByText('Prompt de Extração com IA').length).toBeGreaterThanOrEqual(1);
+
+        // Modifica o texto no textarea expandido
+        const expandedTextarea = screen.getByTestId('expanded-field-textarea');
+        fireEvent.change(expandedTextarea, { target: { value: 'Nova instrução super detalhada da IA' } });
+
+        // Conclui
+        const finishBtn = screen.getByTestId('expanded-field-save-btn');
+        fireEvent.click(finishBtn);
+
+        // ExpandedFieldModal fechou
+        expect(screen.queryByTestId('expanded-field-modal')).not.toBeInTheDocument();
+
+        // O valor no formulário original foi atualizado
+        const originalTextarea = document.querySelector('textarea[placeholder*="Descreva o que esta variável"]');
+        expect(originalTextarea).toHaveValue('Nova instrução super detalhada da IA');
+    });
+
+    it('deve abrir o modal expandido ao clicar no botão de maximizar no modal de criação de variável', async () => {
+        render(<GlobalContextManager />);
+
+        await waitFor(() => {
+            expect(screen.getByText('+ Nova Variável')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('+ Nova Variável'));
+
+        expect(screen.getByText('Criar Nova Variável Global')).toBeInTheDocument();
+
+        // Maximizar Descrição
+        const maxDescBtn = screen.getByTestId('maximize-add-desc-btn');
+        expect(maxDescBtn).toBeInTheDocument();
+        fireEvent.click(maxDescBtn);
+
+        // ExpandedFieldModal abre com título da descrição
+        expect(screen.getByTestId('expanded-field-modal')).toBeInTheDocument();
+        expect(screen.getByText('Descrição da Variável')).toBeInTheDocument();
+
+        const expandedTextarea = screen.getByTestId('expanded-field-textarea');
+        fireEvent.change(expandedTextarea, { target: { value: 'Esta variável guarda a descrição completa' } });
+
+        fireEvent.click(screen.getByTestId('expanded-field-save-btn'));
+
+        // Campo de descrição no modal de criação atualizado
+        const descInput = document.querySelector('input[placeholder="Explique para que serve esta variável..."]');
+        expect(descInput).toHaveValue('Esta variável guarda a descrição completa');
+    });
 });
+
+
+

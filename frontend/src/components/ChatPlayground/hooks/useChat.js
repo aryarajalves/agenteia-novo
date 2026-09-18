@@ -1,30 +1,19 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+﻿import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../../../api/client';
 import { splitMessageByLinks, isUrl } from '../utils/messageUtils';
+import { dispatchFunnelStepsSequentially } from '../utils/funnelStepDispatcher';
+import { useChatVoice } from './useChatVoice';
 
 export const useChat = ({
-    selectedAgentId,
-    sessionId,
-    setSessionId,
-    challengerAgentId,
-    isBattleMode,
-    mainModelOverride,
-    challengerModelOverride,
-    showHotfix,
-    hotfixPrompt,
-    challengerHotfixPrompt,
-    contextVars,
-    showToast,
-    setTesterSentiment,
-    setHasTesterReport,
-    setTesterReport,
-    onMessageSent
+    selectedAgentId, sessionId, setSessionId, challengerAgentId, isBattleMode,
+    mainModelOverride, challengerModelOverride, showHotfix, hotfixPrompt,
+    challengerHotfixPrompt, contextVars, showToast, setTesterSentiment,
+    setHasTesterReport, setTesterReport, onMessageSent
 }) => {
     const [messages, setMessages] = useState([]);
     const [battleMessages, setBattleMessages] = useState([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
-    const [isRecording, setIsRecording] = useState(false);
     const [sessionStats, setSessionStats] = useState({ totalCost: 0, responseCount: 0, totalTokens: 0 });
     const [analysisData, setAnalysisData] = useState(null); // { type, content, loading }
     
@@ -35,10 +24,23 @@ export const useChat = ({
     const battleScrollRef = useRef(null);
     const messagesRef = useRef(messages);
     const fileInputRef = useRef(null);
-    const mediaRecorderRef = useRef(null);
-    const speechRecognitionRef = useRef(null);
-    const audioChunksRef = useRef([]);
     const isViewMode = false;
+
+    // Hook auxiliar de gravação de voz extraído para modularização
+    const {
+        isRecording,
+        setIsRecording,
+        handleVoiceRecord,
+        stopRecordingCleanup,
+        mediaRecorderRef,
+        speechRecognitionRef,
+        audioChunksRef
+    } = useChatVoice({
+        setInput,
+        showToast,
+        setLoading,
+        onSendMessage: (e, text) => handleSendMessage(e, text)
+    });
 
     useEffect(() => {
         messagesRef.current = messages;
@@ -89,8 +91,7 @@ export const useChat = ({
             const data = await res.json();
             const rawContent = data.response;
             const baseMetrics = {
-                cost: data.cost_brl,
-                tokens: data.input_tokens + data.output_tokens,
+                cost: data.cost_brl, tokens: data.input_tokens + data.output_tokens,
                 input_tokens: data.input_tokens,
                 cached_tokens: data.cached_tokens,
                 output_tokens: data.output_tokens,
@@ -99,46 +100,74 @@ export const useChat = ({
                 response_time_ms: data.response_time_ms,
                 from_semantic_cache: data.from_semantic_cache || false,
                 cached_similarity: data.cached_similarity || null,
-                cached_original_query: data.cached_original_query || null
+                cached_original_query: data.cached_original_query || null,
+                semantic_cache: data.semantic_cache || data.debug?.semantic_cache || null
             };
             const baseDebug = data.debug;
             const baseViolations = data.debug?.violations || false;
-
-            let parts = splitMessageByLinks(rawContent);
-            if (parts.length === 0) parts = ["(...)"];
-
-            const lastIsLink = isUrl(parts[parts.length - 1]);
-            const metricsIndex = lastIsLink && parts.length > 1 ? parts.length - 2 : parts.length - 1;
-            
             const isErrorMsg = !!data.error || !!data.system_error;
             const systemErrorDetail = data.system_error || null;
-            
-            const newMsgs = parts.map((part, i) => ({
-                role: 'assistant',
-                content: part,
-                fullContent: rawContent,
-                isLink: isUrl(part),
-                isSplit: i > 0,
-                debug: i === metricsIndex ? baseDebug : undefined,
-                metrics: i === metricsIndex ? baseMetrics : null,
-                violations: i === 0 ? baseViolations : false,
-                isError: isErrorMsg,
-                systemError: i === metricsIndex ? systemErrorDetail : null,
-                model_used: i === metricsIndex ? data.model_used : null,
-                tool_calls: i === metricsIndex ? data.tool_calls : null,
-                created_at: data.timestamp || new Date().toISOString()
-            }));
+            const isQuestionFunnel = !!data.from_question_funnel || !!data.debug?.from_question_funnel;
+            const funnelSteps = data.funnel_steps || data.debug?.funnel_steps || null;
 
-            if (isChallenger) {
-                setBattleMessages(prev => [...prev, ...newMsgs]);
+            // Se for resposta gerada por um Funil de Dúvida com passos sequenciais:
+            // Despacha cada passo sequencialmente respeitando o delay configurado pelo usuário!
+            if (isQuestionFunnel && Array.isArray(funnelSteps) && funnelSteps.length > 0) {
+                await dispatchFunnelStepsSequentially({
+                    funnelSteps,
+                    rawContent,
+                    baseMetrics,
+                    baseDebug,
+                    baseViolations,
+                    isErrorMsg,
+                    systemErrorDetail,
+                    data,
+                    appendMessage: (stepMsg) => {
+                        if (isChallenger) {
+                            setBattleMessages(prev => [...prev, stepMsg]);
+                        } else {
+                            setMessages(prev => [...prev, stepMsg]);
+                        }
+                    },
+                    setLoadingState: setLoading
+                });
             } else {
-                setMessages(prev => [...prev, ...newMsgs]);
+                // Fluxo padrão para mensagens normais ou de IA pura
+                let parts = splitMessageByLinks(rawContent);
+                if (parts.length === 0) parts = ["(...)"];
+
+                const lastIsLink = isUrl(parts[parts.length - 1]);
+                const metricsIndex = lastIsLink && parts.length > 1 ? parts.length - 2 : parts.length - 1;
+                
+                const newMsgs = parts.map((part, i) => ({
+                    role: 'assistant',
+                    content: part,
+                    fullContent: rawContent,
+                    isLink: isUrl(part),
+                    isSplit: i > 0,
+                    debug: i === metricsIndex ? baseDebug : undefined,
+                    metrics: i === metricsIndex ? baseMetrics : null,
+                    violations: i === 0 ? baseViolations : false,
+                    isError: isErrorMsg,
+                    systemError: i === metricsIndex ? systemErrorDetail : null,
+                    model_used: i === metricsIndex ? data.model_used : null,
+                    tool_calls: i === metricsIndex ? data.tool_calls : null,
+                    funnel_steps: i === 0 ? funnelSteps : null,
+                    from_question_funnel: i === 0 ? isQuestionFunnel : false,
+                    created_at: data.timestamp || new Date().toISOString()
+                }));
+
+                if (isChallenger) {
+                    setBattleMessages(prev => [...prev, ...newMsgs]);
+                } else {
+                    setMessages(prev => [...prev, ...newMsgs]);
+                }
             }
 
             setSessionStats(prev => ({
-                totalCost: prev.totalCost + data.cost_brl,
+                totalCost: prev.totalCost + (data.cost_brl || 0),
                 responseCount: prev.responseCount + 1,
-                totalTokens: prev.totalTokens + (data.input_tokens + data.output_tokens)
+                totalTokens: prev.totalTokens + ((data.input_tokens || 0) + (data.output_tokens || 0))
             }));
         } catch (error) {
             console.error("Erro ao executar agente:", error);
@@ -162,7 +191,6 @@ export const useChat = ({
         if ((!userMsg && !hasImage) || !selectedAgentId || loading) return;
         if (!directText) setInput('');
 
-        // Limpa o preview e seleção da imagem local imediatamente ao iniciar o envio
         if (hasImage) {
             setSelectedImage(null);
             setImagePreview(null);
@@ -171,24 +199,7 @@ export const useChat = ({
             }
         }
 
-        // Se estiver gravando áudio, para a gravação na mesma hora e desativa handlers para evitar transcrição dupla
-        if (isRecording) {
-            if (mediaRecorderRef.current) {
-                const stream = mediaRecorderRef.current.stream;
-                if (stream) {
-                    stream.getTracks().forEach(track => track.stop());
-                }
-                mediaRecorderRef.current.onstop = null;
-                if (mediaRecorderRef.current.state !== 'inactive') {
-                    mediaRecorderRef.current.stop();
-                }
-            }
-            if (speechRecognitionRef.current) {
-                speechRecognitionRef.current.stop();
-                speechRecognitionRef.current = null;
-            }
-            setIsRecording(false);
-        }
+        stopRecordingCleanup();
 
         setLoading(true);
         let finalImageUrl = null;
@@ -228,7 +239,7 @@ export const useChat = ({
             agentPromises.push(executeAgent(challengerAgentId, userMsg, true, finalImageUrl));
         }
 
-        // Sentiment analysis (silent) - Rodar em paralelo sem bloquear o loading visual
+        // Sentiment analysis (silent)
         const currentHistory = [...messagesRef.current, userMsgObj].map(m => ({ role: m.role, content: m.content }));
         api.post('/tester/sentiment', { history: currentHistory })
             .then(res => res.json())
@@ -239,7 +250,6 @@ export const useChat = ({
 
         await Promise.all(agentPromises);
         
-        // Atualiza histórico lateral se houver callback
         if (onMessageSent) {
             onMessageSent();
         }
@@ -262,6 +272,7 @@ export const useChat = ({
                 }
                 const isAssistant = m.role === 'assistant';
                 const isFromCache = m.from_semantic_cache || m.model === 'semantic-cache' || !!m.debug?.from_semantic_cache;
+                const isFunnel = m.from_question_funnel || m.model === 'question-funnel' || !!m.debug?.from_question_funnel;
 
                 return {
                     role: m.role,
@@ -269,51 +280,42 @@ export const useChat = ({
                     userMessage: isAssistant ? lastUserMsg : undefined,
                     model_used: m.model,
                     image_url: m.debug?.image_url,
+                    from_semantic_cache: isFromCache,
+                    from_question_funnel: isFunnel,
+                    funnel_steps: m.debug?.funnel_steps || null,
+                    cached_similarity: m.cached_similarity,
+                    cached_original_query: m.cached_original_query,
+                    created_at: m.timestamp || new Date().toISOString(),
                     metrics: isAssistant ? {
                         cost: m.cost || 0,
                         tokens: m.tokens || 0,
                         input_tokens: m.input_tokens || 0,
                         cached_tokens: m.cached_tokens || 0,
                         output_tokens: m.output_tokens || 0,
-                        from_semantic_cache: isFromCache,
-                        cached_similarity: m.cached_similarity || m.debug?.cached_similarity || null,
-                        cached_original_query: m.cached_original_query || m.debug?.cached_original_query || null,
                         model_used: m.model,
-                        model_role: m.debug?.model_role || 'main',
-                        response_time_ms: m.debug?.response_time_ms || (isFromCache ? 50 : undefined)
+                        from_semantic_cache: isFromCache,
+                        from_question_funnel: isFunnel,
+                        cached_similarity: m.cached_similarity,
+                        cached_original_query: m.cached_original_query,
+                        response_time_ms: m.debug?.response_time_ms || 0
                     } : null,
                     debug: m.debug,
-                    created_at: m.timestamp || new Date().toISOString()
+                    tool_calls: m.debug?.tool_calls
                 };
             });
 
-            const totalCostSum = data.reduce((sum, msg) => sum + (msg.cost || 0), 0);
-            const totalTokensSum = data.reduce((sum, msg) => sum + (msg.tokens || 0), 0);
-
-            setSessionId(sessId);
             setMessages(historyMsgs);
-            setSessionStats({ totalCost: totalCostSum, responseCount: historyMsgs.length, totalTokens: totalTokensSum });
-
-            if (historyMsgs.length > 0) {
-                const currentHistoryForSentiment = historyMsgs.map(m => ({ role: m.role, content: m.content }));
-                api.post('/tester/sentiment', { history: currentHistoryForSentiment })
-                    .then(res => res.json())
-                    .then(stData => {
-                        if (stData.sentiment !== undefined) setTesterSentiment(stData.sentiment);
-                    })
-                    .catch(e => console.log("Erro ao carregar sentimento:", e));
-            }
-
-            api.get(`/sessions/${sessId}/test-report`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && !data.error) setHasTesterReport(true);
-                    else setHasTesterReport(false);
-                })
-                .catch(() => setHasTesterReport(false));
-
-        } catch (e) {
-            console.error("Erro ao carregar sessão", e);
+            const totalCost = historyMsgs.reduce((acc, m) => acc + (m.metrics?.cost || 0), 0);
+            const totalTokens = historyMsgs.reduce((acc, m) => acc + (m.metrics?.tokens || 0), 0);
+            setSessionStats({
+                totalCost,
+                totalTokens,
+                responseCount: historyMsgs.filter(m => m.role === 'assistant').length
+            });
+            showToast("Sessão carregada com sucesso!", "success");
+        } catch (err) {
+            console.error("Erro ao carregar sessão:", err);
+            showToast("Erro ao carregar histórico da sessão.", "error");
         } finally {
             setLoading(false);
         }
@@ -344,119 +346,6 @@ export const useChat = ({
     const handleRemoveImage = () => {
         setSelectedImage(null);
         setImagePreview(null);
-    };
-
-    const handleVoiceRecord = async () => {
-        if (isRecording) {
-            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-                mediaRecorderRef.current.stop();
-            }
-            if (speechRecognitionRef.current) {
-                speechRecognitionRef.current.stop();
-                speechRecognitionRef.current = null;
-            }
-            setIsRecording(false);
-        } else {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioChunksRef.current = [];
-                
-                const types = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/wav'];
-                const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
-                const options = mimeType ? { mimeType } : {};
-                const mediaRecorder = new MediaRecorder(stream, options);
-                mediaRecorderRef.current = mediaRecorder;
-
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data && event.data.size > 0) {
-                        audioChunksRef.current.push(event.data);
-                    }
-                };
-
-                mediaRecorder.onstop = async () => {
-                    stream.getTracks().forEach(track => track.stop());
-
-                    const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
-                    audioChunksRef.current = [];
-
-                    if (audioBlob.size < 1000) {
-                        showToast("Áudio muito curto para ser processado.", "warning");
-                        return;
-                    }
-
-                    setLoading(true);
-                    showToast("Transcrevendo áudio...", "info");
-
-                    try {
-                        const formData = new FormData();
-                        const fileExtension = mimeType.includes('webm') ? 'webm' : (mimeType.includes('ogg') ? 'ogg' : (mimeType.includes('mp4') ? 'mp4' : 'webm'));
-                        formData.append('file', audioBlob, `recording.${fileExtension}`);
-
-                        const response = await api.upload('/transcribe-audio', formData);
-                        if (!response.ok) {
-                            const errText = await response.text();
-                            throw new Error(`Erro ${response.status}: ${errText}`);
-                        }
-
-                        const data = await response.json();
-                        if (data.text && data.text.trim()) {
-                            showToast("Áudio transcrito com sucesso!", "success");
-                            setInput('');
-                            await handleSendMessage(null, data.text);
-                        } else {
-                            showToast("Nenhuma fala detectada no áudio.", "warning");
-                            setLoading(false);
-                        }
-                    } catch (err) {
-                        console.error("Erro ao transcrever áudio:", err);
-                        showToast(`Falha ao transcrever áudio: ${err.message}`, "error");
-                        setLoading(false);
-                    }
-                };
-
-                // Configura e inicia a transcrição em tempo real via Web Speech API
-                setInput('');
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                if (SpeechRecognition) {
-                    const recognition = new SpeechRecognition();
-                    recognition.continuous = true;
-                    recognition.interimResults = true;
-                    recognition.lang = 'pt-BR';
-
-                    recognition.onresult = (event) => {
-                        let interimTranscript = '';
-                        let finalTranscript = '';
-
-                        for (let i = event.resultIndex; i < event.results.length; ++i) {
-                            if (event.results[i].isFinal) {
-                                finalTranscript += event.results[i][0].transcript;
-                            } else {
-                                interimTranscript += event.results[i][0].transcript;
-                            }
-                        }
-
-                        const transcript = finalTranscript + interimTranscript;
-                        if (transcript.trim()) {
-                            setInput(transcript);
-                        }
-                    };
-
-                    recognition.onerror = (event) => {
-                        console.warn("Speech recognition warning/error:", event.error);
-                    };
-
-                    speechRecognitionRef.current = recognition;
-                    recognition.start();
-                }
-
-                mediaRecorder.start();
-                setIsRecording(true);
-                showToast("Gravando áudio...", "info");
-            } catch (err) {
-                console.error("Erro ao acessar microfone:", err);
-                showToast("Não foi possível acessar o microfone. Verifique as permissões do seu navegador.", "error");
-            }
-        }
     };
 
     const fetchQuestions = async () => {

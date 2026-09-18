@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 from models import WebhookConfigModel
 from api.deps import get_db, verify_api_key
+from api.schemas import AssignFunnelRequest, AssignFollowupRequest
 from lead_scoring_service import calculate_lead_score
 from zapvoice_utils import send_zapvoice_whatsapp_template
 
@@ -87,6 +88,7 @@ async def list_qualified_leads(db: AsyncSession = Depends(get_db), _: None = Dep
                     agent_id = row[16] if has_agent_col else None
                     if not agent_id and wh_id:
                         agent_id = wh_info.get("agent_id")
+                    agent_name = agent_name_map.get(agent_id, "Agente Não Identificado")
                     telefone_clean = "".join(filter(str.isdigit, str(row[7] or "")))
                     chatwoot_conv_url = f"https://web.whatsapp.com/send?phone={telefone_clean}" if telefone_clean else None
 
@@ -310,12 +312,17 @@ async def delete_crm_lead(
     """
     logger.info(f"Excluindo lead {lead_id} permanentemente da tabela {table_name} e de todas as plataformas...")
     try:
-        # 1. Obter dados do lead (telefone e webhook_config_id) antes de deletar
+        # 1. Obter dados do lead (telefone, webhook_config_id, conversa_id, conta_id) antes de deletar
         lead_row = None
+        conversa_id = None
+        conta_id = None
         try:
-            query = text(f"SELECT id, webhook_config_id, telefone FROM {table_name} WHERE id = :id")
+            query = text(f"SELECT id, webhook_config_id, telefone, conversa_id, conta_id FROM {table_name} WHERE id = :id")
             res_lead = await db.execute(query, {"id": lead_id})
             lead_row = res_lead.fetchone()
+            if lead_row:
+                conversa_id = lead_row[3]
+                conta_id = lead_row[4]
         except Exception as e_find:
             logger.warning(f"Erro ao buscar lead {lead_id} na tabela {table_name}: {e_find}")
 
@@ -327,6 +334,21 @@ async def delete_crm_lead(
         phones_to_delete = [phone] if phone else []
         await delete_contact_data(db, webhook_id, table_name, phones_to_delete, [lead_id])
         await db.commit()
+
+        # Resetar etiquetas no ZapVoice se houver conversa_id
+        if conversa_id:
+            try:
+                config = await db.get(WebhookConfigModel, webhook_id)
+                if config:
+                    from zapvoice_utils import get_default_reset_labels, reset_conversation_labels
+                    zv_url = (getattr(config, "zapvoice_url", None) or os.getenv("ZAPVOICE_URL", "")).rstrip("/")
+                    zv_token = getattr(config, "zapvoice_api_token", None) or os.getenv("ZAPVOICE_API_TOKEN", "")
+                    if zv_url and zv_token:
+                        eff_aid = conta_id or getattr(config, "zapvoice_client_id", None) or os.getenv("ZAPVOICE_CLIENT_ID", "")
+                        reset_labels = get_default_reset_labels(config)
+                        await reset_conversation_labels(zv_url, eff_aid, conversa_id, zv_token, reset_labels)
+            except Exception as e_crm_lbl:
+                logger.warning(f"Aviso ao resetar etiquetas no ZapVoice em delete_crm_lead: {e_crm_lbl}")
 
         # 3. Notificar clientes via WebSocket sobre a exclusão
         try:
@@ -789,5 +811,144 @@ async def update_lead_crm_stage(
     except Exception as e:
         logger.error(f"Erro ao mover estágio do lead {lead_id} no CRM: {e}")
         raise HTTPException(status_code=500, detail=f"Erro interno ao atualizar estágio: {str(e)}")
+
+
+@router.post("/leads/assign-funnel")
+async def assign_qualification_funnel(
+    data: AssignFunnelRequest,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_api_key)
+):
+    """
+    Atribui um funil de qualificação específico e/ou fluxo de follow-up para uma lista de telefones de contatos (usado em disparos).
+    """
+    if not data.phones or (not data.funnel_id and not data.followup_id):
+        raise HTTPException(status_code=400, detail="Telefones e ao menos funnel_id ou followup_id são obrigatórios.")
+
+    clean_phones = [p.strip().replace("+", "").replace("-", "").replace(" ", "") for p in data.phones if p and p.strip()]
+    if not clean_phones:
+        return {"success": True, "funnel_id": data.funnel_id, "followup_id": data.followup_id, "updated_contacts": 0, "phones_received": 0}
+
+    updated_count = 0
+    try:
+        # 1. Atualizar contatos existentes
+        set_clauses = ["updated_at = CURRENT_TIMESTAMP"]
+        params = {"phones": clean_phones}
+        
+        if data.funnel_id:
+            set_clauses.append("active_qualification_funnel_id = :funnel_id")
+            params["funnel_id"] = data.funnel_id
+            
+        if data.followup_id:
+            set_clauses.append("active_followup_funnel_id = :followup_id")
+            set_clauses.append("followup_step = 0")
+            set_clauses.append("ultima_resposta_agente_em = CURRENT_TIMESTAMP")
+            params["followup_id"] = data.followup_id
+
+        query = text(f"""
+            UPDATE leads
+            SET {", ".join(set_clauses)}
+            WHERE telefone = ANY(:phones)
+        """)
+        res = await db.execute(query, params)
+        updated_count = res.rowcount
+
+        # 2. Para telefones que ainda não existirem, criar registros prévios
+        existing_res = await db.execute(text("SELECT telefone FROM leads WHERE telefone = ANY(:phones)"), {"phones": clean_phones})
+        existing_phones = set(r[0] for r in existing_res.fetchall())
+        missing_phones = [p for p in clean_phones if p not in existing_phones]
+
+        for phone in missing_phones:
+            await db.execute(text("""
+                INSERT INTO leads (telefone, contato_nome, active_qualification_funnel_id, active_followup_funnel_id, followup_step, ultima_resposta_agente_em, created_at, updated_at)
+                VALUES (:phone, :name, :funnel_id, :followup_id, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """), {
+                "phone": phone,
+                "name": phone,
+                "funnel_id": data.funnel_id,
+                "followup_id": data.followup_id
+            })
+            updated_count += 1
+
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Erro ao atribuir funil/follow-up aos leads: {e}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro interno ao atribuir funil: {str(e)}")
+
+    return {
+        "success": True,
+        "funnel_id": data.funnel_id,
+        "followup_id": data.followup_id,
+        "updated_contacts": updated_count,
+        "phones_received": len(clean_phones)
+    }
+
+
+@router.post("/leads/assign-followup")
+async def assign_followup_funnel(
+    data: AssignFollowupRequest,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_api_key)
+):
+    """
+    Atribui um fluxo de follow-up específico para uma lista de telefones de contatos (usado em disparos em massa por produto).
+    Reinicia automaticamente o lead para o Passo #1 (followup_step = 0).
+    """
+    if not data.phones or not data.followup_id:
+        raise HTTPException(status_code=400, detail="Telefones e followup_id são obrigatórios.")
+
+    clean_phones = [p.strip().replace("+", "").replace("-", "").replace(" ", "") for p in data.phones if p and p.strip()]
+    if not clean_phones:
+        return {"success": True, "followup_id": data.followup_id, "updated_contacts": 0, "phones_received": 0}
+
+    updated_count = 0
+    try:
+        # 1. Atualizar contatos existentes na tabela principal de leads
+        query = text("""
+            UPDATE leads
+            SET active_followup_funnel_id = :followup_id,
+                followup_step = 0,
+                ultima_resposta_agente_em = CURRENT_TIMESTAMP,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE telefone = ANY(:phones)
+        """)
+        res = await db.execute(query, {
+            "followup_id": data.followup_id,
+            "phones": clean_phones
+        })
+        updated_count = res.rowcount
+
+        # 2. Para contatos novos que ainda não existem no banco
+        existing_res = await db.execute(text("SELECT telefone FROM leads WHERE telefone = ANY(:phones)"), {"phones": clean_phones})
+        existing_phones = set(r[0] for r in existing_res.fetchall())
+        missing_phones = [p for p in clean_phones if p not in existing_phones]
+
+        for phone in missing_phones:
+            await db.execute(text("""
+                INSERT INTO leads (telefone, contato_nome, active_followup_funnel_id, followup_step, ultima_resposta_agente_em, created_at, updated_at)
+                VALUES (:phone, :name, :followup_id, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """), {
+                "phone": phone,
+                "name": phone,
+                "followup_id": data.followup_id
+            })
+            updated_count += 1
+
+        await db.commit()
+        logger.info(f"🔁 Fluxo de follow-up '{data.followup_id}' atribuído com sucesso a {updated_count} contatos.")
+    except Exception as e:
+        logger.error(f"Erro ao atribuir fluxo de follow-up aos leads: {e}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro interno ao atribuir follow-up: {str(e)}")
+
+    return {
+        "success": True,
+        "followup_id": data.followup_id,
+        "updated_contacts": updated_count,
+        "phones_received": len(clean_phones)
+    }
+
+
 
 

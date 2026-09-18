@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_URL } from '../../../../../config';
+import { showToast } from '../../../utils/helpers';
 
 export default function PipelineActionToolbar({
     event,
@@ -67,12 +68,16 @@ export default function PipelineActionToolbar({
         };
 
         const jsonStr = JSON.stringify(payload, null, 2);
-        navigator.clipboard.writeText(jsonStr).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2500);
-        }).catch(err => {
-            console.error('Erro ao copiar JSON:', err);
-        });
+        if (navigator?.clipboard?.writeText) {
+            Promise.resolve(navigator.clipboard.writeText(jsonStr)).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+                showToast('Pipeline copiado para a área de transferência!', 'success');
+            }).catch(err => {
+                console.error('Erro ao copiar JSON:', err);
+                showToast('Erro ao copiar pipeline.', 'error');
+            });
+        }
     };
 
     const isFailedOrCompleted = ['error', 'completed', 'canceled', 'ignored'].includes(event?.status) || (metrics?.errorCount > 0);

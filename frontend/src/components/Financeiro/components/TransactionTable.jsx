@@ -2,6 +2,18 @@ import React from 'react';
 import { useFinance } from '../FinanceContext';
 import { useFinanceMetrics } from '../hooks/useFinanceMetrics';
 
+const formatTotalCost = (val) => {
+    if (!val || val === 0) return 'R$ 0.00';
+    if (val > 0 && val < 0.01) return '< R$ 0.01';
+    return `R$ ${val.toFixed(2)}`;
+};
+
+const getBadgeInfo = (item) => {
+    if (item.isFtJob) return { label: 'FT', className: 'type-ft' };
+    if (item.agent_name?.includes('Simulador RAG')) return { label: 'RAG', className: 'type-rag' };
+    return { label: 'AG', className: 'type-agent' };
+};
+
 const TransactionTable = () => {
     const { activeRowsData } = useFinanceMetrics();
     const { currentPage, setCurrentPage, rowsPerPage, setRowsPerPage } = useFinance();
@@ -36,28 +48,31 @@ const TransactionTable = () => {
                         Nenhuma transação encontrada para o período selecionado.
                     </div>
                 ) : (
-                    paginated.map((item, idx) => (
-                        <div
-                            key={idx}
-                            id={`row-${idx}`}
-                            className={`table-row-grid ${item.isFtJob ? 'ft-row' : ''}`}
-                        >
-                            <span>{new Date(item.date + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
-                            <div className="agent-name-cell">
-                                <span className={`agent-badge ${item.isFtJob ? 'type-ft' : 'type-agent'}`}>
-                                    {item.isFtJob ? 'FT' : 'AG'}
+                    paginated.map((item, idx) => {
+                        const badge = getBadgeInfo(item);
+                        return (
+                            <div
+                                key={idx}
+                                id={`row-${idx}`}
+                                className={`table-row-grid ${item.isFtJob ? 'ft-row' : ''}`}
+                            >
+                                <span>{new Date(item.date + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                                <div className="agent-name-cell">
+                                    <span className={`agent-badge ${badge.className}`}>
+                                        {badge.label}
+                                    </span>
+                                    <span className="truncate" title={item.agent_name}>{item.agent_name}</span>
+                                </div>
+                                <span style={{ textAlign: 'center' }}>{item.unique_sessions || '—'}</span>
+                                <span style={{ textAlign: 'center' }}>{item.total_messages || '—'}</span>
+                                <span style={{ textAlign: 'center' }}>{item.total_tokens?.toLocaleString('pt-BR') || '—'}</span>
+                                <span style={{ textAlign: 'right' }}>
+                                    {item.avg_cost_per_message ? `R$ ${item.avg_cost_per_message.toFixed(2)}` : '—'}
                                 </span>
-                                <span className="truncate" title={item.agent_name}>{item.agent_name}</span>
+                                <span className="cost-cell">{formatTotalCost(item.total_cost)}</span>
                             </div>
-                            <span style={{ textAlign: 'center' }}>{item.unique_sessions || '—'}</span>
-                            <span style={{ textAlign: 'center' }}>{item.total_messages || '—'}</span>
-                            <span style={{ textAlign: 'center' }}>{item.total_tokens?.toLocaleString('pt-BR') || '—'}</span>
-                            <span style={{ textAlign: 'right' }}>
-                                {item.avg_cost_per_message ? `R$ ${item.avg_cost_per_message.toFixed(2)}` : '—'}
-                            </span>
-                            <span className="cost-cell">R$ {item.total_cost.toFixed(2)}</span>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 

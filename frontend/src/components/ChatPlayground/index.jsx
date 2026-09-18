@@ -56,6 +56,7 @@ const ChatPlayground = () => {
     const [showHotfix, setShowHotfix] = useState(false);
     const [hotfixPrompt, setHotfixPrompt] = useState('');
     const [challengerHotfixPrompt, setChallengerHotfixPrompt] = useState('');
+    const [showResetChatConfirm, setShowResetChatConfirm] = useState(false);
 
     const [isInputExpanded, setIsInputExpanded] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -228,6 +229,14 @@ const ChatPlayground = () => {
         });
     };
 
+    const handleConfirmResetChat = () => {
+        handleReset();
+        if (chat.setInput) chat.setInput('');
+        if (chat.setSelectedImage) chat.setSelectedImage(null);
+        if (chat.setImagePreview) chat.setImagePreview(null);
+        setShowResetChatConfirm(false);
+    };
+
     if (loadingAgents || isNavigating) {
         return createPortal(
             <div className="playground-loading-overlay">
@@ -354,6 +363,14 @@ const ChatPlayground = () => {
 
                     <div className="header-actions-row">
                         <button
+                            onClick={() => setShowResetChatConfirm(true)}
+                            className="reset-chat-btn"
+                            title="Resetar conversa atual com o agente"
+                            data-testid="reset-chat-header-btn"
+                        >
+                            🔄 Resetar
+                        </button>
+                        <button
                             onClick={handleExportTraining}
                             className="export-training-btn"
                             title="Exportar conversa completa em formato HTML para estudar e melhorar o prompt"
@@ -450,6 +467,15 @@ const ChatPlayground = () => {
             <TesterReportModal report={testerReport} onClose={() => setTesterReport(null)} />
             <PlaygroundGuide showGuide={showGuide} setShowGuide={setShowGuide} />
             
+            <ConfirmModal
+                isOpen={showResetChatConfirm}
+                title="Resetar Conversa"
+                message="Tem certeza que deseja resetar a conversa atual? Todas as mensagens serão limpas e uma nova sessão será iniciada."
+                onConfirm={handleConfirmResetChat}
+                onCancel={() => setShowResetChatConfirm(false)}
+                confirmText="Resetar"
+                type="danger"
+            />
             <ConfirmModal
                 isOpen={showDeleteConfirm}
                 title="Excluir Sessões"

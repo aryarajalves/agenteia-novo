@@ -86,6 +86,11 @@
   box-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
 }
 
+.lead-score-circle.score-indefinida {
+  border-color: #64748b;
+  box-shadow: 0 0 12px rgba(100, 116, 139, 0.25);
+}
+
 .lead-meta-details {
   display: flex;
   flex-direction: column;
@@ -115,12 +120,13 @@
 }
 
 .classification-badge {
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
   font-weight: 700;
-  padding: 0.25rem 0.65rem;
+  padding: 0.3rem 0.75rem;
   border-radius: 999px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
   border: 1px solid transparent;
 }
 
@@ -143,6 +149,13 @@
   color: #06b6d4;
   border-color: rgba(6, 182, 212, 0.25);
   box-shadow: 0 0 8px rgba(6, 182, 212, 0.1);
+}
+
+.classification-badge.indefinida {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.25);
+  box-shadow: 0 0 8px rgba(148, 163, 184, 0.1);
 }
 
 .inbox-badge {

@@ -77,16 +77,25 @@ async def get_financial_report(
     grand_total = 0.0
     for row in rows:
         cost = float(row.cost or 0.0)
-        if cost == 0.0:
+        tokens = int(row.tokens or 0)
+        if cost == 0.0 and tokens == 0:
             continue
         messages = int(row.messages or 0)
         grand_total += cost
+
+        if row.agent_name:
+            display_name = f"{row.agent_name} ({('Resposta Automática (sem IA)' if row.model_used == 'shortcut-logic' else row.model_used) or 'N/A'})"
+        elif row.model_used and "Simulador RAG" in row.model_used:
+            display_name = row.model_used
+        else:
+            display_name = f"{row.agent_name or 'Uso Interno do Sistema'} ({('Resposta Automática (sem IA)' if row.model_used == 'shortcut-logic' else row.model_used) or 'N/A'})"
+
         items.append({
             "date": str(row.day),
             "agent_id": row.agent_id,
-            "agent_name": f"{row.agent_name or 'Uso Interno do Sistema'} ({('Resposta Automática (sem IA)' if row.model_used == 'shortcut-logic' else row.model_used) or 'N/A'})",
+            "agent_name": display_name,
             "total_messages": messages,
-            "total_tokens": int(row.tokens or 0),
+            "total_tokens": tokens,
             "total_cost": cost,
             "avg_cost_per_message": cost / messages if messages > 0 else 0.0,
             "unique_sessions": int(row.unique_sessions or 0)

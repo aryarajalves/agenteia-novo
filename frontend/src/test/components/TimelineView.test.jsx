@@ -52,8 +52,56 @@ describe('TimelineView Component', () => {
         expect(onOpenDecision).toHaveBeenCalledTimes(1);
 
         // Check Prompt Button
-        const promptBtn = screen.getByText('📄 Ver Prompt do Pre-Router');
+        const promptBtn = screen.getByRole('button', { name: /ver prompt enviado/i });
         fireEvent.click(promptBtn);
         expect(onOpenPrompt).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders programmatic shortcut with "Dispensado (Atalho)" and never "Automático"', () => {
+        const shortcutDebug = {
+            pre_router: {
+                eh_saudacao: true,
+                eh_agradecimento: false,
+                precisa_esclarecimento: false,
+                resposta_direta: "Olá! Como posso te ajudar?",
+                perguntas_extraidas: null,
+                lista_perguntas_extraidas: [],
+                precisa_rag: false,
+                tipo_mensagem: "Saudação (Atalho Programático)",
+                _model_used: "shortcut-logic"
+            }
+        };
+
+        render(<TimelineView debug={shortcutDebug} />);
+
+        // Should display the greeting shortcut badge
+        expect(screen.getByText('🏷️ Saudação (Atalho Programático)')).toBeInTheDocument();
+
+        // Must display Dispensado (Atalho)
+        expect(screen.getByText('📚 RAG: Dispensado (Atalho)')).toBeInTheDocument();
+
+        // Must NEVER display Automático
+        expect(screen.queryByText(/RAG: Automático/i)).toBeNull();
+
+        // Step 6 RAG should also be labeled as Dispensado
+        expect(screen.getByText('RAG Dispensado (Atalho Programático)')).toBeInTheDocument();
+
+        // Step 9 should show Atalho Direto (Zero LLM)
+        expect(screen.getByText('Atalho Direto (Zero LLM)')).toBeInTheDocument();
+    });
+
+    it('renders "Dispensado / Otimizado" when precisa_rag is false and not a shortcut', () => {
+        const optimizedDebug = {
+            pre_router: {
+                tipo_mensagem: "Classificação de Intenção",
+                precisa_rag: false,
+                precisa_ferramenta: false
+            }
+        };
+
+        render(<TimelineView debug={optimizedDebug} />);
+
+        expect(screen.getByText('📚 RAG: Dispensado / Otimizado')).toBeInTheDocument();
+        expect(screen.queryByText(/RAG: Automático/i)).toBeNull();
     });
 });

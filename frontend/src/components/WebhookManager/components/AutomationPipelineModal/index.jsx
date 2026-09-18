@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { usePipelineEvent } from './hooks/usePipelineEvent';
+import { useUserMessagesNavigation } from './hooks/useUserMessagesNavigation';
 import { parsePipelineSteps, calculatePipelineMetrics } from './utils/pipelineHelpers';
 import PipelineHeader from './components/PipelineHeader';
 import PipelineSummaryBar from './components/PipelineSummaryBar';
@@ -15,22 +16,56 @@ import ImageLightboxModal from './components/ImageLightboxModal';
 const AutomationPipelineModal = ({
     event: initialEvent,
     webhookId,
-    onClose
+    onClose,
+    events: eventsProp = null,
+    onNavigateEvent = null
 }) => {
+    const [activeEvent, setActiveEvent] = useState(initialEvent);
     const [maximizedStep, setMaximizedStep] = useState(null);
     const [lightboxImage, setLightboxImage] = useState(null);
     const [selectedCategory, setSelectedCategory] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [isAllCollapsed, setIsAllCollapsed] = useState(false);
 
+    // Sincronizar activeEvent se initialEvent mudar via prop
+    useEffect(() => {
+        if (initialEvent && initialEvent.id !== activeEvent?.id) {
+            setActiveEvent(initialEvent);
+        }
+    }, [initialEvent]);
+
+    const handleNavigate = (newEvent) => {
+        setActiveEvent(newEvent);
+        if (onNavigateEvent) {
+            onNavigateEvent(newEvent);
+        }
+    };
+
+    const navigation = useUserMessagesNavigation(
+        activeEvent,
+        webhookId,
+        eventsProp,
+        handleNavigate
+    );
+
     const {
         event,
         loading,
         initialLoading,
+        isNavigating,
         isTimeout,
         pollEvent,
         handleManualRefresh
-    } = usePipelineEvent(initialEvent, webhookId);
+    } = usePipelineEvent(activeEvent, webhookId);
+
+    const timelineScrollRef = React.useRef(null);
+
+    // Resetar o scroll suavemente para o topo ao alternar mensagens
+    useEffect(() => {
+        if (timelineScrollRef.current) {
+            timelineScrollRef.current.scrollTop = 0;
+        }
+    }, [event?.id]);
 
     const steps = parsePipelineSteps(event);
     const metrics = calculatePipelineMetrics(steps, event);
@@ -88,26 +123,56 @@ const AutomationPipelineModal = ({
                 className="premium-modal-content"
                 style={{ maxWidth: '1120px', width: '96%', borderRadius: '32px', padding: '2rem', height: '88vh', display: 'flex', flexDirection: 'column' }}
             >
-                {/* Cabeçalho do Pipeline com Identificação do Lead */}
+                {/* Cabeçalho do Pipeline com Identificação do Lead e Navegação entre Mensagens */}
                 <PipelineHeader
                     createdAt={event.created_at}
                     event={event}
                     loading={loading}
                     onRefresh={handleManualRefresh}
                     onClose={onClose}
+                    hasPrevious={navigation.hasPrevious}
+                    hasNext={navigation.hasNext}
+                    isLastMessage={navigation.isLastMessage}
+                    currentIndex={navigation.currentIndex}
+                    totalMessages={navigation.totalMessages}
+                    onPrevious={navigation.goToPrevious}
+                    onNext={navigation.goToNext}
+                    loadingMessages={navigation.loadingMessages || isNavigating}
                 />
 
                 {/* Timeline Scrollable Area */}
-                {initialLoading ? (
+                {initialLoading && !event?.id ? (
                     <PipelineLoadingState />
                 ) : (
-                    <div style={{ 
-                        flex: 1, 
-                        overflowY: 'auto', 
-                        paddingRight: '0.75rem',
-                        marginRight: '-0.75rem',
-                        paddingBottom: '2rem'
-                    }} className="custom-scrollbar">
+                    <div 
+                        ref={timelineScrollRef}
+                        style={{ 
+                            flex: 1, 
+                            overflowY: 'auto', 
+                            paddingRight: '0.75rem',
+                            marginRight: '-0.75rem',
+                            paddingBottom: '2rem',
+                            opacity: isNavigating ? 0.72 : 1,
+                            transition: 'opacity 0.15s ease'
+                        }} 
+                        className="custom-scrollbar"
+                    >
+                        {/* Barra de progresso suave no topo durante navegação rápida */}
+                        {isNavigating && (
+                            <div style={{
+                                position: 'sticky',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                height: '3px',
+                                background: 'linear-gradient(90deg, #6366f1, #a855f7, #38bdf8)',
+                                backgroundSize: '200% 100%',
+                                animation: 'pulse 1s infinite linear',
+                                zIndex: 30,
+                                borderRadius: '4px',
+                                marginBottom: '10px'
+                            }} />
+                        )}
                         {/* Barra de Resumo de Métricas (Latência, Tokens, Custos, Status) */}
                         <PipelineSummaryBar metrics={metrics} />
 
@@ -154,6 +219,7 @@ const AutomationPipelineModal = ({
                                 <PipelineStepCard
                                     key={step.id}
                                     step={step}
+                                    eventId={event?.id}
                                     isAllCollapsed={isAllCollapsed}
                                     onMaximize={setMaximizedStep}
                                     onOpenImage={setLightboxImage}

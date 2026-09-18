@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Q
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from models import KnowledgeBaseModel, KnowledgeItemModel, TranscriptionTaskModel, TranscriptionFolder
 from database import async_session
@@ -24,7 +25,8 @@ from api.schemas import (
     TranscriptionFolderRequest, TranscriptionMoveRequest, 
     ManualTranscriptionRequest, TranscriptionContentUpdateRequest,
     GenerateUploadUrlRequest, ConfirmUploadRequest,
-    GenerateQAFromTranscriptionRequest, GenerateChunksFromTranscriptionRequest, AddBatchKnowledgeItemsRequest
+    GenerateQAFromTranscriptionRequest, GenerateChunksFromTranscriptionRequest, AddBatchKnowledgeItemsRequest,
+    AddVariationRequest
 )
 from api.deps import get_db, verify_api_key
 from rag_service import (
@@ -214,10 +216,70 @@ async def simulate_rag(kb_id: int, request: RAGSimulationRequest, db: AsyncSessi
         else:
             items, usage = result or [], None
 
+        p_tok = getattr(usage, "prompt_tokens", 0) if usage else 0
+        c_tok = getattr(usage, "completion_tokens", 0) if usage else 0
+        total_tokens = p_tok + c_tok
+        cost_usd = 0.0
+        cost_brl = 0.0
+
+        # Registra o consumo de tokens na tabela InteractionLog para contabilizar no Painel Financeiro
+        if total_tokens > 0:
+            try:
+                from api.services.cost_service import calculate_ai_cost
+                from models import InteractionLog, KnowledgeBaseModel
+                from datetime import datetime, timezone
+                from config_store import USD_TO_BRL
+
+                kb_res = await db.execute(select(KnowledgeBaseModel).where(KnowledgeBaseModel.id == kb_id))
+                kb = kb_res.scalars().first()
+                kb_name = kb.name if kb else f"Base #{kb_id}"
+
+                # Modelo usado para cálculo de custo (gpt-4o-mini se usou filtros de IA com completion, ou embedding)
+                model_used_name = "gpt-4o-mini" if c_tok > 0 else "text-embedding-3-small"
+                cost_usd, cost_brl = calculate_ai_cost(model_used_name, p_tok, c_tok)
+                if cost_usd == 0.0:
+                    cost_usd = total_tokens * 0.00000002
+                    cost_brl = cost_usd * USD_TO_BRL
+
+                sim_log = InteractionLog(
+                    agent_id=None,
+                    session_id=f"SYS_RAG_SIMULATOR_KB_{kb_id}",
+                    user_message=f"Simulador RAG ({kb_name}): {request.query[:120]}",
+                    agent_response=f"Retornou {len(items or [])} itens ({len(discarded_items or [])} descartados).",
+                    model_used=f"Simulador RAG ({model_used_name})",
+                    input_tokens=p_tok,
+                    output_tokens=c_tok,
+                    cost_usd=cost_usd,
+                    cost_brl=cost_brl,
+                    timestamp=datetime.now(timezone.utc)
+                )
+                db.add(sim_log)
+                await db.commit()
+                logger.info(f"🪙 Simulador RAG registrado no financeiro: {total_tokens} tokens (R$ {cost_brl:.6f})")
+            except Exception as e_log:
+                logger.warning(f"Não foi possível gravar log financeiro do simulador: {e_log}")
+
+        sub_queries = getattr(usage, "sub_queries", [request.query]) if usage else [request.query]
+        grouped_results = getattr(usage, "grouped_results", []) if usage else []
+        if not grouped_results:
+            grouped_results = [{
+                "sub_query": request.query,
+                "items": items or [],
+                "discarded_items": discarded_items or []
+            }]
+
         return {
             "items": items or [],
             "discarded_items": discarded_items or [],
-            "usage": {"prompt_tokens": usage.prompt_tokens if usage else 0, "completion_tokens": usage.completion_tokens if usage else 0}
+            "sub_queries": sub_queries,
+            "grouped_results": grouped_results,
+            "usage": {
+                "prompt_tokens": p_tok,
+                "completion_tokens": c_tok,
+                "total_tokens": total_tokens,
+                "cost_usd": cost_usd,
+                "cost_brl": cost_brl
+            }
         }
     except Exception as e:
         logger.error(f"Erro no simulador de RAG (kb_id={kb_id}, query='{request.query}'): {e}", exc_info=True)
@@ -268,7 +330,8 @@ async def export_knowledge_base(kb_id: int, db: AsyncSession = Depends(get_db), 
                 "question": item.question,
                 "answer": item.answer,
                 "category": item.category,
-                "metadata_val": item.metadata_val
+                "metadata_val": item.metadata_val,
+                "question_variations": item.question_variations or []
             }
             for item in (kb.items or [])
         ]
@@ -277,6 +340,15 @@ async def export_knowledge_base(kb_id: int, db: AsyncSession = Depends(get_db), 
     filename = f"base_conhecimento_{kb_id}.json"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return Response(content=json.dumps(export_data, ensure_ascii=False, indent=2), media_type="application/json", headers=headers)
+
+def get_item_embedding_text(question: str, variations: Optional[List[str]] = None) -> str:
+    """Combina pergunta e suas variações para gerar vetor semântico composto."""
+    clean_q = (question or "").strip()
+    if variations and isinstance(variations, list):
+        clean_vars = [v.strip() for v in variations if isinstance(v, str) and v.strip()]
+        if clean_vars:
+            return f"{clean_q}\n" + "\n".join(clean_vars)
+    return clean_q
 
 @router.post("/knowledge-bases/{kb_id}/import")
 async def import_knowledge_base_items(
@@ -321,21 +393,36 @@ async def import_knowledge_base_items(
         a = item.get("answer") or item.get("resposta") or item.get("content") or ""
         cat = item.get("category") or item.get("categoria") or "Geral"
         meta = item.get("metadata_val") or item.get("metadata") or ""
+        vars_list = item.get("question_variations") or item.get("variacoes") or []
+        if isinstance(vars_list, str):
+            try:
+                vars_list = json.loads(vars_list)
+            except Exception:
+                vars_list = []
+        if not isinstance(vars_list, list):
+            vars_list = []
+        clean_vars = [str(v).strip() for v in vars_list if str(v).strip()]
         if q and a:
-            valid_items.append({"question": q, "answer": a, "category": cat, "metadata_val": meta})
+            valid_items.append({
+                "question": q, 
+                "answer": a, 
+                "category": cat, 
+                "metadata_val": meta,
+                "question_variations": clean_vars
+            })
             
     if not valid_items:
         raise HTTPException(status_code=400, detail="Nenhum item válido com 'pergunta' e 'resposta' encontrado no arquivo.")
         
-    questions = [i["question"] for i in valid_items]
+    texts_to_embed = [get_item_embedding_text(i["question"], i["question_variations"]) for i in valid_items]
     try:
-        embeddings, _ = await get_batch_embeddings(questions)
+        embeddings, _ = await get_batch_embeddings(texts_to_embed)
     except Exception as e:
         logger.warning(f"Falha ao gerar batch embeddings no import: {e}. Usando fallback item a item.")
         embeddings = []
-        for q in questions:
+        for t in texts_to_embed:
             try:
-                emb, _ = await get_embedding(q)
+                emb, _ = await get_embedding(t)
                 embeddings.append(emb)
             except Exception:
                 embeddings.append(None)
@@ -349,6 +436,7 @@ async def import_knowledge_base_items(
             answer=item["answer"],
             category=item["category"],
             metadata_val=item["metadata_val"],
+            question_variations=item["question_variations"],
             embedding=emb
         )
         db.add(db_item)
@@ -429,15 +517,32 @@ async def import_new_knowledge_base(
 
 # --- KNOWLEDGE ITEM ENDPOINTS ---
 
+MAX_QUESTION_VARIATIONS = 8
+
 @router.post("/knowledge-bases/{kb_id}/items", response_model=KnowledgeItem)
 async def add_knowledge_item(kb_id: int, item: KnowledgeItem, db: AsyncSession = Depends(get_db), _: None = Depends(verify_api_key)):
+    clean_vars = [v.strip() for v in (item.question_variations or []) if isinstance(v, str) and v.strip()]
+    if len(clean_vars) > MAX_QUESTION_VARIATIONS:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"O item pode ter no máximo {MAX_QUESTION_VARIATIONS} variações de perguntas para manter a alta precisão semântica (evitar diluição do vetor)."
+        )
+    text_to_embed = get_item_embedding_text(item.question, clean_vars)
     try:
-        emb, _ = await get_embedding(item.question)
+        emb, _ = await get_embedding(text_to_embed)
     except EmbeddingGenerationError as e:
         logger.error(f"Falha ao gerar embedding ao criar item na base {kb_id}: {e}")
         raise HTTPException(status_code=502, detail=f"Não foi possível gerar o vetor (embedding) do item: {e}")
 
-    db_item = KnowledgeItemModel(knowledge_base_id=kb_id, question=item.question, answer=item.answer, metadata_val=item.metadata_val, category=item.category, embedding=emb)
+    db_item = KnowledgeItemModel(
+        knowledge_base_id=kb_id, 
+        question=item.question, 
+        answer=item.answer, 
+        metadata_val=item.metadata_val, 
+        category=item.category, 
+        question_variations=clean_vars,
+        embedding=emb
+    )
     db.add(db_item)
     await db.commit()
     await db.refresh(db_item)
@@ -466,13 +571,19 @@ async def update_knowledge_item(item_id: int, item: KnowledgeItem, db: AsyncSess
     db_item = result.scalars().first()
     if not db_item: raise HTTPException(status_code=404, detail="Item not found")
 
+    clean_vars = [v.strip() for v in (item.question_variations or []) if isinstance(v, str) and v.strip()]
+    if len(clean_vars) > MAX_QUESTION_VARIATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"O item pode ter no máximo {MAX_QUESTION_VARIATIONS} variações de perguntas para manter a alta precisão semântica (evitar diluição do vetor)."
+        )
+    text_to_embed = get_item_embedding_text(item.question, clean_vars)
+
     # Recalcula o vetor (embedding) sempre que a edição é salva, independente de qual
-    # campo mudou — pedido explícito do usuário. Hoje o vetor é gerado só a partir da
-    # Pergunta (arquitetura atual de busca RAG), então o recálculo usa item.question.
-    # Se a geração falhar (chave da OpenAI ausente/inválida, erro de rede, etc.), a
-    # edição é bloqueada em vez de salvar o item com um vetor desatualizado/ausente.
+    # campo mudou — pedido explícito do usuário. O vetor é gerado a partir da
+    # Pergunta combinada com suas Variações.
     try:
-        emb, _ = await get_embedding(item.question)
+        emb, _ = await get_embedding(text_to_embed)
         db_item.embedding = emb
     except EmbeddingGenerationError as e:
         logger.error(f"Falha ao recalcular embedding do item {item_id}: {e}")
@@ -482,22 +593,162 @@ async def update_knowledge_item(item_id: int, item: KnowledgeItem, db: AsyncSess
     db_item.answer = item.answer
     db_item.metadata_val = item.metadata_val
     db_item.category = item.category
+    db_item.question_variations = clean_vars
     await db.commit()
     await db.refresh(db_item)
     return db_item
+
+@router.post("/knowledge-items/{item_id}/variations")
+async def add_knowledge_item_variation(
+    item_id: int, 
+    request: AddVariationRequest, 
+    db: AsyncSession = Depends(get_db), 
+    _: None = Depends(verify_api_key)
+):
+    result = await db.execute(select(KnowledgeItemModel).where(KnowledgeItemModel.id == item_id))
+    db_item = result.scalars().first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+
+    current_vars = list(db_item.question_variations or []) if isinstance(db_item.question_variations, list) else []
+    if isinstance(db_item.question_variations, str):
+        try:
+            parsed = json.loads(db_item.question_variations)
+            if isinstance(parsed, list):
+                current_vars = parsed
+        except Exception:
+            current_vars = []
+
+    if len(current_vars) >= MAX_QUESTION_VARIATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Limite máximo de {MAX_QUESTION_VARIATIONS} variações atingido para manter a alta precisão semântica (evitar diluição do vetor). Exclua ou edite uma variação existente antes de adicionar uma nova."
+        )
+
+    incoming = []
+    if request.variation and request.variation.strip():
+        incoming.append(request.variation.strip())
+    if request.variations:
+        for v in request.variations:
+            if isinstance(v, str) and v.strip():
+                incoming.append(v.strip())
+
+    if not incoming:
+        raise HTTPException(status_code=400, detail="Nenhuma variação fornecida.")
+
+    existing_lower = {v.lower().strip() for v in current_vars if isinstance(v, str)}
+    added = []
+    for v in incoming:
+        if v.lower() not in existing_lower:
+            existing_lower.add(v.lower())
+            added.append(v)
+
+    if not added:
+        return {
+            "message": "A variação já existia para este item.",
+            "item_id": db_item.id,
+            "question_variations": current_vars,
+            "added": []
+        }
+
+    if len(current_vars) + len(added) > MAX_QUESTION_VARIATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Adicionar {len(added)} nova(s) variação(ões) excederia o limite máximo de {MAX_QUESTION_VARIATIONS}. Atualmente o item já possui {len(current_vars)} variações. Exclua ou edite variações existentes antes de adicionar novas."
+        )
+
+    current_vars.extend(added)
+
+    # Recalcula o vetor semântico composto (pergunta + variações)
+    text_to_embed = get_item_embedding_text(db_item.question, current_vars)
+    try:
+        emb, _ = await get_embedding(text_to_embed)
+        db_item.embedding = emb
+    except EmbeddingGenerationError as e:
+        logger.error(f"Falha ao recalcular embedding para item {item_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Não foi possível recalcular o vetor (embedding): {e}")
+
+    db_item.question_variations = list(current_vars)
+    flag_modified(db_item, "question_variations")
+    await db.commit()
+    await db.refresh(db_item)
+
+    return {
+        "message": "Variação adicionada com sucesso.",
+        "item_id": db_item.id,
+        "question_variations": db_item.question_variations,
+        "added": added
+    }
+
+@router.delete("/knowledge-items/{item_id}/variations")
+async def delete_knowledge_item_variation(
+    item_id: int,
+    variation: str = Query(..., description="Variação a remover"),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(verify_api_key)
+):
+    result = await db.execute(select(KnowledgeItemModel).where(KnowledgeItemModel.id == item_id))
+    db_item = result.scalars().first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+
+    current_vars = list(db_item.question_variations or []) if isinstance(db_item.question_variations, list) else []
+    if isinstance(db_item.question_variations, str):
+        try:
+            parsed = json.loads(db_item.question_variations)
+            if isinstance(parsed, list):
+                current_vars = parsed
+        except Exception:
+            current_vars = []
+
+    var_to_remove = variation.strip().lower()
+    updated_vars = [v for v in current_vars if v.strip().lower() != var_to_remove]
+
+    if len(updated_vars) == len(current_vars):
+        raise HTTPException(status_code=404, detail="Variação não encontrada no item")
+
+    text_to_embed = get_item_embedding_text(db_item.question, updated_vars)
+    try:
+        emb, _ = await get_embedding(text_to_embed)
+        db_item.embedding = emb
+    except EmbeddingGenerationError as e:
+        logger.error(f"Falha ao recalcular embedding para item {item_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Não foi possível recalcular o vetor (embedding): {e}")
+
+    db_item.question_variations = list(updated_vars)
+    flag_modified(db_item, "question_variations")
+    await db.commit()
+    await db.refresh(db_item)
+
+    return {
+        "message": "Variação removida com sucesso.",
+        "item_id": db_item.id,
+        "question_variations": db_item.question_variations
+    }
 
 @router.post("/knowledge-bases/{kb_id}/items/bulk")
 async def bulk_knowledge_items(kb_id: int, items: List[KnowledgeItem], db: AsyncSession = Depends(get_db), _: None = Depends(verify_api_key)):
     result = await db.execute(select(KnowledgeItemModel).where(KnowledgeItemModel.id.in_([i.id for i in items if i.id])))
     existing_items = {i.id: i for i in result.scalars().all()}
     for item in items:
+        clean_vars = [v.strip() for v in (item.question_variations or []) if isinstance(v, str) and v.strip()]
         if item.id in existing_items:
             db_item = existing_items[item.id]
             db_item.question = item.question; db_item.answer = item.answer
             db_item.metadata_val = item.metadata_val; db_item.category = item.category
+            db_item.question_variations = clean_vars
         else:
-            emb, _ = await get_embedding(item.question)
-            db.add(KnowledgeItemModel(knowledge_base_id=kb_id, question=item.question, answer=item.answer, metadata_val=item.metadata_val, category=item.category, embedding=emb))
+            text_to_embed = get_item_embedding_text(item.question, clean_vars)
+            emb, _ = await get_embedding(text_to_embed)
+            db.add(KnowledgeItemModel(
+                knowledge_base_id=kb_id, 
+                question=item.question, 
+                answer=item.answer, 
+                metadata_val=item.metadata_val, 
+                category=item.category, 
+                question_variations=clean_vars,
+                embedding=emb
+            ))
             
     res_all = await db.execute(select(KnowledgeItemModel.id).where(KnowledgeItemModel.knowledge_base_id == kb_id))
     all_db_ids = set(res_all.scalars().all())

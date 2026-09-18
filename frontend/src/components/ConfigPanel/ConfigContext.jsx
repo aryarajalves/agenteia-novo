@@ -61,11 +61,13 @@ export const ConfigProvider = ({ children }) => {
     const [selectedTools, setSelectedTools] = useState([]);
     const [ragRetrievalCount, setRagRetrievalCount] = useState(5);
     const [ragTranslationEnabled, setRagTranslationEnabled] = useState(false);
-    const [ragMultiQueryEnabled, setRagMultiQueryEnabled] = useState(false);
+    const [ragMultiQueryEnabled, setRagMultiQueryEnabled] = useState(true);
     const [ragRerankEnabled, setRagRerankEnabled] = useState(true);
     const [ragAgenticEvalEnabled, setRagAgenticEvalEnabled] = useState(true);
-    const [ragParentExpansionEnabled, setRagParentExpansionEnabled] = useState(true);
+    const [ragParentExpansionEnabled, setRagParentExpansionEnabled] = useState(false);
     const [ragRelevanceThreshold, setRagRelevanceThreshold] = useState(0); // Percentual (0-100) exibido na UI
+    const [ragKbRoutingEnabled, setRagKbRoutingEnabled] = useState(false);
+    const [ragKbRoutingVariable, setRagKbRoutingVariable] = useState('');
     const [semanticCacheEnabled, setSemanticCacheEnabled] = useState(true);
     const [semanticCacheThreshold, setSemanticCacheThreshold] = useState(92); // Percentual (70-99) exibido na UI
     const [inboxCaptureEnabled, setInboxCaptureEnabled] = useState(true);
@@ -79,6 +81,9 @@ export const ConfigProvider = ({ children }) => {
     const [qualificationLabels, setQualificationLabels] = useState([]);
     const [qualificationCriteria, setQualificationCriteria] = useState('');
     const [qualificationFinalAction, setQualificationFinalAction] = useState('');
+    const [qualificationFinalActionTrigger, setQualificationFinalActionTrigger] = useState('all');
+    const [qualificationFunnels, setQualificationFunnels] = useState([]);
+    const [activeFunnelId, setActiveFunnelId] = useState('');
     
     // Greeting, Question, and Ad Modes
     const [greetingMode, setGreetingMode] = useState('prompt');
@@ -168,6 +173,8 @@ export const ConfigProvider = ({ children }) => {
         ragAgenticEvalEnabled, setRagAgenticEvalEnabled,
         ragParentExpansionEnabled, setRagParentExpansionEnabled,
         ragRelevanceThreshold, setRagRelevanceThreshold,
+        ragKbRoutingEnabled, setRagKbRoutingEnabled,
+        ragKbRoutingVariable, setRagKbRoutingVariable,
         semanticCacheEnabled, setSemanticCacheEnabled,
         semanticCacheThreshold, setSemanticCacheThreshold,
         inboxCaptureEnabled, setInboxCaptureEnabled,
@@ -179,6 +186,9 @@ export const ConfigProvider = ({ children }) => {
         qualificationLabels, setQualificationLabels,
         qualificationCriteria, setQualificationCriteria,
         qualificationFinalAction, setQualificationFinalAction,
+        qualificationFinalActionTrigger, setQualificationFinalActionTrigger,
+        qualificationFunnels, setQualificationFunnels,
+        activeFunnelId, setActiveFunnelId,
         greetingMode, setGreetingMode,
         questionMode, setQuestionMode,
         adMode, setAdMode,

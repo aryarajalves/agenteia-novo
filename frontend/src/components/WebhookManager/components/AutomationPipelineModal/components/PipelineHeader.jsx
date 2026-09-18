@@ -6,7 +6,15 @@ export default function PipelineHeader({
     event = {},
     loading,
     onRefresh,
-    onClose
+    onClose,
+    hasPrevious = false,
+    hasNext = false,
+    isLastMessage = true,
+    currentIndex = 0,
+    totalMessages = 1,
+    onPrevious,
+    onNext,
+    loadingMessages = false
 }) {
     const createdDate = parseDate(createdAt || event?.created_at);
 
@@ -43,7 +51,7 @@ export default function PipelineHeader({
     const hasContact = Boolean(contactName || formattedPhone);
 
     return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
             <div style={{ display: 'flex', gap: '1.25rem', alignItems: 'center' }}>
                 <div style={{ 
                     width: '52px', height: '52px', borderRadius: '16px', 
@@ -100,6 +108,143 @@ export default function PipelineHeader({
                     </div>
                 </div>
             </div>
+
+            {/* Controles de Navegação entre Mensagens do Usuário */}
+            <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '10px', 
+                background: 'rgba(15, 23, 42, 0.75)', 
+                border: '1px solid rgba(255, 255, 255, 0.09)', 
+                borderRadius: '16px', 
+                padding: '6px 12px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+                backdropFilter: 'blur(10px)',
+                flexWrap: 'wrap'
+            }}>
+                {/* Indicador de Última Mensagem */}
+                {isLastMessage ? (
+                    <span 
+                        data-testid="last-message-badge"
+                        style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            color: '#4ade80',
+                            background: 'rgba(34, 197, 94, 0.15)',
+                            border: '1px solid rgba(34, 197, 94, 0.35)',
+                            padding: '4px 10px',
+                            borderRadius: '100px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            letterSpacing: '0.01em',
+                            boxShadow: '0 0 12px rgba(34, 197, 94, 0.2)'
+                        }}
+                        title="Esta é a mensagem mais recente enviada pelo usuário na conversa"
+                    >
+                        <span style={{ 
+                            width: '7px', 
+                            height: '7px', 
+                            borderRadius: '50%', 
+                            background: '#4ade80', 
+                            boxShadow: '0 0 8px #4ade80',
+                            display: 'inline-block' 
+                        }} />
+                        Última mensagem do usuário
+                    </span>
+                ) : (
+                    <span 
+                        data-testid="previous-message-badge"
+                        style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            color: '#fbbf24',
+                            background: 'rgba(245, 158, 11, 0.12)',
+                            border: '1px solid rgba(245, 158, 11, 0.3)',
+                            padding: '4px 10px',
+                            borderRadius: '100px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            letterSpacing: '0.01em'
+                        }}
+                        title="Você está visualizando uma mensagem anterior do histórico do usuário"
+                    >
+                        <span>⏱️</span>
+                        Mensagem anterior ({currentIndex + 1} de {totalMessages})
+                    </span>
+                )}
+
+                {/* Divisor vertical */}
+                <div style={{ width: '1px', height: '20px', background: 'rgba(255, 255, 255, 0.1)' }} />
+
+                {/* Botões de Navegação */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                        onClick={onPrevious}
+                        disabled={!hasPrevious}
+                        data-testid="pipeline-prev-msg-btn"
+                        style={{
+                            background: hasPrevious ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                            border: hasPrevious ? '1px solid rgba(99, 102, 241, 0.35)' : '1px solid rgba(255, 255, 255, 0.05)',
+                            color: hasPrevious ? '#c7d2fe' : '#475569',
+                            borderRadius: '10px',
+                            padding: '5px 11px',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: hasPrevious ? 'pointer' : 'not-allowed',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            transition: 'all 0.2s',
+                            opacity: hasPrevious ? 1 : 0.4
+                        }}
+                        title={hasPrevious ? "Ver mensagem anterior enviada pelo contato" : "Primeira mensagem registrada do contato"}
+                    >
+                        <span>◀</span>
+                        <span>Anterior</span>
+                    </button>
+
+                    <span style={{ 
+                        fontSize: '0.8rem', 
+                        fontWeight: 800, 
+                        color: '#94a3b8', 
+                        padding: '0 4px', 
+                        fontFamily: 'JetBrains Mono, monospace',
+                        minWidth: '40px',
+                        textAlign: 'center'
+                    }}>
+                        {totalMessages > 0 ? `${currentIndex + 1}/${totalMessages}` : '1/1'}
+                    </span>
+
+                    <button
+                        onClick={onNext}
+                        disabled={!hasNext}
+                        data-testid="pipeline-next-msg-btn"
+                        style={{
+                            background: hasNext ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.02)',
+                            border: hasNext ? '1px solid rgba(99, 102, 241, 0.45)' : '1px solid rgba(255, 255, 255, 0.05)',
+                            color: hasNext ? '#ffffff' : '#475569',
+                            borderRadius: '10px',
+                            padding: '5px 11px',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            cursor: hasNext ? 'pointer' : 'not-allowed',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px',
+                            transition: 'all 0.2s',
+                            opacity: hasNext ? 1 : 0.4,
+                            boxShadow: hasNext ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none'
+                        }}
+                        title={hasNext ? "Ver próxima mensagem enviada pelo contato" : "Esta já é a última mensagem do contato"}
+                    >
+                        <span>Próxima</span>
+                        <span>▶</span>
+                    </button>
+                </div>
+            </div>
+
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
                 <button
                     onClick={onRefresh}

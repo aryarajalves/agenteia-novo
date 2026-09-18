@@ -6,6 +6,7 @@ import GeralTab from '../../components/WebhookManager/components/EditWebhookTabs
 import SegurancaTab from '../../components/WebhookManager/components/EditWebhookTabs/SegurancaTab';
 import ZapvoiceTab from '../../components/WebhookManager/components/EditWebhookTabs/ZapvoiceTab';
 import FollowupTab from '../../components/WebhookManager/components/EditWebhookTabs/FollowupTab';
+import AgentTabSection from '../../components/WebhookManager/components/Common/AgentTabSection';
 
 describe('EditWebhookModal Component & Modular Tabs', () => {
     const mockEditForm = {
@@ -193,9 +194,52 @@ describe('EditWebhookModal Component & Modular Tabs', () => {
         );
 
         expect(screen.getAllByText(/Passo #1/i).length).toBeGreaterThan(0);
-        expect(screen.getByText('🎯 Finalidade / Público deste Passo:')).toBeInTheDocument();
+        expect(screen.getByTestId('followup-subtab-steps')).toBeInTheDocument();
+        expect(screen.getByTestId('followup-subtab-hours')).toBeInTheDocument();
+        expect(screen.getByTestId('followup-subtab-triggers')).toBeInTheDocument();
+        expect(screen.getByTestId('followup-subtab-crm')).toBeInTheDocument();
         expect(screen.getByText('➕ Novo Passo')).toBeInTheDocument();
-        expect(screen.getByText(/Proteção "Não Perturbe" & Janela Comercial/i)).toBeInTheDocument();
-        expect(screen.getByText(/Gatilhos Inteligentes & Regras de Etiquetas/i)).toBeInTheDocument();
+    });
+
+    it('deve renderizar AgentTabSection com botão Sincronizar IA e acionar função ao clicar', () => {
+        const handleGenerate = vi.fn();
+        const mockAgents = [
+            { id: 1, name: 'Tarcira', description: 'Especialista em vendas' },
+            { id: 2, name: 'Suporte', description: 'Atendimento geral' }
+        ];
+
+        const { rerender } = render(
+            <AgentTabSection
+                safeEditForm={{ agent_id: 1, secondary_agent_ids: [] }}
+                setEditForm={vi.fn()}
+                agentsList={mockAgents}
+                handleGenerateDescription={handleGenerate}
+                syncingAgentId={null}
+            />
+        );
+
+        expect(screen.getByText('Contexto do Agente')).toBeInTheDocument();
+        expect(screen.getByText('Especialista em vendas')).toBeInTheDocument();
+        const syncButton = screen.getByRole('button', { name: /✨ Sincronizar IA/i });
+        expect(syncButton).toBeInTheDocument();
+        expect(syncButton).not.toBeDisabled();
+
+        fireEvent.click(syncButton);
+        expect(handleGenerate).toHaveBeenCalledWith(1);
+
+        // Quando estiver sincronizando, o botão deve mudar de texto e ficar desabilitado
+        rerender(
+            <AgentTabSection
+                safeEditForm={{ agent_id: 1, secondary_agent_ids: [] }}
+                setEditForm={vi.fn()}
+                agentsList={mockAgents}
+                handleGenerateDescription={handleGenerate}
+                syncingAgentId={1}
+            />
+        );
+
+        const syncingButton = screen.getByRole('button', { name: /⏳ Sincronizando.../i });
+        expect(syncingButton).toBeInTheDocument();
+        expect(syncingButton).toBeDisabled();
     });
 });

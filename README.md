@@ -82,7 +82,89 @@ No ambiente de testes `ChatPlayground`, o usuário pode utilizar o microfone par
 - **Suporte a Múltiplas Perguntas no Mesmo Envio (Multi-Query Cache):** Mensagens que contêm mais de uma dúvida (ex: *"Olá, quais valores? Como funciona o curso? É online ou presencial?"*) são desmembradas automaticamente. Quando todas as dúvidas possuem respostas no cache, as respostas aprovadas são combinadas e entregues de forma harmoniosa com Custo Zero. Se apenas parte das dúvidas estiver no cache, as respostas homologadas entram como respostas pré-resolvidas no prompt para o LLM apenas complementar o que falta, economizando tokens e tempo.
 - **Transparência de Custos no Histórico (De Graça vs Paga):** A tabela de histórico de conversas dos leads e webhooks destaca claramente com badges se cada mensagem foi entregue **⚡ De Graça (Cache Semântico · R$ 0,00)**, **⚡ Cache Parcial + IA**, **💳 Paga (IA · R$ 0,22)** ou **🔄 Follow-Up**, trazendo controle financeiro em tempo real.
 
----
+### 12. Funil de Qualificação & Disparo Condicional de Fechamento por Lead Score
+- **Etapas Customizáveis de Qualificação:** Cadastro de perguntas sequenciais com critérios individuais de conclusão e sincronização automática de etiquetas no ZapVoice/Chatwoot.
+- **Pergunta / Ação Final Pós-Qualificação (Fechamento):** Diretriz de fechamento para a IA formular logo após a conclusão das perguntas (ex: pedir permissão para enviar o link do curso).
+- **Regra de Permissão em Dois Passos:** A IA é terminantemente proibida de enviar links ou páginas de checkout na mesma mensagem em que pergunta se pode enviá-lo; o envio ocorre estritamente no turno seguinte, após o consentimento/afirmação do lead.
+- **Disparo Condicional por Temperatura do Lead (`qualification_final_action_trigger`):**
+  - `🌟 Todas` (`all`): Dispara para todos os leads que concluírem as etapas, independente do score.
+  - `🔥 Quente` (`hot`): Dispara a pergunta de fechamento somente se o lead for classificado como Quente 🔥.
+  - `🔥⚡ Quente/Morno` (`hot_warm`): Dispara para leads Quentes 🔥 ou Mornos ⚡.
+  - `⚡ Morno` (`warm`): Dispara exclusivamente para leads Mornos ⚡.
+  - `❄️ Frio` (`cold`): Dispara para leads Frios ❄️ (pesquisa/reativação).
+- **Editor Ampliado (⛶ Maximizar):** Modal de tela cheia para formular diretrizes ricas e sugestões rápidas de fechamento em um clique.
+- **Etiquetagem Condicional à Qualificação de Fato & Uso Exclusivo do Dropdown:**
+  - O lead só recebe etiquetas de qualificação (no banco de dados e no ZapVoice) se for qualificado de fato, de acordo com o critério de temperatura/score configurado no gatilho.
+
+### 13. Múltiplos Funis de Qualificação & Direcionamento via API para Disparos
+- **Criação de Funis Específicos por Objetivo:** Permite criar múltiplos funis independentes de qualificação (ex: "Venda de Mentoria", "Imersão Presencial", "Curso Online", "Reativação de Base") para um mesmo agente de IA.
+- **Isolamento Completo de Dados por Funil:** Cada funil possui seu próprio conjunto de:
+  - Etapas de perguntas investigativas (`questions`).
+  - Etiquetas exclusivas de qualificação do ZapVoice/Chatwoot (`labels`).
+  - Critério customizado de lead scoring (`criteria`).
+  - Pergunta/Ação final de fechamento (`final_action`).
+  - Gatilho por temperatura do lead (`final_action_trigger`).
+- **Barra de Gestão no Painel Admin (`QualificationFunnelsBar`):**
+  - Dropdown com seleção instantânea do funil ativo.
+  - Indicador visual do funil principal (`⭐ Padrão`).
+  - Ações para criar novos funis (`➕ Novo Funil`), renomear (`✏️ Renomear`) e excluir funis personalizados (`🗑️ Excluir` com confirmação segura e retorno automático ao padrão).
+  - Modal centralizado com backdrop escuro e validação em tempo real de nomes e identificadores.
+- **Direcionamento via API para Disparos (`POST /api/leads/assign-funnel`):**
+  - Endpoint dedicado para vincular contatos específicos (números de telefone) a um funil no momento em que receberem um disparo:
+  ```json
+  POST /api/leads/assign-funnel
+  {
+    "agent_id": 36,
+    "funnel_id": "mentoria",
+    "phones": ["5511999999999", "5511888888888"]
+  }
+  ```
+  - Quando os contatos responderem ao disparo, a IA executa exclusivamente as etapas e regras do funil atribuído (`active_qualification_funnel_id`). Leads não associados a nenhum funil específico seguem automaticamente o funil Padrão (`funnel_default`).
+
+### 14. Variações de Perguntas na Base de Conhecimento (Question Variations & Composite Embedding)
+- **Múltiplas Formas de Fazer a Mesma Pergunta:** Permite cadastrar variações e formulações alternativas para qualquer pergunta da Base de Conhecimento (ex: *"O certificado tem validade no MEC?"*, *"O diploma é aprovado pelo MEC?"* para a pergunta principal *"O certificado é reconhecido pelo MEC?"*).
+- **Vetor Semântico Composto:** Recalcula o embedding semântico via `text-embedding-3-small` unindo a pergunta principal e todas as suas variações (`pergunta + "\n" + "\n".join(variacoes)`), maximizando a taxa de acerto e o recall da busca no pgvector sem poluir o catálogo com itens duplicados.
+- **Indexação em Full-Text Search (FTS) & Pre-Router:** As variações são indexadas no índice de busca textual PostgreSQL e incorporadas nos módulos de Rerank Agêntico e no catálogo de referência do Pre-Router AI.
+- **Interface com Tags e Contagem:**
+  - Componente de chips/tags com numeração dinâmica (`#1`, `#2`), adição rápida via `Enter` e remoção em um clique.
+  - Disponível tanto no modal de edição (`EditItemModal`) quanto no formulário de criação de novos itens (`AddItemForm`).
+  - Badge visual `🔀 +N variações` na tabela de itens de conhecimento, com busca e filtragem instantânea pelas palavras das variações.
+
+### 15. Abas de Organização na Tela de Integrações Globais
+- **Navegação por Categorias:** Organização da tela `/integrations` em abas modernas de alta legibilidade no padrão Glassmorphism:
+  - `☀️ Todas`: Visão unificada com contador dinâmico de integrações disponíveis.
+  - `📅 Produtividade & Agendas`: Focado em ferramentas de agenda (Google Calendar).
+  - `💬 Comunicação & Mensageria`: Focado em ferramentas de canais e mensagens (WhatsApp ZapJords / Webhooks).
+- **Badges Dinâmicos e Contadores:** Destaque visual do status e quantidade de integrações ativas com transições suaves.
+
+### 16. Múltiplos Fluxos de Follow-Up Automático por Produto / Esteira & Direcionamento via API
+- **Esteiras Independentes por Produto:** Permite criar múltiplos fluxos de follow-up automáticos para diferentes produtos ou esteiras de venda (ex: Low Ticket, Mentoria VIP, VSL Produto X, High Ticket) dentro do mesmo webhook.
+- **Barra de Gestão de Fluxos (`FollowupFunnelsBar`):**
+  - Dropdown com seleção instantânea do produto/fluxo ativo para edição dos passos.
+  - Indicador do fluxo principal (`⭐ Padrão`).
+  - Criação de novos fluxos de follow-up (`➕ Novo Fluxo`) com identificador único (`followup_id`) para chamadas via API.
+  - Renomeação rápida (`✏️ Renomear`) e exclusão segura (`🗑️ Excluir`): contatos que estavam percorrendo o fluxo excluído são migrados automaticamente para o fluxo padrão no Passo #1.
+  - Popups centralizados com backdrop escuro e sem fechamento acidental por clique externo.
+- **Sub-Abas Internas de Organização do Follow-Up:**
+  - `💬 Passos & Esteiras`: Seleção do produto/esteira ativa e edição de todos os passos e mensagens.
+  - `🌙 Janela Comercial`: Configuração do Não Perturbe e horários permitidos de disparo diário.
+  - `🎯 Gatilhos Inteligentes`: Regras de cancelamento por resposta, etiquetas de compra e tags ZapVoice.
+  - `🚪 Regras de CRM`: Definição de tempo limite de abandono para mover leads para "Não Converteu / Desistiu".
+- **Sub-Abas Internas por Passo (`FollowupStepCard`):** Cada passo possui suas próprias abas de configuração interna para eliminar a rolagem vertical: `💬 Mensagem` (seleção de IA, Fixa ou Template WhatsApp), `🎯 Público-Alvo` (Re-tentativas, Remarketing D+1, Compradores ou Todos) e `🎥 Mídia` (Áudio PTT humanizado, Vídeo, Imagem ou Documento).
+- **Ocultação Inteligente Quando Desativado:** Caso o interruptor mestre de Follow-Up Automático esteja desativado, toda a área inferior (sub-abas, esteiras, passos e regras) é completamente ocultada da tela, mantendo uma visualização minimalista e livre de distrações visuais.
+- **Direcionamento via API (`POST /leads/assign-followup` e `POST /leads/assign-funnel`):**
+  - Endpoint dedicado para vincular contatos de disparos em massa a um fluxo específico de produto:
+  ```json
+  POST /leads/assign-followup
+  {
+    "followup_id": "mentoria_vip",
+    "phones": ["5511999999999", "5511888888888"]
+  }
+  ```
+  - Ao ser atribuído a um novo produto, o progresso do lead é resetado para o Passo #1 (`followup_step = 0`), garantindo o envio sequencial completo do novo produto.
+- **Worker & Pipeline de Execução:**
+  - O Celery Beat (`tasks.py`) processa os passos de cada produto de forma isolada, filtrando leads pelo seu `active_followup_funnel_id`.
+  - O modal de inspeção de pipeline (`FollowupPipelineModal`) e os cartões de leads (`LeadCard`) exibem com clareza o badge do produto ativo (`📦 mentoria_vip`).
 
 ---
 
@@ -114,6 +196,26 @@ docker-compose -f docker/docker-compose-local.yml up -d --build frontend backend
 
 - **Frontend:** [http://localhost:5300](http://localhost:5300)
 - **API Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### 17. Funis de Conversão por Dúvida (Áudios Humanizados PTT & Sequências Pré-Configuradas)
+- **Disparo de Alta Conversão por Pergunta:** Para dúvidas frequentes e cruciais do lead (ex: *"como funciona o curso de vcs?"*, *"qual o formato das aulas?"*), permite disparar um funil pré-configurado contendo áudio humanizado gravado em primeira pessoa (PTT) acompanhado de mensagens e mídias sequenciais com delay, aumentando drasticamente a taxa de conversão do lead em vez de gerar um textão via IA.
+- **Similaridade Semântica via Embeddings OpenAI:**
+  - Matching de alta precisão através do cálculo de similaridade de cosseno contra a pergunta principal e suas variações alternativas cadastradas.
+  - Limiar de sensibilidade configurável via slider (padrão inteligente: 82%).
+- **Frequência de Disparo Inteligente:**
+  - `👤 1x por lead (Recomendado)`: Dispara a sequência de conversão apenas na primeira vez que o lead fizer a pergunta. Caso o mesmo lead pergunte novamente em turnos futuros, a IA responde normalmente via RAG/LLM.
+  - `♾️ Sempre que o lead perguntar`: Dispara o funil pré-configurado sempre que houver o match semântico.
+- **Sequenciador de Passos com Delays:**
+  - Suporte a passos encadeados com delays configuráveis em segundos (Passo 1: Áudio PTT; Passo 2: Mensagem de Texto após 3s; etc.).
+  - Upload direto de áudios para o MinIO/S3 ou inserção de URLs externas.
+- **Continuidade e Memória Conversacional da IA:**
+  - A transcrição/resumo do áudio e as mensagens do funil são gravadas no histórico conversacional consolidado da sessão.
+  - Nos turnos seguintes, a IA compreende exatamente o que foi dito no áudio e texto do funil, mantendo coerência absoluta nas respostas.
+- **Custo R$ 0,00 de LLM & Raio-X Detalhado:**
+  - O disparo do funil responde em frações de segundo com consumo zero de tokens de geração.
+  - O `ChatPlayground` exibe o player de áudio interativo, balões individuais com delay e o diagnóstico visual completo via Raio-X.
+- **Testador de Gatilho em Tempo Real:**
+  - Modal interativo "🧪 Testar Gatilho" na aba de funis para simular perguntas reais de clientes e inspecionar a porcentagem de similaridade calculada contra todos os funis cadastrados.
 
 ---
 
@@ -368,6 +470,25 @@ Esta versão consolida grandes evoluções no sistema, incluindo o controle fina
 
 ---
 
+## ✨ Novidades da Versão (v1.9.2)
+
+Esta versão traz melhorias críticas de escalabilidade, velocidade e resiliência na importação de conversas do ZapJords/ZapVoice e na gestão de contatos:
+- **Importação Resiliente de Conversas e Histórico do ZapJords**:
+  - Modal de progresso com design Dark/Glassmorphism aprimorado, cronômetro de importação em tempo real, etapas detalhadas (Contatos e Histórico de Mensagens), barra de porcentagem precisa e backdrop escuro sem resíduos ou bordas azuis indesejadas no cancelamento.
+  - Fallback automático de polling a cada 1.5s operando em conjunto com o WebSocket para assegurar que atualizações de progresso e conclusões sejam refletidas instantaneamente, mesmo em oscilações de rede.
+  - Resolução rápida de rede interna Docker (`http://zapvoice_app:8000`) para contornar latências do túnel Cloudflare e acelerar a coleta de dados de mensagens.
+  - Persistência do estado de conclusão no banco de dados para manter o histórico de importação concluído visível mesmo após reinicializações dos serviços.
+- **Otimização de Consultas no Celery Beat (Follow-Ups)**:
+  - Eliminação de gargalos N+1 na rotina periódica `check_followup_due` em `tasks.py`, consultando a API externa apenas quando as etiquetas locais não estiverem preenchidas.
+- **Seleção Total de Leads e Ações em Lote**:
+  - Correção na seleção de todos os contatos capturados (`/leads/ids` e `/leads/all-ids`), eliminando falhas na contagem total e permitindo operações em lote com confirmação segura.
+  - Reconexão automática do canal WebSocket de Leads com recarregamento suave dos dados ao restabelecer a conexão.
+- **Modularização Arquitetural e Limites de Código**:
+  - Criação do hook customizado `useImportChat.js` desacoplando toda a lógica de controle e progresso de `useLeads.js` e mantendo a base de código do frontend estritamente abaixo do limite de 500 linhas.
+  - Expansão de testes unitários no frontend (`useImportChat.test.jsx`, `ImportChatProgressModal.test.jsx`) e no backend (`test_import_zapjords_chat.py`, `test_zapjords_import_status.py`).
+
+---
+
 ## ✨ Novidades da Versão (v1.9.1)
 
 Esta versão traz o controle visual e funcional da pergunta/mensagem de continuação após a primeira dúvida do usuário:
@@ -417,7 +538,26 @@ Esta versão traz melhorias no encerramento de conversas após o registro de dú
 - **Fuso Horário de Brasília**: Todas as datas de listagem e alteração de leads na tela de Lead Scoring são convertidas na API para o fuso horário de Brasília (`America/Sao_Paulo` / UTC-3).
 - **Maximização das Diretrizes de Lead Scoring**: Inclusão de botão "Maximizar" ao lado do campo de texto de Diretrizes que abre um editor amplo em tela cheia (85% da largura da tela) com sincronização em tempo real e backdrop blur Premium.
 
+### Novidades e Ajustes Recentes (v1.7.8)
+- **Diagnóstico Detalhado de Raciocínio da Resposta no Pipeline (`AutomationPipelineModal`)**: No card "Resposta gerada pelo agente", foi adicionada a ferramenta de diagnóstico on-demand `🔬 Por que essa resposta? (Ver Motivo & Passo a Passo)`. Ao clicar, uma meta-análise profunda baseada em IA decompõe de maneira visual e didática:
+  - **1ª Parte (Acolhimento / Reação)**: Identifica o trecho inicial e a regra ou motivo que levou à sua formulação.
+  - **Própria Pergunta / Condução**: Destaca a pergunta feita ou próximo passo e a etapa do funil correspondente.
+  - **Linha de Raciocínio Passo a Passo**: Sequência numerada detalhando como a IA interpretou a entrada do lead, checou o prompt e tomou a decisão final.
+  - **Fatores e Regras do Prompt**: As diretrizes e restrições específicas que guiaram a resposta.
+  - Os resultados do diagnóstico são persistidos no banco de dados nos metadados do evento para carregamento instantâneo em consultas futuras sem retrabalho da LLM.
+
+### Novidades e Ajustes Recentes (v1.7.7)
+- **Botão Maximizar Campo na Ação Final de Qualificação**: Adição de um botão dedicado `⛶ Maximizar Campo` posicionado diretamente acima da caixa de texto da diretriz/pergunta de fechamento na aba de Qualificação de Leads. Ao ser acionado, abre um modal amplo e centralizado na tela (94vw x 84vh, máx 1050px) em estilo Glassmorphism Premium com contadores de caracteres e palavras em tempo real, backdrop escuro com blur e botão de fechamento no cabeçalho.
+- **Qualificação e Etiquetagem Automática no ZapVoice / Chatwoot**:
+  - Quando a ação final de fechamento é configurada para o gatilho `🌟 Todas` (`all`), a conclusão com sucesso de todas as etapas de sondagem do funil qualifica o lead diretamente, sincronizando as etiquetas configuradas (`lead-qualificado`) na conversa do ZapVoice/Chatwoot.
+  - Fallback inteligente no cálculo de pontuação (`lead_scoring_service.py`): quando o agente não possui critérios de qualificação personalizados (ex: funis voltados para captação de dados essenciais como Nome e E-mail), o sistema não aplica o antigo modelo de avaliação de mentoria (que penalizava leads com score 0 e classificação Frio); ao invés disso, atribui automaticamente score 100 e classificação `Quente 🔥`, garantindo a etiquetagem e avanço corretos no fluxo comercial.
+
+### Novidades e Ajustes Recentes (v1.7.6)
+- **Navegação de Mensagens no Modal do Pipeline (`AutomationPipelineModal`)**: Inclusão de controles dinâmicos de navegação (`◀ Anterior`, `Próxima ▶` e contador `X/Y`) no cabeçalho do Pipeline, acompanhado de badges de identificação em tempo real (`🟢 Última mensagem do usuário` vs `⏱️ Mensagem anterior (X de Y)`). Ao alternar entre mensagens, todo o diagnóstico de etapas, métricas de tokens, custos e passos da pipeline são sincronizados instantaneamente.
+- **Extração Inteligente de Perguntas para Cache Semântico**: Remoção automática de apresentações pessoais (*"Me chamo X"*, *"Meu nome é Y"*, *"Sou o X"*) e saudações no pré-processamento de consultas para o cache semântico. Quando o usuário envia apresentações combinadas com dúvidas (ex: *"Me chamo Aryaraj, qual é o seu nome?"*), o sistema agora extrai a pergunta pura (*"Qual é o seu nome?"*) e a consulta com máxima precisão no cache semântico, eliminando falsos negativos de similaridade.
+
 ### Novidades e Ajustes Recentes (v1.7.2)
+- **Correção de Falso Positivo na Verificação de Qualificação e Cache Semântico (Criado por Aryaraj)**: Corrigida a validação de qualificação prévia em `chat.py` e `cache_handler.py`, que verificava genericamente o termo `lead_qualificado` no `InteractionLog.debug_info`. Como o `debug_info` continha o `resolved_prompt` do sistema (que descreve as regras da ferramenta `lead_qualificado`), qualquer mensagem anterior da conversa disparava um falso positivo marcando o lead como já qualificado. A verificação agora valida estritamente a execução real da ferramenta (`tool_calls`) ou a persistência em `UserMemoryModel`. Com isso, quando ocorre hit no Cache Semântico em turnos intermediários de qualificação, o sistema aciona o modo `hit_qualification` com a resposta oficial pré-carregada e a IA engata imediatamente a próxima pergunta do funil de sondagem.
 - **Resiliência e Conexão PostgreSQL**: Desativação inteligente de prepared statements em cache (`prepared_statement_cache_size=0`) para conexões assíncronas PostgreSQL, mitigando erros do tipo `InvalidCachedStatementError` após alterações dinâmicas de esquema.
 - **Saudações Inteligentes com Histórico no Pre-Router**: O motor de triagem do `Pre-Router AI` agora classifica e responde corretamente com saudações diretas a cumprimentos curtos e isolados (como "oi", "olá", "oie", "bom dia"), mesmo que a conversa já contenha histórico de interações anteriores.
 - **Sincronização de Etiquetas Chatwoot em Lote e Webhooks**: Integração e persistência bidirecional das etiquetas do Chatwoot no banco local de leads de forma automática nos webhooks, no pipeline de qualificação, e por meio da rota de sincronização em lote `/sync-all` para todos os leads.
@@ -439,6 +579,8 @@ Esta versão traz melhorias no encerramento de conversas após o registro de dú
 - **Resiliência e Tolerância a Falhas na Automação de Expiração de Janela 24h**: Ajuste na tarefa periódica `check_window_expiry` para ignorar erros de API ou timeouts com o Chatwoot sem afetar futuras execuções. A verificação do fuso horário agora é imune a conflitos entre bancos de dados PostgreSQL e SQLite local utilizando timezone nativo do banco.
 - **Exibição Dinâmica e Premium de Etiquetas Chatwoot**: Integração visual no modal de contatos do Webhook Manager que parseia e renderiza as etiquetas (tags) sincronizadas do Chatwoot ao lado do telefone de cada contato na lista e na visão de accordion expandido com badges em estilo Glassmorphism Premium.
 
+- **Importação de Contatos e Mensagens do ZapVoice / ZapJords:** Permite sincronizar todas as conversas do ZapJords diretamente para a base de contatos com zero custo de LLM, com modal de confirmação prévia, filtragem estrita de badges de sistema (ocultando eventos de funis e tags do atendente) e identificação dedicada nas respostas importadas com o badge `📥 Importação do ZapVoice` no histórico do lead.
+
 ---
 
 ## 📦 Deploy e Imagens Docker
@@ -446,12 +588,12 @@ Esta versão traz melhorias no encerramento de conversas após o registro de dú
 *(Aviso: Conforme as regras do projeto, nunca gerar ou dar push em tags `latest` no Docker Hub; use sempre tags de versão estritas.)*
 
 ### Backend
-1. **Build:** `docker build -t aryalvesfernandes/configuraagente:backend-1.1.0 ./backend`
-2. **Push:** `docker push aryalvesfernandes/configuraagente:backend-1.1.0`
+1. **Build:** `docker build -t aryalvesfernandes/configuraagente:backend-1.2.4 ./backend`
+2. **Push:** `docker push aryalvesfernandes/configuraagente:backend-1.2.4`
 
 ### Frontend
-1. **Build:** `docker build --target production -t aryalvesfernandes/configuraagente:frontend-1.1.0 ./frontend`
-2. **Push:** `docker push aryalvesfernandes/configuraagente:frontend-1.1.0`
+1. **Build:** `docker build --target production -t aryalvesfernandes/configuraagente:frontend-1.2.4 ./frontend`
+2. **Push:** `docker push aryalvesfernandes/configuraagente:frontend-1.2.4`
 
 
 

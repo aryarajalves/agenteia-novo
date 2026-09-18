@@ -50,8 +50,31 @@ describe('IntegrationsPanel Component', () => {
         renderIntegrationsPanel();
         await waitFor(() => {
             expect(screen.getByText('Google Calendar')).toBeInTheDocument();
-            expect(screen.getByText('WhatsApp (Chatwoot)')).toBeInTheDocument();
+            expect(screen.getByText('WhatsApp (ZapJords)')).toBeInTheDocument();
         });
+    });
+
+    it('deve alternar entre as abas e filtrar os cards corretamente', async () => {
+        renderIntegrationsPanel();
+        await waitFor(() => {
+            expect(screen.getByText('Google Calendar')).toBeInTheDocument();
+            expect(screen.getByText('WhatsApp (ZapJords)')).toBeInTheDocument();
+        });
+
+        // 1. Clicar na aba Produtividade & Agendas
+        fireEvent.click(screen.getByTestId('integrations-tab-productivity'));
+        expect(screen.getByText('Google Calendar')).toBeInTheDocument();
+        expect(screen.queryByText('WhatsApp (ZapJords)')).not.toBeInTheDocument();
+
+        // 2. Clicar na aba Comunicação & Mensageria
+        fireEvent.click(screen.getByTestId('integrations-tab-communication'));
+        expect(screen.getByText('WhatsApp (ZapJords)')).toBeInTheDocument();
+        expect(screen.queryByText('Google Calendar')).not.toBeInTheDocument();
+
+        // 3. Clicar na aba Todas
+        fireEvent.click(screen.getByTestId('integrations-tab-all'));
+        expect(screen.getByText('Google Calendar')).toBeInTheDocument();
+        expect(screen.getByText('WhatsApp (ZapJords)')).toBeInTheDocument();
     });
 
     it('deve abrir o guia ao clicar no botão correspondente', async () => {
@@ -86,3 +109,4 @@ describe('IntegrationsPanel Component', () => {
         });
     });
 });
+

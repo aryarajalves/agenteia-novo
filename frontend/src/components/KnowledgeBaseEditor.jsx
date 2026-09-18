@@ -90,11 +90,17 @@ function KnowledgeBaseEditor() {
         }
     };
 
-    const handleAddItem = async (question, answer, category, metadata) => {
+    const handleAddItem = async (question, answer, category, metadata, question_variations) => {
         if (isNew) return false;
 
         try {
-            const response = await api.post(`/knowledge-bases/${id}/items`, { question, answer, category, metadata });
+            const response = await api.post(`/knowledge-bases/${id}/items`, { 
+                question, 
+                answer, 
+                category, 
+                metadata_val: metadata,
+                question_variations: question_variations || []
+            });
             if (response.ok) {
                 const newItem = await response.json();
                 setItems([...items, newItem]);
@@ -117,9 +123,15 @@ function KnowledgeBaseEditor() {
         }
     };
 
-    const handleUpdateItem = async (itemId, question, answer, category, metadata) => {
+    const handleUpdateItem = async (itemId, question, answer, category, metadata, question_variations) => {
         try {
-            const response = await api.put(`/knowledge-items/${itemId}`, { question, answer, category, metadata });
+            const response = await api.put(`/knowledge-items/${itemId}`, { 
+                question, 
+                answer, 
+                category, 
+                metadata_val: metadata,
+                question_variations: question_variations || []
+            });
             if (response.ok) {
                 const updated = await response.json();
                 setItems(items.map(i => i.id === itemId ? updated : i));

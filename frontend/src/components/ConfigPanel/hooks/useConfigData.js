@@ -18,10 +18,13 @@ export const useConfigData = () => {
         setRagRetrievalCount, setRagTranslationEnabled, setRagMultiQueryEnabled,
         setRagRerankEnabled, setRagAgenticEvalEnabled, setRagParentExpansionEnabled,
         setRagRelevanceThreshold,
+        setRagKbRoutingEnabled, setRagKbRoutingVariable,
         setSemanticCacheEnabled,
         setSemanticCacheThreshold,
         setInboxCaptureEnabled, setInitialMessage, setInitialQuestionMessage,
-        setInitialIgnoreMessage, setQualificationQuestions, setQualificationLabels, setQualificationCriteria, setQualificationFinalAction, setSecurityBlacklist, setSecurityForbidden,
+        setInitialIgnoreMessage, setQualificationQuestions, setQualificationLabels, setQualificationCriteria, setQualificationFinalAction, setQualificationFinalActionTrigger,
+        setQualificationFunnels, setActiveFunnelId,
+        setSecurityBlacklist, setSecurityForbidden,
         setSecurityDiscount, setSecurityComplexity, setSecurityPii,
         setSecurityValidatorIa, setSecurityBotProtection, setSecurityMaxMessages,
         setSecuritySemanticThreshold, setSecurityLoopCount, setRouterEnabled,
@@ -115,11 +118,13 @@ export const useConfigData = () => {
                         setKnowledgeBaseIds(configData.knowledge_base_ids || (configData.knowledge_base_id ? [configData.knowledge_base_id] : []));
                         setRagRetrievalCount(configData.rag_retrieval_count ?? 5);
                         setRagTranslationEnabled(configData.rag_translation_enabled ?? false);
-                        setRagMultiQueryEnabled(configData.rag_multi_query_enabled ?? false);
+                        setRagMultiQueryEnabled(configData.rag_multi_query_enabled ?? true);
                         setRagRerankEnabled(configData.rag_rerank_enabled ?? true);
                         setRagAgenticEvalEnabled(configData.rag_agentic_eval_enabled ?? true);
-                        setRagParentExpansionEnabled(configData.rag_parent_expansion_enabled ?? true);
+                        setRagParentExpansionEnabled(configData.rag_parent_expansion_enabled ?? false);
                         setRagRelevanceThreshold(Math.round(((configData.rag_relevance_threshold ?? 0) * 100)));
+                        setRagKbRoutingEnabled(configData.rag_kb_routing_enabled ?? false);
+                        setRagKbRoutingVariable(configData.rag_kb_routing_variable || '');
                         setInboxCaptureEnabled(configData.inbox_capture_enabled ?? true);
                         setSelectedTools(configData.tool_ids || []);
                         setToolPrompts(configData.tool_prompts || {});
@@ -139,25 +144,70 @@ export const useConfigData = () => {
                             }
                         } catch (e) { console.error("Error processing ignore messages", e); }
 
+                        let loadedFunnels = [];
                         try {
-                            const qqData = configData.qualification_questions;
-                            if (qqData) {
-                                if (typeof qqData === 'string' && qqData.startsWith('[')) setQualificationQuestions(JSON.parse(qqData));
-                                else if (Array.isArray(qqData)) setQualificationQuestions(qqData);
+                            const rawFunnels = configData.qualification_funnels;
+                            if (rawFunnels) {
+                                if (typeof rawFunnels === 'string' && rawFunnels.startsWith('[')) {
+                                    loadedFunnels = JSON.parse(rawFunnels);
+                                } else if (Array.isArray(rawFunnels)) {
+                                    loadedFunnels = rawFunnels;
+                                }
                             }
-                        } catch (e) { console.error("Error processing qualification questions", e); }
+                        } catch (e) { console.error("Error processing qualification funnels", e); }
 
-                        try {
-                            const qlData = configData.qualification_labels;
-                            if (qlData) {
-                                if (typeof qlData === 'string' && qlData.startsWith('[')) setQualificationLabels(JSON.parse(qlData));
-                                else if (Array.isArray(qlData)) setQualificationLabels(qlData);
-                                else if (typeof qlData === 'string' && qlData.trim()) setQualificationLabels([qlData]);
-                            }
-                        } catch (e) { console.error("Error processing qualification labels", e); }
-                        
-                        setQualificationCriteria(configData.qualification_criteria || '');
-                        setQualificationFinalAction(configData.qualification_final_action || '');
+                        // Se não houver funis cadastrados mas existirem configurações legadas, monta o funil Principal padrão
+                        if (!loadedFunnels || loadedFunnels.length === 0) {
+                            let legacyQuestions = [];
+                            try {
+                                const qqData = configData.qualification_questions;
+                                if (qqData) {
+                                    if (typeof qqData === 'string' && qqData.startsWith('[')) legacyQuestions = JSON.parse(qqData);
+                                    else if (Array.isArray(qqData)) legacyQuestions = qqData;
+                                }
+                            } catch (_) {}
+
+                            let legacyLabels = [];
+                            try {
+                                const qlData = configData.qualification_labels;
+                                if (qlData) {
+                                    if (typeof qlData === 'string' && qlData.startsWith('[')) legacyLabels = JSON.parse(qlData);
+                                    else if (Array.isArray(qlData)) legacyLabels = qlData;
+                                    else if (typeof qlData === 'string' && qlData.trim()) legacyLabels = [qlData];
+                                }
+                            } catch (_) {}
+
+                            loadedFunnels = [{
+                                id: 'funnel_default',
+                                name: 'Padrão / Principal',
+                                is_default: true,
+                                questions: legacyQuestions,
+                                labels: legacyLabels,
+                                final_action: configData.qualification_final_action || '',
+                                final_action_trigger: configData.qualification_final_action_trigger || 'all',
+                                criteria: configData.qualification_criteria || ''
+                            }];
+                        }
+
+                        setQualificationFunnels(loadedFunnels);
+                        const defaultFunnel = loadedFunnels.find(f => f.is_default) || loadedFunnels[0];
+                        const activeId = defaultFunnel ? defaultFunnel.id : 'funnel_default';
+                        setActiveFunnelId(activeId);
+
+                        // Seta os estados das perguntas, labels, etc. com o funil ativo
+                        if (defaultFunnel) {
+                            setQualificationQuestions(defaultFunnel.questions || []);
+                            setQualificationLabels(defaultFunnel.labels || []);
+                            setQualificationCriteria(defaultFunnel.criteria || '');
+                            setQualificationFinalAction(defaultFunnel.final_action || '');
+                            setQualificationFinalActionTrigger(defaultFunnel.final_action_trigger || 'all');
+                        } else {
+                            setQualificationQuestions([]);
+                            setQualificationLabels([]);
+                            setQualificationCriteria('');
+                            setQualificationFinalAction('');
+                            setQualificationFinalActionTrigger('all');
+                        }
 
                         setSecurityBlacklist(configData.security_competitor_blacklist || '');
                         setSecurityForbidden(configData.security_forbidden_topics || '');

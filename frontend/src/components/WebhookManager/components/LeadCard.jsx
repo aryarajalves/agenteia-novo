@@ -27,6 +27,7 @@ const LeadCard = ({
     onToggleSelect,
     onViewHistory,
     onViewFollowupPipeline,
+    onViewVariables,
     onDeleteLead,
     getRemainingTime
 }) => {
@@ -74,6 +75,15 @@ const LeadCard = ({
                                     background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.2)'
                                 }}>
                                     {l.total_disparos} disparos
+                                </span>
+                            )}
+                            {l.active_followup_funnel_id && (
+                                <span style={{
+                                    fontSize: '0.65rem', fontWeight: 800, padding: '2px 10px', borderRadius: '20px',
+                                    background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.3)',
+                                    textTransform: 'uppercase', letterSpacing: '0.05em'
+                                }} title={`Funil de Follow-Up: ${l.active_followup_funnel_id}`}>
+                                    📦 {l.active_followup_funnel_id}
                                 </span>
                             )}
                             {l.message_type === 'audio' && (
@@ -129,6 +139,14 @@ const LeadCard = ({
                         ><span>⏱️</span> Follow-up</button>
                         <button
                             type="button"
+                            onClick={(e) => { e.stopPropagation(); onViewVariables && onViewVariables(l); }}
+                            className="btn-action-history"
+                            style={{ borderRadius: '10px', padding: '0.5rem 0.85rem', fontSize: '0.8rem', fontWeight: 700, background: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.25)', color: '#38bdf8' }}
+                            title="Ver Variáveis capturadas deste contato"
+                            data-testid={`lead-vars-btn-${l.id}`}
+                        ><span>🌍</span> Variáveis</button>
+                        <button
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); onViewHistory(l); }}
                             className="btn-action-history"
                             style={{ borderRadius: '10px', padding: '0.5rem 1rem', fontSize: '0.8rem', fontWeight: 700 }}
@@ -166,6 +184,7 @@ const LeadCard = ({
                             { label: 'ID DO CLIENTE (CLIENT ID)', value: l.inbox_id || '—', icon: '🏦' },
                             { label: 'CONTATO ID', value: l.contato_id || '—', icon: '👤' },
                             { label: 'JANELA 24H', value: getRemainingTime(l.ultima_mensagem_em), icon: '⏰', color: l.janela_24h_aberta ? '#4ade80' : '#ef4444' },
+                            { label: 'FLUXO FOLLOW-UP', value: l.active_followup_funnel_id || 'Principal (Padrão)', icon: '📦' },
                             { label: 'TIPO DE MENSAGEM', value: (l.message_type || 'text').toUpperCase(), icon: '🏷️' },
                             { 
                                 label: 'LINK DA MÍDIA', 

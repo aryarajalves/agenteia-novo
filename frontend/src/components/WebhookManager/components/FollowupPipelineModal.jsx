@@ -101,6 +101,19 @@ const FollowupPipelineModal = ({ lead, webhook, onClose }) => {
                                 <span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.06)', color: '#94a3b8' }}>
                                     {webhookInfo?.name || 'Webhook'}
                                 </span>
+                                {pipelineData?.active_funnel?.name && (
+                                    <span style={{
+                                        fontSize: '0.75rem',
+                                        padding: '0.2rem 0.6rem',
+                                        borderRadius: '8px',
+                                        background: 'rgba(99, 102, 241, 0.2)',
+                                        color: '#a5b4fc',
+                                        border: '1px solid rgba(99, 102, 241, 0.35)',
+                                        fontWeight: 700
+                                    }}>
+                                        📦 Fluxo: {pipelineData.active_funnel.name}
+                                    </span>
+                                )}
                             </div>
                             <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '0.15rem' }}>
                                 Contato: <strong style={{ color: '#e2e8f0' }}>{leadInfo?.contato_nome || 'Sem Nome'}</strong> ({leadInfo?.telefone})

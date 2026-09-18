@@ -24,7 +24,9 @@ from .utils import (
     _add_step,
     _toggle_typing_indicator,
     _typing_indicator_supported,
-    _send_chatwoot_message
+    _send_chatwoot_message,
+    execute_pre_rag_search,
+    build_project_assistant_prompt
 )
 from .media_tasks import process_media_content_task
 from .vector_sync import sync_memory_to_vector
@@ -37,6 +39,7 @@ from webhook_services import (
     _get_cost,
     _build_agent_config,
     _send_zapvoice_message,
+    _send_zapvoice_media,
     auto_migrate_webhook_columns,
     resolve_grouped_media,
     proactive_update_lead_table,
@@ -58,6 +61,7 @@ __all__ = [
     "_get_cost",
     "_build_agent_config",
     "_send_zapvoice_message",
+    "_send_zapvoice_media",
     "_send_chatwoot_message",
     "auto_migrate_webhook_columns",
     "resolve_grouped_media",

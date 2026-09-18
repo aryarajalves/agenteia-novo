@@ -59,6 +59,26 @@ async def test_calculate_lead_score_openai_integration(db_session: AsyncSession)
         assert "orçamento de 10k" in result["lead_justification"]
 
 @pytest.mark.asyncio
+async def test_calculate_lead_score_without_criteria_returns_indefinida(db_session: AsyncSession):
+    # Agente sem critérios definidos
+    agent = AgentConfigModel(
+        name="Agente Sem Critérios",
+        system_prompt="Você é um assistente.",
+        is_active=True,
+        qualification_criteria=None
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    respostas = [{"question": "Qual seu email?", "answer": "teste@exemplo.com"}]
+    result = await calculate_lead_score(db_session, agent.id, respostas)
+
+    assert result["lead_score"] is None
+    assert result["lead_classification"] == "Indefinida"
+    assert "não definidos" in result["lead_justification"]
+
+@pytest.mark.asyncio
 async def test_list_qualified_leads_api(client: AsyncClient, db_session: AsyncSession):
     # 1. Configurar agente de teste
     agent = AgentConfigModel(
@@ -77,7 +97,7 @@ async def test_list_qualified_leads_api(client: AsyncClient, db_session: AsyncSe
         leads_table="leads_test_scoring",
         is_active=True,
         agent_id=agent.id,
-        chatwoot_url="https://chatwoot-teste.com"
+        zapvoice_url="https://chatwoot-teste.com"
     )
     db_session.add(webhook)
     await db_session.commit()
@@ -138,7 +158,7 @@ async def test_list_qualified_leads_api(client: AsyncClient, db_session: AsyncSe
     assert lead_retornado["lead_score"] == 11
     assert lead_retornado["lead_classification"] == "Quente 🔥"
     assert lead_retornado["respostas_decoded"][0]["answer"] == "Empresário"
-    assert lead_retornado["chatwoot_conversation_url"] == "https://chatwoot-teste.com/app/accounts/1/inbox/2/conversations/101"
+    assert lead_retornado["chatwoot_conversation_url"] == "https://web.whatsapp.com/send?phone=5581999998888"
 
     # Cleanup tabela temporária
     await db_session.execute(text("DROP TABLE IF EXISTS leads_test_scoring"))
@@ -244,7 +264,7 @@ async def test_delete_qualified_lead_api(client: AsyncClient, db_session: AsyncS
         token="teste-token-delete",
         leads_table="leads_delete_test",
         is_active=True,
-        chatwoot_url="https://chatwoot-teste.com"
+        zapvoice_url="https://chatwoot-teste.com"
     )
     db_session.add(webhook)
     await db_session.commit()

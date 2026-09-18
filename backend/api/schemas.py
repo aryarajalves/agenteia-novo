@@ -1,3 +1,4 @@
+import json
 from pydantic import BaseModel, ConfigDict, field_validator
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -68,7 +69,24 @@ class KnowledgeItem(BaseModel):
     metadata_val: Optional[str] = None
     category: Optional[str] = "Geral"
     source_metadata: Optional[str] = None
+    question_variations: Optional[List[str]] = []
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('question_variations', mode='before')
+    @classmethod
+    def _coerce_variations(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed if x]
+            except Exception:
+                return []
+        if isinstance(v, list):
+            return [str(x) for x in v if x]
+        return []
 
 # Variante "detalhada" do KnowledgeItem: inclui o vetor de embedding.
 # Usada apenas em endpoints de item único (GET/PUT /knowledge-items/{id}) para não
@@ -113,6 +131,10 @@ class GenerateChunksFromTranscriptionRequest(BaseModel):
 class AddBatchKnowledgeItemsRequest(BaseModel):
     items: List[KnowledgeItem]
 
+class AddVariationRequest(BaseModel):
+    variation: Optional[str] = None
+    variations: Optional[List[str]] = []
+
 # --- AGENT & CONFIG SCHEMAS ---
 
 class AgentConfig(BaseModel):
@@ -144,11 +166,13 @@ class AgentConfig(BaseModel):
     knowledge_bases: List[Dict[str, Any]] = []
     rag_retrieval_count: int = 5
     rag_translation_enabled: bool = False
-    rag_multi_query_enabled: bool = False
+    rag_multi_query_enabled: bool = True
     rag_rerank_enabled: bool = True
     rag_agentic_eval_enabled: bool = True
-    rag_parent_expansion_enabled: bool = True
+    rag_parent_expansion_enabled: bool = False
     rag_relevance_threshold: float = 0.0
+    rag_kb_routing_enabled: bool = False
+    rag_kb_routing_variable: Optional[str] = None
     tool_ids: List[int] = []
     simulated_time: Optional[str] = None
     security_competitor_blacklist: Optional[str] = None
@@ -176,6 +200,8 @@ class AgentConfig(BaseModel):
     qualification_labels: Optional[str] = None
     qualification_criteria: Optional[str] = None
     qualification_final_action: Optional[str] = None
+    qualification_final_action_trigger: Optional[str] = "all"
+    qualification_funnels: Optional[Any] = None
     unanswered_handoff_limit: Optional[int] = 2
     unanswered_question_prompt: Optional[str] = None
     router_enabled: bool = False
@@ -188,6 +214,17 @@ class AgentConfig(BaseModel):
     response_translation_fallback_lang: str = "portuguese"
     tool_prompts: Optional[Dict[str, str]] = None
     model_config = ConfigDict(from_attributes=True)
+
+class AssignFunnelRequest(BaseModel):
+    phones: List[str]
+    funnel_id: Optional[str] = None
+    followup_id: Optional[str] = None
+    agent_id: Optional[int] = None
+
+class AssignFollowupRequest(BaseModel):
+    phones: List[str]
+    followup_id: str
+    webhook_config_id: Optional[int] = None
 
 class MessageRequest(BaseModel):
     message: str
@@ -211,9 +248,14 @@ class MessageResponse(BaseModel):
     debug: Optional[Dict[str, Any]] = None
     response_time_ms: Optional[int] = None
     model_used: Optional[str] = None
+    model_role: Optional[str] = None
     from_semantic_cache: Optional[bool] = False
     cached_similarity: Optional[float] = None
     cached_original_query: Optional[str] = None
+    semantic_cache: Optional[Dict[str, Any]] = None
+    from_question_funnel: Optional[bool] = False
+    funnel_steps: Optional[List[Dict[str, Any]]] = None
+    question_funnel: Optional[Dict[str, Any]] = None
     error: bool = False
     system_error: Optional[str] = None
 

@@ -26,12 +26,16 @@ export const useKBData = () => {
                                   indexStr === cleanT ||
                                   `#${indexStr}` === t;
 
+                const matchesVariations = Array.isArray(item?.question_variations) &&
+                    item.question_variations.some(v => (v || '').toLowerCase().includes(t));
+
                 return (
                     matchesId ||
                     (item?.question || '').toLowerCase().includes(t) ||
                     (item?.answer || '').toLowerCase().includes(t) ||
                     (item?.category || '').toLowerCase().includes(t) ||
-                    (item?.metadata_val || '').toLowerCase().includes(t)
+                    (item?.metadata_val || '').toLowerCase().includes(t) ||
+                    matchesVariations
                 );
             });
     }, [knowledgeBase, kbFilterTerm, typeFilter]);

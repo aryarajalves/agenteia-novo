@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useConfig } from '../ConfigContext';
+import { api } from '../../../api/client';
 import HabilidadesGuideModal from './Modals/HabilidadesGuideModal';
 import UnansweredQuestionsConfigSection from './UnansweredQuestionsConfigSection';
 
@@ -15,6 +16,8 @@ const TabHabilidades = () => {
         ragParentExpansionEnabled, setRagParentExpansionEnabled,
         ragAgenticEvalEnabled, setRagAgenticEvalEnabled,
         ragRelevanceThreshold, setRagRelevanceThreshold,
+        ragKbRoutingEnabled, setRagKbRoutingEnabled,
+        ragKbRoutingVariable, setRagKbRoutingVariable,
         toolsList, selectedTools, setSelectedTools,
         toolPrompts, setToolPrompts,
         googleConnected, showHabilidadesGuide, setShowHabilidadesGuide
@@ -22,6 +25,17 @@ const TabHabilidades = () => {
 
     const [activeSubTab, setActiveSubTab] = useState('rag');
     const [maximizedToolId, setMaximizedToolId] = useState(null);
+    const [globalVars, setGlobalVars] = useState([]);
+
+    useEffect(() => {
+        api.get('/global-variables').then(res => {
+            if (res && Array.isArray(res.data)) {
+                setGlobalVars(res.data);
+            }
+        }).catch(err => {
+            console.error("Erro ao carregar variáveis globais em TabHabilidades:", err);
+        });
+    }, []);
 
     const subTabs = [
         { id: 'rag', label: '📚 Conhecimento (RAG)', desc: 'Bases semânticas de dados' },
@@ -141,20 +155,44 @@ const TabHabilidades = () => {
                         <label className="box-title">🧠 Módulos Avançados de RAG</label>
                         <div className="rag-modules-list">
                             {[
-                                { label: '🌍 Tradução Automática de Busca', state: ragTranslationEnabled, setter: setRagTranslationEnabled, desc: 'Traduz perguntas para o idioma da base antes de procurar.' },
-                                { label: '🔀 Busca Multi-Variável (Multi-Query)', state: ragMultiQueryEnabled, setter: setRagMultiQueryEnabled, desc: 'Gera diferentes interpretações da dúvida para maximizar resultados.' },
-                                { label: '🎯 Re-Rankeador Semântico (LLM Reranking)', state: ragRerankEnabled, setter: setRagRerankEnabled, desc: 'Usa IA para ordenar os resultados por utilidade real.' },
-                                { label: '📖 Expansão de Contexto Pai', state: ragParentExpansionEnabled, setter: setRagParentExpansionEnabled, desc: 'Inclui o contexto completo do documento de origem.' },
-                                { label: '🛑 Avaliador Agêntico (Self-Correction)', state: ragAgenticEvalEnabled, setter: setRagAgenticEvalEnabled, desc: 'IA filtra trechos irrelevantes antes de responder.' }
+                                { id: 'translation', label: '🌍 Tradução Automática de Busca', state: ragTranslationEnabled, setter: setRagTranslationEnabled, desc: 'Traduz perguntas para o idioma da base antes de procurar.' },
+                                { id: 'multi-query', label: '🔀 Busca Multi-Variável (Multi-Query)', state: ragMultiQueryEnabled, setter: setRagMultiQueryEnabled, desc: 'Gera diferentes interpretações da dúvida para maximizar resultados.' },
+                                { id: 'rerank', label: '🎯 Re-Rankeador Semântico (LLM Reranking)', state: ragRerankEnabled, setter: setRagRerankEnabled, desc: 'Usa IA para ordenar os resultados por utilidade real.' },
+                                { id: 'parent-expansion', label: '📖 Expansão de Contexto Pai', state: ragParentExpansionEnabled, setter: setRagParentExpansionEnabled, desc: 'Inclui o contexto completo do documento de origem.' },
+                                { id: 'agentic-eval', label: '🛑 Avaliador Agêntico (Self-Correction)', state: ragAgenticEvalEnabled, setter: setRagAgenticEvalEnabled, desc: 'IA filtra trechos irrelevantes antes de responder.' },
+                                { id: 'kb-routing', label: '🎯 Roteamento Agêntico de Bases (KB Routing)', state: ragKbRoutingEnabled, setter: setRagKbRoutingEnabled, desc: 'Lê o nome e a descrição das bases vinculadas e direciona a busca apenas para a base certa usando a variável do produto/curso.' }
                             ].map((mod, i) => (
-                                <div key={i} className="rag-module-item">
-                                    <div className="mod-info">
-                                        <div className="mod-label">{mod.label}</div>
-                                        <div className="mod-desc">{mod.desc}</div>
+                                <div key={i} className="rag-module-item-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    <div className="rag-module-item">
+                                        <div className="mod-info">
+                                            <div className="mod-label">{mod.label}</div>
+                                            <div className="mod-desc">{mod.desc}</div>
+                                        </div>
+                                        <div className={`status-badge ${mod.state ? 'active' : ''}`} onClick={() => mod.setter(!mod.state)}>
+                                            {mod.state ? 'ON' : 'OFF'}
+                                        </div>
                                     </div>
-                                    <div className={`status-badge ${mod.state ? 'active' : ''}`} onClick={() => mod.setter(!mod.state)}>
-                                        {mod.state ? 'ON' : 'OFF'}
-                                    </div>
+                                    {mod.id === 'kb-routing' && ragKbRoutingEnabled && (
+                                        <div style={{ padding: '0.75rem', background: 'rgba(99, 102, 241, 0.08)', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)', marginBottom: '0.5rem' }}>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#fff', marginBottom: '0.35rem' }}>
+                                                Variável de Produto/Curso para Roteamento:
+                                            </label>
+                                            <select
+                                                aria-label="Variável de Roteamento de Base"
+                                                value={ragKbRoutingVariable || ''}
+                                                onChange={(e) => setRagKbRoutingVariable(e.target.value)}
+                                                style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'rgba(15, 23, 42, 0.8)', color: '#fff', border: '1px solid rgba(255, 255, 255, 0.15)', fontSize: '0.85rem' }}
+                                            >
+                                                <option value="">Detecção Automática (curso_interesse, produto_interesse, etc.)</option>
+                                                {globalVars.map(v => (
+                                                    <option key={v.id || v.key} value={v.key}>{v.key} ({v.description || v.extraction_method || 'string'})</option>
+                                                ))}
+                                            </select>
+                                            <p style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', margin: '0.4rem 0 0' }}>
+                                                A IA lerá o valor desta variável e comparará com a descrição de cada base vinculada para filtrar a base correta antes da busca vetorial.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>

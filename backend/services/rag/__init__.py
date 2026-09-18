@@ -12,6 +12,8 @@ from .agentic import (
     evaluate_rag_relevance, 
     generate_multi_queries
 )
+from .router import route_knowledge_bases
+from .decomposition import decompose_user_queries, split_by_question_marks
 
 __all__ = [
     'search_knowledge_base',
@@ -27,5 +29,8 @@ __all__ = [
     'LANG_MAP',
     'rerank_results',
     'evaluate_rag_relevance',
-    'generate_multi_queries'
+    'generate_multi_queries',
+    'route_knowledge_bases',
+    'decompose_user_queries',
+    'split_by_question_marks'
 ]

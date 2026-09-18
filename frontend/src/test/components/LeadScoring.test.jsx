@@ -211,8 +211,10 @@ describe('LeadScoring Component', () => {
         });
 
         // Validar se o score na tela atualizou de 12 para 13
-        expect(screen.getByText('13')).toBeInTheDocument();
-        expect(screen.getByText('Justificativa recalculada atualizada!')).toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.getByText('13')).toBeInTheDocument();
+            expect(screen.getByText('Justificativa recalculada atualizada!')).toBeInTheDocument();
+        });
     });
 
     it('deve exibir o badge do agente qualificador quando presente nos dados do lead', async () => {

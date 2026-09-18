@@ -18,6 +18,8 @@ from .logic.substitution import resolve_conditional_blocks
 from .logic.history import generate_handoff_summary
 from .logic.pre_router import run_pre_router_ai
 from .logic.cache_handler import handle_semantic_cache_check
+from .logic.question_funnel_handler import handle_question_funnel_check
+from .logic.tool_preparer import prepare_agent_tools
 from .security import verify_output_safety, validate_response_ai
 from .memory import fetch_user_memory, update_user_memory
 from .tools.handlers.chatwoot import handle_chatwoot_handoff
@@ -113,8 +115,18 @@ async def process_message(
 
     performed_tool_calls = performed_tool_calls if performed_tool_calls is not None else []
     
+    # 0.05 FUNIL DE CONVERSÃO POR DÚVIDA (ÁUDIO HUMANIZADO + PASSOS SEQUENCIAIS)
+    funnel_res, _ = await handle_question_funnel_check(
+        config=config, message=message, history=history, context_variables=context_variables,
+        db=db, image_url=image_url, performed_tool_calls=performed_tool_calls,
+        pre_executed_tool_calls=pre_executed_tool_calls, pre_executed_rag_context=pre_executed_rag_context,
+        on_step=on_step, return_diagnostics=True
+    )
+    if funnel_res:
+        return funnel_res
+
     # 0.1 CACHE SEMÂNTICO DE RESPOSTAS APROVADAS (CUSTO ZERO OU PARCIAL)
-    cache_result, pre_executed_rag_context = await handle_semantic_cache_check(
+    cache_result, pre_executed_rag_context, cache_diagnostics = await handle_semantic_cache_check(
         config=config,
         message=message,
         history=history,
@@ -124,7 +136,8 @@ async def process_message(
         performed_tool_calls=performed_tool_calls,
         pre_executed_tool_calls=pre_executed_tool_calls,
         pre_executed_rag_context=pre_executed_rag_context,
-        on_step=on_step
+        on_step=on_step,
+        return_diagnostics=True
     )
     if cache_result:
         return cache_result
@@ -148,27 +161,31 @@ async def process_message(
                 return {
                     "content": None,
                     "model": pre_router_result.get("_model_used", "pre-router"),
+                    "model_role": "pre-router",
                     "usage": UsageLog(
                         mp=usage.get("prompt_tokens", 0),
                         mc=usage.get("completion_tokens", 0)
                     ),
                     "error": False,
                     "ignored_recurrent_thanks": True,
-                    "debug": {"pre_router": pre_router_result}
+                    "semantic_cache": cache_diagnostics,
+                    "debug": {"pre_router": pre_router_result, "semantic_cache": cache_diagnostics, "model_role": "pre-router"}
                 }
 
-            # Se for saudação, encerramos aqui com a resposta configurada (exceto se on_step for fornecido para pipeline logs)
-            if pre_router_result.get("eh_saudacao") and pre_router_result.get("resposta_direta") and not on_step:
+            # Se for atalho direto ou saudação com resposta direta, encerramos aqui com a resposta configurada (exceto se on_step for fornecido para pipeline logs)
+            if (pre_router_result.get("eh_saudacao") or pre_router_result.get("_model_used") == "shortcut-logic") and pre_router_result.get("resposta_direta") and not on_step:
                 usage = pre_router_result.get("_usage", {})
                 return {
                     "content": pre_router_result.get("resposta_direta"),
                     "model": pre_router_result.get("_model_used", "pre-router"),
+                    "model_role": "pre-router",
                     "usage": UsageLog(
                         mp=usage.get("prompt_tokens", 0),
                         mc=usage.get("completion_tokens", 0)
                     ),
                     "error": False,
-                    "debug": {"pre_router": pre_router_result}
+                    "semantic_cache": cache_diagnostics,
+                    "debug": {"pre_router": pre_router_result, "semantic_cache": cache_diagnostics, "model_role": "pre-router"}
                 }
             
             # Atualizar tokens gastos no roteamento
@@ -181,14 +198,14 @@ async def process_message(
             if pre_router_result.get("data_extraida"):
                 context_variables["data_extraida"] = pre_router_result["data_extraida"]
             
-            # Usar a pergunta limpa/extraída se disponível
+            # Usar a pergunta limpa/extraída para RAG/roteamento se disponível
             if pre_router_result.get("perguntas_extraidas"):
                 original_msg = message
                 message = pre_router_result["perguntas_extraidas"]
                 
                 # Se a mensagem foi alterada (Enriquecida ou Limpa pelo Pre-Router)
                 if original_msg != message and on_step:
-                    on_step("🧹 Melhoria de Mensagem (Pre-Router)", f"Mensagem do usuário enriquecida/limpa pelo Pre-Router baseado no contexto.\nAntes: \"{original_msg}\"\nDepois: \"{message}\"")
+                    on_step("🧹 Melhoria de Mensagem (Pre-Router)", f"Pergunta isolada para busca pelo Pre-Router (mensagem integral preservada para o agente).\nAntes: \"{original_msg}\"\nDepois: \"{message}\"")
                 
         except Exception as e_pr:
             import traceback
@@ -196,9 +213,11 @@ async def process_message(
             traceback.print_exc()
             logger.error(f"Erro no Pre-Router (core): {e_pr}")
 
+    is_partial_cache = bool((cache_diagnostics or {}).get("status") == "partial_hit")
+
     # 1. Cost Router
     if getattr(config, 'router_enabled', False):
-        has_cache_resolved = bool(pre_executed_rag_context and "RESPOSTA OFICIAL PRÉ-APROVADA DO CACHE SEMÂNTICO" in pre_executed_rag_context)
+        has_cache_resolved = bool(pre_executed_rag_context and "RESPOSTA OFICIAL PRÉ-APROVADA DO CACHE SEMÂNTICO" in pre_executed_rag_context and not is_partial_cache)
         
         if has_cache_resolved:
             complexity = "SIMPLE"
@@ -206,7 +225,7 @@ async def process_message(
             config.model = getattr(config, 'router_simple_model', None) or config.model
         else:
             complexity = "COMPLEX" if image_url else await classify_message_complexity(message, config, history)
-            active_role = "router_simple" if complexity == "SIMPLE" else "main"
+            active_role = "router_simple" if complexity == "SIMPLE" else "router_complex"
             
             # Seleção de modelo baseada no papel (Role) e complexidade
             if complexity == "SIMPLE":
@@ -216,6 +235,9 @@ async def process_message(
                 config.model = getattr(config, 'router_complex_model', None) or config.model
             
         print(f"🚀 [ROTEAMENTO DE CUSTO] Complexidade: {complexity}. Modelo selecionado: {config.model} (Papel: {active_role})")
+
+    executed_model = config.model
+    executed_role = active_role
 
     # 2. Context Window - Unificada globalmente para 5 mensagens por padrão (ou o configurado globalmente)
     target_window = config.context_window or 5
@@ -230,17 +252,8 @@ async def process_message(
     if system_prompt:
         # Remove any Markdown heading hashes (#, ##, ###, etc.) at the start of lines to avoid AI confusion
         system_prompt = re.sub(r'(?m)^[ \t]*#+[ \t]*', '', system_prompt)
-    system_prompt += "\n\n⚠️ **REGRA DE OURO:** Não use 'IA', 'Robô', 'Suporte Humano'. Use 'especialista', 'equipe'."
-    system_prompt += "\n\n🚨 **PRIORIDADE DE RESPOSTA (SEGUIR À RISCA):**"
-    system_prompt += "\n1. Se o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre algo que NÃO esteja no seu PROMPT DE SISTEMA, no seu conhecimento (RAG) ou nas 'INSTRUÇÕES ADICIONAIS' (Inbox) — por exemplo, um endereço físico específico não informado, horário de evento não cadastrado, ou preço exato ausente —, use a ferramenta 'registrar_duvida_sem_resposta' e diga que vai verificar com a equipe."
-    system_prompt += "\n   ⚠️ **RESTRIÇÃO ABSOLUTA DA FERRAMENTA 'registrar_duvida_sem_resposta':**"
-    system_prompt += "\n   - É TERMINANTEMENTE PROIBIDO chamar 'registrar_duvida_sem_resposta' para objeções comerciais, medos, inseguranças do cliente (ex: 'tenho medo de não funcionar pra mim', 'já fiz 2 cursos e tenho dificuldade', 'está caro'), relatos de experiências anteriores ou perguntas gerais."
-    system_prompt += "\n   - **DÚVIDAS GERAIS / ESTRATÉGICAS DE VENDAS E MARKETING:** Se o cliente fizer perguntas gerais ou pedir conselhos/estratégias sobre negócios, marketing, captação de clientes, poucos seguidores, engajamento ou dificuldades gerais, você DEVE utilizar seu conhecimento geral de treinamento para responder diretamente de forma acolhedora, prática e motivadora. É PROIBIDO chamar 'registrar_duvida_sem_resposta' para essas perguntas gerais."
-    system_prompt += "\n   - Nesses casos de objeções, medos, relatos ou dúvidas gerais de estratégia, responda diretamente com empatia e com os argumentos do produto/serviço, SEM chamar a ferramenta e SEM prometer que vai verificar com a equipe."
-    system_prompt += "\n   - ⛔ **PROIBIDO INFERIR OU MENCIONAR 'GARANTIA':** É estritamente proibido entender relatos de dificuldades anteriores ou medos de alunos como um pedido de 'garantia de resultado', e é TERMINANTEMENTE PROIBIDO responder frases como 'vou verificar se existe garantia' ou 'vou verificar com a equipe sobre garantia'. Responda diretamente explicando como a metodologia ajuda na prática, acolhendo a dúvida do aluno com total empatia."
-    system_prompt += "\n2. Use 'transferir_suporte_humano' se o usuário pedir EXPLICITAMENTE ('quero falar com atendente', 'me passa pra um humano', 'quero suporte humano') OU se o usuário solicitar cancelamento, devolução ou reembolso de compras/cursos."
-    system_prompt += "\n3. NUNCA mencione em texto que vai transferir, encaminhar para outro setor ou chamar a equipe sem efetivamente acionar a ferramenta 'transferir_suporte_humano'. NUNCA use 'transferir_suporte_humano' apenas porque você não sabe a resposta (para isso existe a regra 1)."
-    system_prompt += "\n4. NUNCA invente nomes de membros da equipe ou clientes. Se a pessoa citada não estiver no seu PROMPT DE SISTEMA, conhecimento (RAG ou Inbox), trate como dúvida (Regra 1)."
+    from .logic.strict_rules_prompt import get_core_system_prompt_rules, get_strict_rules_prompt
+    system_prompt += get_core_system_prompt_rules()
     system_prompt = resolve_conditional_blocks(system_prompt, context_variables)
     for k, v in context_variables.items():
         system_prompt = system_prompt.replace("{" + k + "}", str(v) if v is not None else "")
@@ -263,50 +276,7 @@ async def process_message(
                 has_tech_context = True
         
     # --- REGRAS RÍGIDAS DE INTEGRIDADE (CONTRA ALUCINAÇÃO) ---
-    strict_rules = (
-        "\n\n### REGRA DE OURO (COMPORTAMENTO OBRIGATÓRIO):\n"
-        "1. Seu 'CONHECIMENTO OFICIAL' é composto por: (a) SEU PRÓPRIO PROMPT DE SISTEMA (instruções/informações de produtos descritas acima neste prompt), (b) CONTEXTO RAG e (c) INSTRUÇÕES ADICIONAIS (Inbox). Se a informação estiver em QUALQUER um desses lugares, ou se houver informação correlacionada no prompt (como explicar sobre o aluguel quando questionado sobre compra do equipamento), você DEVE responder com confiança de forma contextual e informativa.\n"
-        "2. A ferramenta 'registrar_duvida_sem_resposta' DEVE ser chamada APENAS quando o usuário fizer uma PERGUNTA OBJETIVA/FÁTICA sobre dados ausentes e desconhecidos (ex: preços específicos ausentes, endereços não cadastrados, regras de negócio totalmente omissas). É TERMINANTEMENTE PROIBIDO chamá-la para lidar com objeções, medos, inseguranças, relatos do usuário OU QUANDO O USUÁRIO ESTIVER APENAS RESPONDENDO A UMA PERGUNTA QUE VOCÊ FEZ (como fornecer seu e-mail, nome, telefone, cidade ou respostas de qualificação) — nesses casos, acolha o dado fornecido e prossiga com o atendimento/qualificação normalmente SEM acionar a ferramenta.\n"
-        "3. É PROIBIDO inventar nomes, prazos ou políticas que não constem no seu PROMPT DE SISTEMA, RAG ou Inbox.\n"
-        "4. **PROTOCOLO DE RESPOSTA DA FERRAMENTA 'registrar_duvida_sem_resposta' (OBRIGATÓRIO QUANDO ACIONADA):**\n"
-        "   - **Dúvidas Múltiplas:** Se o usuário fez mais de uma pergunta na mesma mensagem e a Base de Conhecimento RAG ou o Prompt possui a resposta para uma delas, você DEVE OBRIGATORIAMENTE RESPONDER a essa dúvida no seu texto. É TERMINANTEMENTE PROIBIDO apagar, omitir ou ignorar a resposta existente só porque chamou a ferramenta para a outra dúvida!\n"
-        "   - **Primeiro Turno (Acionamento da Ferramenta):** Ao chamar a ferramenta para uma dúvida fática ausente, você DEVE responder de forma contextual e informativa usando qualquer informação relacionada disponível no prompt. Para a informação específica e faltante, inclua de forma integrada na mesma mensagem o padrão: 'Sobre [detalhe específico sem resposta], vou verificar com a equipe e já te retorno certinho sobre: [pergunta reformulada de forma clara e direta].'\n"
-        "   - **Segundo Turno (Resposta do Usuário após registrar dúvida):**\n"
-        "     - Se o usuário responder negativamente ou indicando que não precisa de mais ajuda (ex: 'não', 'não obrigado', 'não preciso de mais nada', 'nada mais', 'no', 'nada') OU responder apenas com concordâncias/confirmações curtas (ex: 'ok', 'blz', 'tudo bem', 'beleza', 'certo', 'combinado', 'obrigado', 'ta otimo', 'tá ótimo', 'perfeito') após você ter dito que iria verificar com a equipe, você **DEVE** confirmar que a dúvida foi salva para a equipe e encerrar a conversa de forma extremamente educada e conclusiva, **SEM** fazer novas perguntas.\n"
-        "5. **RESPOSTA A CONCORDÂNCIAS E CONFIRMAÇÕES (OBRIGATÓRIO):**\n"
-        "   - Se a mensagem do usuário for apenas uma concordância, confirmação ou reação curta e não contiver nenhuma nova pergunta ou solicitação, você **DEVE** responder de forma extremamente curta, simpática e neutra (ex: 'Perfeito! Qualquer dúvida estou aqui.', 'Combinado!', 'Show! Se precisar de algo, só chamar.').\n"
-        "   - **É TERMINANTEMENTE PROIBIDO** alucinar ou trazer novos detalhes comerciais não solicitados. Responda apenas com a confirmação simpática.\n"
-        "6. **PROIBIÇÃO DE FAZER PERGUNTAS NÃO SOLICITADAS NO FINAL DAS RESPOSTAS:**\n"
-        "   - É TERMINANTEMENTE PROIBIDO inventar ou acrescentar perguntas no final das suas respostas (ex: 'Se você quiser me diga qual aparelho usa', 'Posso te ajudar com mais alguma dúvida?', 'Qual marca você atende?'), A MENOS QUE o próprio Prompt de Sistema do Agente tenha ordenado explicitamente para fazer perguntas ou se for um fluxo de qualificação de lead ativo. Responda o que foi solicitado e encerre a resposta de forma limpa e direta.\n"
-        "7. ⛔ **PROIBIDO ENVIAR LISTAS DE FAQ NÃO SOLICITADAS OU ADVINHAR DÚVIDAS:**\n"
-        "   - Se o usuário declarar apenas que tem dúvidas, que não finalizou por ter dúvidas, ou citar apenas um assunto genérico (ex: \"não finalizei tive umas duvida\", \"sobre a máquina\", \"tenho dúvidas\", \"estou com dúvida\") sem fazer uma pergunta direta e específica, você **NUNCA DEVE** enviar uma lista de dúvidas mais comuns nem responder a perguntas que o usuário não fez.\n"
-        "   - Nesses casos, pergunte diretamente qual é a dúvida específica do usuário (ex: \"Quais são as suas dúvidas sobre a máquina? Me conte o que você gostaria de saber para que eu possa te ajudar!\").\n"
-        "8. ⛔ **PROIBIDO INFERIR ERRO DE ACESSO OU OFERECER TRANSFERÊNCIA NÃO SOLICITADA:**\n"
-        "   - Se o usuário disser que comprou/pagou mas \"ainda não acessou as aulas\", \"não assisti ainda\", \"não entrei ainda\" ou frases similares, **NUNCA** presuma que ele está com erro de login/acesso e **NUNCA** ofereça ou declare em texto que vai transferir para outro setor.\n"
-        "   - O usuário pode simplesmente não ter tido tempo de tentar acessar ainda. Responda apenas de forma acolhedora parabenizando a compra/aviso (ex: \"Perfeito! Obrigado por avisar. Quando puder acessar, as aulas já estarão te esperando. Qualquer dúvida, estou à disposição! 😊\").\n"
-        "   - A transferência para suporte humano só deve ocorrer se o usuário relatar um erro técnico explícito (ex: \"dá erro na senha\", \"link quebrado\", \"não recebi o e-mail\") OU se pedir explicitamente por atendente humano.\n"
-        "9. 🚨 **TRANSFERÊNCIA AUTOMÁTICA POR DIFICULDADE RECORRENTE DE PAGAMENTO (TENTATIVAS >= 3):**\n"
-        "   - Se a mensagem atual ou o histórico do usuário indicar que ele já relatou 3 ou mais vezes que está enfrentando problemas para pagar ou comprar (ex: \"não consigo pagar\", \"erro no cartão\", \"consigo pagar por outro link?\", \"estou tentando pagar\", \"recusou o cartão\"), você DEVE OBRIGATORIAMENTE acionar a ferramenta `transferir_suporte_humano` com o motivo \"Dificuldade de pagamento\" para que o suporte humano o ajude a finalizar.\n"
-        "10. 🚨 **POSTURA DIRETA EM 1ª PESSOA (PROIBIÇÃO ABSOLUTA DE MODO COPILOTO / 3ª PESSOA):**\n"
-        "   - Você é o ATENDENTE OFICIAL DA EMPRESA conversando DIRETAMENTE em 1ª pessoa com o cliente pelo WhatsApp.\n"
-        "   - É TERMINANTEMENTE PROIBIDO falar como um copiloto ou assistente interno que cria sugestões para um atendente humano copiar e colar (proibido usar prefixos como: 'Segue sugestão de resposta para enviar a...', 'Você pode responder:', 'Sugestão:', 'Diga a ele(a):').\n"
-        "   - Responda sempre diretamente para quem está falando com você: 'Olá! Tudo bem? Vi que você enviou...', 'Posso te ajudar com isso!', 'Como posso te ajudar?'.\n"
-        "11. 🖼️ **INTERPRETAÇÃO DE IMAGENS, COMPROVANTES E MÍDIAS ENVIADAS PELO CLIENTE:**\n"
-        "   - Quando o cliente enviar uma imagem (comprovante, foto de produto/defeito, print de erro ou criativo):\n"
-        "   - **Se for Comprovante de Pagamento (PIX / Transferência / Cartão):** Agradeça o envio, confirme de forma transparente os dados identificados no comprovante (ex: 'Recebi seu comprovante de R$ 197,00 em nome de [Favorecido]! Muito obrigado.') e informe que o pagamento está sendo validado para a liberação do acesso/pedido. NUNCA reenvie links de checkout se o cliente já enviou o comprovante de pagamento!\n"
-        "   - **Se for Foto de Produto / Equipamento / Defeito:** Acolha o cliente com empatia e postura consultiva, confirme o produto ou detalhe observado e pergunte como pode ajudá-lo com aquele item.\n"
-        "   - **Se for Print de Erro / Dúvida Técnica:** Explique de maneira clara o que a mensagem de erro significa e forneça a orientação passo a passo para resolução.\n"
-        "   - **Se for Anúncio / Criativo de Marketing:** Reconheça o tema principal da imagem de forma simpática, acolhedora e consultiva (ex: 'Olá! Vi que você enviou o print do nosso post sobre [tema do anúncio]. Quer entender como funciona a nossa solução para isso?'). NUNCA envie links de pagamento agressivos de supetão sem antes acolher e qualificar o interesse do lead.\n"
-        "12. 📱 **FORMATAÇÃO E ESPAÇAMENTO OBRIGATÓRIO PARA WHATSAPP (PROIBIDO TEXTÃO AMONTOADO):**\n"
-        "   - **PROIBIDO BLOCOS DENSOS COLADOS:** É TERMINANTEMENTE PROIBIDO enviar respostas amontoadas, cheias de tópicos colados sem quebras duplas de linha (ex: colar 8 linhas seguidas com Formato, Conteúdo, Bônus, Plataforma, Professora, Equipamento tudo num bloco maciço).\n"
-        "   - **ESPAÇAMENTO DUPLO ENTRE PARÁGRAFOS:** Sempre que você mudar de assunto, tópico, listar benefícios ou adicionar uma saudação/conclusão, você DEVE OBRIGATORIAMENTE pular uma linha em branco dupla (`\\n\\n`) entre os blocos.\n"
-        "   - **ESTILO NATURAL E LEVE:** Escreva como um humano de verdade conversa no WhatsApp: parágrafos curtos, fluidos, fáceis de ler no celular e direto ao ponto do que o cliente perguntou.\n"
-        "13. ☀️ **SAUDAÇÃO CORRESPONDENTE AO USUÁRIO (BOM DIA, BOA TARDE, BOA NOITE):**\n"
-        "   - Quando o usuário enviar uma saudação como 'Bom dia', 'Boa tarde', 'Boa noite', 'Oi' ou 'Olá', responda OBRIGATORIAMENTE correspondendo com a saudação temporal exata enviada ('Bom dia!', 'Boa tarde!' ou 'Boa noite!').\n"
-        "   - Em seguida, na mesma resposta, prossiga com a sua mensagem de apresentação, resposta de acolhimento ou pergunta de condução do atendimento.\n"
-        "   - É PROIBIDO responder com frases secas ou genéricas como 'Olá! Como posso te ajudar?' quando o usuário cumprimentar com 'Bom dia', 'Boa tarde' ou 'Boa noite'."
-    )
-    system_prompt += strict_rules
+    system_prompt += get_strict_rules_prompt()
 
     # --- DIRETRIZ PERSONALIZADA DE RESPOSTA PARA registrar_duvida_sem_resposta ---
     custom_unanswered_prompt = getattr(config, 'unanswered_question_prompt', None)
@@ -314,62 +284,12 @@ async def process_message(
         system_prompt += f"\n\n### 📝 DIRETRIZ PERSONALIZADA DE RESPOSTA AO REGISTRAR DÚVIDA:\nQuando você acionar a ferramenta `registrar_duvida_sem_resposta`, você DEVE OBRIGATORIAMENTE seguir esta instrução para formular sua resposta ao cliente:\n\"{str(custom_unanswered_prompt).strip()}\"\n"
 
     # --- INJEÇÃO DE PERGUNTAS DE QUALIFICAÇÃO DE LEAD & SONDAÇÃO ESTRATÉGICA ---
-    has_lead_qualified = any(t.name == "lead_qualificado" for t in tools) if tools else False
-    raw_qq = getattr(config, 'qualification_questions', None)
-    if raw_qq and has_lead_qualified:
-        try:
-            qq_list = json.loads(raw_qq) if isinstance(raw_qq, str) else raw_qq
-            if isinstance(qq_list, list) and qq_list:
-                qq_lines = []
-                for i, q in enumerate(qq_list):
-                    if isinstance(q, dict):
-                        title = q.get("title") or q.get("text") or f"Etapa {i+1}"
-                        instruction = q.get("prompt") or q.get("prompt_instruction") or q.get("instruction") or ""
-                        criteria = q.get("criteria") or q.get("completion_criteria") or ""
-                        line = f"{i+1}. [ETAPA: {title}]"
-                        if instruction:
-                            line += f"\n   ↳ Objetivo / Prompt de Sondagem: {instruction}"
-                        if criteria:
-                            line += f"\n   ↳ Critério de Conclusão: {criteria}"
-                    else:
-                        line = f"{i+1}. {q}"
-                    qq_lines.append(line)
-                qq_formatted = "\n".join(qq_lines)
-                system_prompt += (
-                    "\n\n🎯 **QUALIFICAÇÃO DE LEAD & SONDAÇÃO ESTRATÉGICA — PROTOCOLO OBRIGATÓRIO:**\n"
-                    "Você deve conduzir o atendimento através do funil de qualificação abaixo, alcançando cada objetivo de forma 100% natural, fluida e consultiva:\n"
-                    f"{qq_formatted}\n\n"
-                    "REGRAS INVIOLÁVEIS DE ATENDIMENTO & TRATAMENTO DOS FLUXOS DO LEAD:\n"
-                    "1. 🧩 MENSAGEM COMPOSTA (O lead respondeu à pergunta anterior E fez uma nova dúvida):\n"
-                    "   - Você DEVE primeiro acolher a resposta dele e responder à nova dúvida com total clareza e precisão (usando a base de conhecimento/RAG).\n"
-                    "   - Em seguida, no mesmo turno, avance para a próxima etapa do funil conectando de forma fluida a pergunta do próximo objetivo.\n"
-                    "2. 💬 O LEAD APENAS RESPONDEU À SUA PERGUNTA ANTERIOR:\n"
-                    "   - Acolha e valide a resposta dele de forma simpática, e em seguida faça a pergunta da próxima etapa pendente.\n"
-                    "3. ❓ O LEAD FEZ UMA DÚVIDA / PERGUNTA TÉCNICA OU DE PREÇO ISOLADA:\n"
-                    "   - Priorize responder à dúvida do cliente com clareza para gerar confiança, e faça uma ponte natural para a etapa de qualificação pendente.\n"
-                    "4. 🚫 PROIBIDO USAR FRASES ROBÓTICAS OU ENGESSADAS:\n"
-                    "   - Não repita textos literais. Leia o 'Objetivo / Prompt de Sondagem' da etapa e formule a pergunta com suas próprias palavras, adaptando ao contexto exato do que foi conversado até agora.\n"
-                    "5. ⏳ UMA ETAPA POR VEZ:\n"
-                    "   - Trabalhe um objetivo de cada vez. Só avance para o próximo quando o lead tiver respondido à etapa atual.\n"
-                    "6. 🏁 FINALIZAÇÃO & ACIONAMENTO DA FERRAMENTA `lead_qualificado`:\n"
-                    "   - Quando TODAS as etapas forem respondidas, chame IMEDIATAMENTE a ferramenta `lead_qualificado` passando os dados coletados.\n"
-                    "   - ⚠️ TRATAMENTO OBRIGATÓRIO NA RESPOSTA FINAL:\n"
-                    "     a) Acolha e agradeça pelas informações enviadas pelo lead de forma calorosa e humana (ex: 'Perfeito, Aryaraj! Muito obrigado pelo seu e-mail.').\n"
-                    "     b) SE O LEAD FEZ UMA DÚVIDA NESTA MESMA MENSAGEM (ex: 'Como funciona?', preço, etc.): você DEVE OBRIGATORIAMENTE responder à dúvida dele com total clareza e detalhamento usando a base de conhecimento.\n"
-                    "     c) Conclua com entusiasmo e direcionamento para a oferta/fechamento.\n"
-                    "     d) 🚫 PROIBIDO dar respostas secas ou genéricas como 'Entendi. Qualquer dúvida, estou aqui.' quando o lead acabou de se qualificar ou fez uma pergunta."
-                )
-
-                final_action = getattr(config, 'qualification_final_action', None)
-                if final_action and final_action.strip():
-                    system_prompt += (
-                        f"\n7. 🎯 **AÇÃO / PERGUNTA FINAL DE FECHAMENTO PÓS-QUALIFICAÇÃO (OBRIGATÓRIO):**\n"
-                        f"   - Assim que TODAS as etapas de qualificação forem respondidas pelo lead (e a ferramenta `lead_qualificado` for acionada), você DEVE OBRIGATORIAMENTE formular a seguinte pergunta ou ação final de fechamento:\n"
-                        f"   ↳ DIRETRIZ DE FECHAMENTO / CTA: \"{final_action.strip()}\"\n"
-                        f"   - Conduza essa pergunta final de forma natural, calorosa e consultiva para converter o atendimento (ex: perguntando se pode enviar o link do curso, convidando para matrícula ou agendamento)."
-                    )
-        except Exception as e:
-            logger.error(f"Erro ao injetar perguntas de qualificação no prompt: {e}")
+    is_already_qualified = bool(context_variables.get("lead_already_qualified"))
+    has_lead_qualified = (any(getattr(t, "name", "") == "lead_qualificado" for t in tools) if tools else False) and not is_already_qualified
+    from .logic.qualification_prompt import build_qualification_prompt
+    qual_prompt_text = build_qualification_prompt(config, tools, context_variables, history=history)
+    if qual_prompt_text:
+        system_prompt += qual_prompt_text
 
     # --- INJEÇÃO DE DIRETRIZES DE SEGURANÇA E COMPORTAMENTO (PROATIVA) ---
     security_rules = ""
@@ -450,9 +370,21 @@ async def process_message(
 
     kb_ids = await _resolve_agent_kb_ids(config, db)
 
+    # Identificar perguntas extraídas / enviadas para o RAG
+    rag_queries = []
+    rag_query_str = None
+    if pre_router_result and pre_router_result.get("lista_perguntas_extraidas"):
+        rag_queries = [p for p in pre_router_result.get("lista_perguntas_extraidas") if p and str(p).strip()]
+    if not rag_queries and pre_router_result and (pre_router_result.get("perguntas_extraidas") or pre_router_result.get("mensagem_melhorada")):
+        clean_q = pre_router_result.get("perguntas_extraidas") or pre_router_result.get("mensagem_melhorada")
+        if clean_q and str(clean_q).strip():
+            rag_queries = [str(clean_q).strip()]
+
     # Decisão do Pre-Router sobre RAG (se pre-router rodou, respeitamos sua decisão)
     is_rag_bypassed = False
-    if pre_router_result and "precisa_rag" in pre_router_result:
+    if is_partial_cache:
+        is_rag_bypassed = False
+    elif pre_router_result and "precisa_rag" in pre_router_result:
         is_rag_bypassed = not pre_router_result.get("precisa_rag")
     elif not pre_executed_rag_context and not kb_ids:
         is_rag_bypassed = True
@@ -461,10 +393,19 @@ async def process_message(
         rag_context = pre_executed_rag_context
         messages[0]["content"] += rag_context
         if on_step:
-            on_step("📚 Consulta à Base de Conhecimento (RAG)", f"RAG pré-executado pelo Pre-Router integrado ao prompt principal.")
-    elif is_rag_bypassed or not kb_ids:
-        if on_step:
-            on_step("📚 Consulta à Base de Conhecimento (RAG)", "Busca pulada pelo Pre-Router ou sem bases vinculadas ao agente.")
+            if is_partial_cache:
+                on_step("⚡ Resposta Oficial do Cache Semântico (Parcial)", "Respostas oficiais de parte das dúvidas integradas ao prompt. Executando busca RAG para as dúvidas pendentes...")
+            elif "RESPOSTA OFICIAL PRÉ-APROVADA DO CACHE SEMÂNTICO" in str(pre_executed_rag_context):
+                on_step("⚡ Resposta Oficial do Cache Semântico", "Resposta oficial do Cache Semântico integrada ao prompt principal (Busca RAG dispensada).")
+            else:
+                on_step("📚 Consulta à Base de Conhecimento (RAG)", f"RAG pré-executado integrado ao prompt principal.")
+
+    should_run_rag = bool(db and kb_ids and (not is_rag_bypassed) and (not pre_executed_rag_context or is_partial_cache))
+
+    if not should_run_rag:
+        if (is_rag_bypassed or not kb_ids) and not pre_executed_rag_context:
+            if on_step:
+                on_step("📚 Consulta à Base de Conhecimento (RAG)", "Busca pulada pelo Pre-Router ou sem bases vinculadas ao agente.")
     else:
         if db and kb_ids:
             import re as _re
@@ -476,22 +417,80 @@ async def process_message(
                 q = _re.sub(r'\s{2,}', ' ', q)
                 return q.strip()
 
-            perguntas_list = pre_router_result.get("lista_perguntas_extraidas") if pre_router_result else None
-            if not perguntas_list or not isinstance(perguntas_list, list) or not any(p.strip() for p in perguntas_list):
-                pergunta_limpa = (pre_router_result or {}).get("perguntas_extraidas") or (pre_router_result or {}).get("mensagem_melhorada")
-                if pergunta_limpa and str(pergunta_limpa).strip():
-                    perguntas_list = [str(pergunta_limpa).strip()]
-                else:
-                    perguntas_list = [message]
+            if is_partial_cache:
+                pending_qs = (cache_diagnostics or {}).get("pending_questions") or (cache_diagnostics or {}).get("unmatched_questions")
+                if not pending_qs:
+                    try:
+                        from services.semantic_cache_service import extract_sub_questions_ai
+                        all_sub = await extract_sub_questions_ai(message)
+                        cached_q = str((cache_diagnostics or {}).get("matched_query") or "").lower()
+                        pending_qs = [q for q in all_sub if q.lower() not in cached_q]
+                    except Exception as e_pending:
+                        logger.warning(f"Aviso ao extrair perguntas pendentes de fallback no RAG: {e_pending}")
+                        pending_qs = []
+                perguntas_list = [p for p in pending_qs if p and str(p).strip()] if pending_qs else [message]
+            else:
+                perguntas_list = pre_router_result.get("lista_perguntas_extraidas") if pre_router_result else None
+                if not perguntas_list or not isinstance(perguntas_list, list) or not any(p.strip() for p in perguntas_list):
+                    pergunta_limpa = (pre_router_result or {}).get("perguntas_extraidas") or (pre_router_result or {}).get("mensagem_melhorada")
+                    if pergunta_limpa and str(pergunta_limpa).strip():
+                        perguntas_list = [str(pergunta_limpa).strip()]
+                    else:
+                        perguntas_list = [message]
             
             # Limpar ruídos de cada query antes de enviar ao RAG
             perguntas_list = [_clean_rag_query(q) for q in perguntas_list if q and q.strip()]
             if not perguntas_list:
                 perguntas_list = [message]
+            rag_queries = list(perguntas_list)
+            rag_query_str = "\n".join(perguntas_list)
                 
             all_relevant = []
             from rag_service import search_knowledge_base
-            
+
+            # ROTEAMENTO AGÊNTICO DE BASES (KB ROUTING)
+            if getattr(config, 'rag_kb_routing_enabled', False) and len(kb_ids) > 1:
+                target_var_name = getattr(config, 'rag_kb_routing_variable', None)
+                # 1. Extração antecipada da variável de produto/curso se ainda não preenchida
+                if db and session_id:
+                    try:
+                        from agent_core.memory import extract_target_variable_early
+                        var_key, var_val = await extract_target_variable_early(
+                            db=db, session_id=session_id, message=message, history=history,
+                            target_key=target_var_name, on_step=on_step
+                        )
+                        if var_key and var_val:
+                            context_variables[var_key] = var_val
+                    except Exception as e_ext:
+                        logger.warning(f"Aviso ao extrair variável antecipada no RAG: {e_ext}")
+
+                # 2. Obter metadados das bases vinculadas para seleção semântica
+                try:
+                    from models import KnowledgeBaseModel
+                    stmt_kbs = select(KnowledgeBaseModel.id, KnowledgeBaseModel.name, KnowledgeBaseModel.description).where(KnowledgeBaseModel.id.in_(kb_ids))
+                    res_kbs = await db.execute(stmt_kbs)
+                    kbs_meta = [{"id": r[0], "name": r[1], "description": r[2]} for r in res_kbs.all()]
+
+                    if kbs_meta:
+                        from rag_service import route_knowledge_bases
+                        routing_info = await route_knowledge_bases(
+                            query=message,
+                            available_kbs=kbs_meta,
+                            context_variables=context_variables,
+                            routing_var_name=target_var_name
+                        )
+                        if routing_info.get("selected_kb_ids"):
+                            kb_ids = routing_info["selected_kb_ids"]
+                            if on_step:
+                                prod_str = routing_info.get("extracted_product") or "Geral"
+                                base_str = routing_info.get("matched_kb_name") or f"Base ID {kb_ids}"
+                                on_step("🎯 Roteamento Agêntico de Bases", f"Produto/Curso: '{prod_str}' ➔ Base direcionada: '{base_str}'. Motivo: {routing_info.get('reason')}")
+
+                            if routing_info.get("is_ambiguous"):
+                                messages[0]["content"] += "\n\n[DIRETRIZ DE AMBIGUIDADE]: O usuário fez uma pergunta genérica aplicável a mais de um curso/produto da empresa e não especificou a qual se refere. Responda de forma receptiva e pergunte educadamente sobre qual produto/curso ele gostaria de saber mais antes de detalhar um curso específico."
+                except Exception as e_route:
+                    logger.error(f"Erro no roteamento agêntico de bases em core.py: {e_route}")
+
             for q_idx, query_item in enumerate(perguntas_list, 1):
                 if on_step:
                     on_step("📚 Consulta à Base de Conhecimento (RAG)", f"Pergunta {q_idx}: Iniciando busca semântica para: \"{query_item}\"")
@@ -504,10 +503,10 @@ async def process_message(
                     similarity_threshold=getattr(config, 'rag_relevance_threshold', 0.0) or 0.0,
                     # Passa as configs do agente explicitamente — sem agent_id a função usaria os defaults (multi_query=False, etc.)
                     force_translation=getattr(config, 'rag_translation_enabled', False),
-                    force_multi_query=getattr(config, 'rag_multi_query_enabled', False),
+                    force_multi_query=getattr(config, 'rag_multi_query_enabled', True),
                     force_rerank=getattr(config, 'rag_rerank_enabled', True),
                     force_agentic_eval=getattr(config, 'rag_agentic_eval_enabled', True),
-                    force_parent_expansion=getattr(config, 'rag_parent_expansion_enabled', True),
+                    force_parent_expansion=getattr(config, 'rag_parent_expansion_enabled', False),
                 )
                 
                 relevant_items = []
@@ -554,114 +553,28 @@ async def process_message(
                         unique_relevant.append(it)
                         seen.add(it["id"])
                 
-                rag_context = "\n\n# CONTEXTO RAG:\n" + "\n".join([f"Perg: {i['question']}\nResp: {i['answer']}" for i in unique_relevant])
-                messages[0]["content"] += rag_context
+                header_title = "# INFORMAÇÕES DA BASE DE CONHECIMENTO (RAG) PARA AS DÚVIDAS RESTANTES:" if is_partial_cache else "# CONTEXTO RAG:"
+                rag_block = f"\n\n{header_title}\n" + "\n".join([f"Perg: {i['question']}\nResp: {i['answer']}" for i in unique_relevant])
+                rag_context = (rag_context or "") + rag_block
+                messages[0]["content"] += rag_block
         else:
             if on_step:
                 on_step("📚 Consulta à Base de Conhecimento (RAG)", "Busca pulada pelo Pre-Router ou sem bases vinculadas ao agente.")
 
     messages.extend(history)
-    messages.append({"role": "user", "content": message})
+    raw_user_input = context_variables.get("raw_user_message") or (original_msg if 'original_msg' in locals() and original_msg else message)
+    user_prompt_content = str(raw_user_input).strip() if raw_user_input else message
+    messages.append({"role": "user", "content": user_prompt_content})
 
     # 5. Preparar Ferramentas (Tools)
-    openai_tools = []
-    if tools:
-        for t in tools:
-            openai_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": json.loads(t.parameters_schema) if isinstance(t.parameters_schema, str) else t.parameters_schema
-                }
-            })
-
-    # Adicionar ferramenta de Handoff se habilitada (Renomeada para consistência com o Prompt)
-    if getattr(config, 'handoff_enabled', False):
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": "transferir_suporte_humano",
-                "description": (
-                    "Transfere a conversa para um atendente humano. "
-                    "REGRAS RÍGIDAS: 1. Use APENAS se o usuário pedir explicitamente ('quero falar com alguém', 'me passa pra um atendente'). "
-                    "2. NUNCA use se você simplesmente não souber uma resposta (para isso, use 'registrar_duvida_sem_resposta'). "
-                    "3. NUNCA assuma que nomes desconhecidos são de atendentes."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "motivo": {"type": "string", "description": "Motivo real e específico solicitado pelo usuário"}
-                    },
-                    "required": ["motivo"]
-                }
-            }
-        })
-
-    # Garantir que registrar_duvida_sem_resposta esteja sempre disponível para evitar transbordos indevidos
-    has_unanswered = any(t.name == "registrar_duvida_sem_resposta" for t in tools) if tools else False
-    if not has_unanswered:
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": "registrar_duvida_sem_resposta",
-                "description": (
-                    "Chame esta ferramenta APENAS quando o conhecimento (RAG) E o seu prompt de sistema não forem suficientes para responder. "
-                    "Se a informação (ex: nome de um funcionário ou política) estiver no seu prompt, use-a e NÃO chame esta ferramenta. "
-                    "Isso registra a dúvida para a equipe verificar depois."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "pergunta": {"type": "string", "description": "A pergunta exata do usuário"}
-                    },
-                    "required": ["pergunta"]
-                }
-            }
-        })
-
-    # Adicionar ferramenta de qualificação de lead se configurada
-    if getattr(config, 'qualification_questions', None) and has_lead_qualified:
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": "lead_qualificado",
-                "description": (
-                    "Chame esta ferramenta quando o usuário responder com sucesso todas as perguntas de qualificação. "
-                    "Passe no dicionário de respostas as chaves representando cada pergunta e o valor respondido pelo usuário."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "respostas": {
-                            "type": "object",
-                            "description": "Objeto chave-valor contendo cada pergunta e a resposta fornecida pelo usuário"
-                        }
-                    },
-                    "required": ["respostas"]
-                }
-            }
-        })
-
-    # Filtro de ferramentas do Pre-Router
-    if pre_router_result.get("precisa_ferramenta") is False:
-        if pre_router_result.get("precisa_rag") is True:
-            # Se precisa de RAG mas não de ferramentas do usuário, mantemos apenas o fallback de dúvidas não respondidas
-            openai_tools = [t for t in openai_tools if t["function"]["name"] == "registrar_duvida_sem_resposta"]
-        else:
-            # Se não precisa nem de ferramentas e nem de RAG (ex: saudação ou resposta direta do Pre-Router), removemos totalmente as ferramentas
-            openai_tools = []
-    else:
-        # Se ferramentas estão ativas, mas o Pre-Router não identificou chamada de suporte humano na triagem inicial,
-        # nós a removemos de openai_tools para garantir que o agente principal (ex: gpt-5.2) não a acione indevidamente.
-        has_pre_executed_handoff = False
-        if pre_router_result.get("chamada_ferramenta"):
-            tc_name = pre_router_result["chamada_ferramenta"].get("nome")
-            if tc_name in ["transferir_atendimento", "transferir_suporte_humano"]:
-                has_pre_executed_handoff = True
-        
-        if not has_pre_executed_handoff:
-            openai_tools = [t for t in openai_tools if t["function"]["name"] not in ["transferir_atendimento", "transferir_suporte_humano"]]
+    openai_tools = prepare_agent_tools(
+        tools=tools,
+        config=config,
+        context_variables=context_variables,
+        pre_router_result=pre_router_result,
+        is_already_qualified=is_already_qualified,
+        has_lead_qualified=has_lead_qualified
+    )
 
     # 6. Loop de Execução (Turnos de Ferramentas)
     total_usage = UsageLog(0, 0, 0, 0)
@@ -673,6 +586,8 @@ async def process_message(
     iteration = 0
     tool_calls_log = []
     is_handoff_terminal = False
+    tool_call_counts = {}
+    tool_failure_counts = {}
 
     # Injetar chamadas de ferramentas pré-executadas de forma simulada no histórico de mensagens
     if pre_executed_tool_calls:
@@ -751,6 +666,8 @@ async def process_message(
                     
                     completion = await curr_client.chat.completions.create(**api_params)
                     response_message = completion.choices[0].message
+                    executed_model = m
+                    executed_role = active_role if m == config.model else "fallback"
                     
                     # Atualizar Uso
                     if completion.usage:
@@ -794,6 +711,25 @@ async def process_message(
                     if on_step:
                         on_step(f"🛠️ Acionando ferramenta: {tool_name}", f"Argumentos: {json.dumps(tool_args, ensure_ascii=False)}")
                     
+                    tool_call_counts[tool_name] = tool_call_counts.get(tool_name, 0) + 1
+
+                    # Limitador de segurança: no máximo 2 execuções por ferramenta neste turno se houver falha
+                    if tool_failure_counts.get(tool_name, 0) >= 2 or tool_call_counts[tool_name] > 2:
+                        tool_result = (
+                            f"AVISO DO SISTEMA: A ferramenta '{tool_name}' atingiu o limite máximo de tentativas (máximo 2 chamadas). "
+                            "INSTRUÇÃO OBRIGATÓRIA PARA SUA RESPOSTA: É terminantemente proibido tentar acionar esta ferramenta novamente. "
+                            "Peça desculpas ao cliente de forma simpática, informe que houve uma pequena instabilidade momentânea no sistema "
+                            "e prossiga com o atendimento respondendo às dúvidas dele normalmente."
+                        )
+                        openai_tools = [t for t in openai_tools if t.get("function", {}).get("name") != tool_name]
+                        messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": tool_name, "content": tool_result})
+                        tool_calls_log.append({
+                            "name": tool_name,
+                            "args": json.dumps(tool_args, ensure_ascii=False),
+                            "output": tool_result
+                        })
+                        continue
+
                     # Caso Especial: Handoff (Compatível com ambas as versões do nome por transição)
                     if tool_name in ["transferir_atendimento", "transferir_suporte_humano"]:
                         # Se for a ferramenta automática simplificada
@@ -860,7 +796,7 @@ async def process_message(
                     elif tool_name == "google_calendar_manager":
                         tool_result = await handle_google_calendar(db, context_variables, tool_args)
                     elif tool_name == "lead_qualificado":
-                        tool_result = await handle_lead_qualified(db, context_variables, json.dumps(tool_args), config.id)
+                        tool_result = await handle_lead_qualified(db, context_variables, json.dumps(tool_args), config.id, on_step=on_step)
                     elif tool_name == "transferir_robo":
                         tool_result = await handle_chatwoot_handoff(db, context_variables, target_tool, False, tool_args, history, config.id)
                         tool_calls_log.append({
@@ -885,7 +821,38 @@ async def process_message(
                                 "NÃO EXIBA DETALHES TÉCNICOS DO ERRO."
                             )
                     
-                    if on_step:
+                    # Verificação de erro e controle de tentativas (máximo 2 tentativas)
+                    is_tool_error = (
+                        isinstance(tool_result, str) and (
+                            tool_result.startswith("ERRO") 
+                            or tool_result.startswith("Erro") 
+                            or "instabilidade temporária" in tool_result.lower()
+                            or "instabilidade momentânea" in tool_result.lower()
+                        )
+                    )
+
+                    if is_tool_error:
+                        tool_failure_counts[tool_name] = tool_failure_counts.get(tool_name, 0) + 1
+                        if tool_failure_counts[tool_name] >= 2:
+                            # 2ª falha: Bloqueia novas chamadas e instrui a IA a informar instabilidade
+                            openai_tools = [t for t in openai_tools if t.get("function", {}).get("name") != tool_name]
+                            tool_result += (
+                                "\n\n⚠️ LIMITE DE TENTATIVAS ATINGIDO (2/2): Esta ferramenta falhou pela 2ª vez consecutiva e foi bloqueada. "
+                                "NÃO tente chamá-la novamente. Peça desculpas educadamente ao cliente informando que houve uma instabilidade passageira no sistema "
+                                "e continue a conversa normalmente."
+                            )
+                        else:
+                            # 1ª falha: Permite apenas 1 retry de teste
+                            tool_result += (
+                                "\n\n⚠️ AVISO: Ocorreu uma instabilidade na execução. Você pode tentar chamá-la no máximo mais 1 única vez para testar. "
+                                "Se falhar novamente, não tente mais e avise o cliente com simpatia sobre a instabilidade passageira."
+                            )
+                    else:
+                        # Em caso de sucesso para lead_qualificado, desativamos para evitar chamadas duplicadas no mesmo turno
+                        if tool_name == "lead_qualificado":
+                            openai_tools = [t for t in openai_tools if t.get("function", {}).get("name") != "lead_qualificado"]
+
+                    if on_step and tool_name != "lead_qualificado":
                         on_step(f"✅ Ferramenta {tool_name} finalizada", f"Retorno: {tool_result}")
                     
                     messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": tool_name, "content": tool_result})
@@ -913,6 +880,10 @@ async def process_message(
         except Exception as e:
             print(f"❌ Erro crítico no loop do agente: {str(e)}")
             return {"content": f"Erro interno: {str(e)}", "error": True, "usage": total_usage, "model": getattr(config, 'model', 'gpt-4o-mini')}
+
+    if has_lead_qualified:
+        from agent_core.tools.handlers.internal import check_and_apply_qualification_fallback
+        last_response = await check_and_apply_qualification_fallback(db, context_variables, config, history, message, tool_calls_log, last_response, on_step)
 
     # 7. Filtros de Saída e Auditoria
     # Garantir que last_response seja string (importante para testes com mocks)
@@ -951,17 +922,15 @@ async def process_message(
     question_mode = getattr(config, 'question_mode', 'panel')
     is_handoff = handoff_data.get("handoff", False) if isinstance(handoff_data, dict) else False
     
-    if is_first_msg and init_q_msg and final_content and not is_handoff and question_mode == "panel":
+    if is_first_msg and final_content and not is_handoff and question_mode in ("panel", "disabled"):
         # Se o LLM gerar uma pergunta de continuação no final da resposta, nós a removemos
-        # do texto gerado para evitar duplicidade com a saudação inicial configurada no agente.
-        # Procuramos por expressões de ajuda, dúvidas, perguntas ou continuação no final.
+        # do texto gerado para evitar duplicidade ou respeitar o modo desativado.
         pattern = r'(?:[\n\s]+)?(?:Posso|Deseja|Quer|Como posso|Você possui|Mais alguma|Se tiver|Qualquer).*?(?:dúvida|ajuda|ajudar|pergunta|esclarecer|algo mais|mais alguma).*?\?\s*$'
         match = re.search(pattern, final_content, re.IGNORECASE | re.DOTALL)
         if match:
-            # Removemos a pergunta redundante gerada pelo LLM
             final_content = final_content[:match.start()].strip()
             
-        if not final_content.endswith(init_q_msg):
+        if question_mode == "panel" and init_q_msg and not final_content.endswith(init_q_msg):
             final_content = f"{final_content}\n\n{init_q_msg}"
 
     # 7.2 Formatação inteligente para WhatsApp (Garante espaçamento duplo limpo e impede texto amontoado)
@@ -970,16 +939,20 @@ async def process_message(
     
     # 8. Memória (Auto-update se configurado)
     if db and session_id and last_response:
-        await update_user_memory(db, session_id, message, last_response)
+        msg_for_memory = context_variables.get("raw_user_message") or message
+        saved_facts = await update_user_memory(db, session_id, msg_for_memory, last_response, on_step=on_step)
+        if saved_facts and isinstance(saved_facts, dict):
+            for k_m, v_m in saved_facts.items():
+                context_variables[k_m] = v_m
 
-    # Capturar tool_calls realizados (já temos performed_tool_calls ou similar?)
-    # O loop `while iteration < 5:` já não captura `tool_calls` para exportar.
-    # Na verdade, em webhook_tasks.py ele faz: `result.get("debug", {}).get("tool_calls", [])`
-    
+    c_diag = cache_diagnostics if 'cache_diagnostics' in locals() and cache_diagnostics else {}
+    final_model = executed_model if 'executed_model' in locals() and executed_model else config.model
+    final_role = executed_role if 'executed_role' in locals() and executed_role else active_role
     return {
         "content": final_content,
         "usage": total_usage,
-        "model": config.model,
+        "model": final_model,
+        "model_role": final_role,
         "router_model": pre_router_tokens.get("model"),  # Modelo usado no pre-router (None se foi atalho programático)
         "router_tokens": {
             "prompt": pre_router_tokens["prompt"],
@@ -987,12 +960,28 @@ async def process_message(
         },
         "handoff_data": handoff_data,
         "error": False,
+        "semantic_cache": c_diag,
+        "from_semantic_cache": c_diag.get("status") == "hit_direct",
+        "cached_similarity": c_diag.get("similarity"),
+        "cached_original_query": c_diag.get("matched_query"),
+        "rag_queries": rag_queries if 'rag_queries' in locals() and rag_queries else [],
+        "rag_query": rag_query_str if 'rag_query_str' in locals() and rag_query_str else (rag_queries[0] if 'rag_queries' in locals() and rag_queries else None),
         "debug": {
             "iterations": iteration,
             "rag_items": all_relevant if 'all_relevant' in locals() and all_relevant else (relevant_items if 'relevant_items' in locals() and relevant_items else []),
+            "rag_queries": rag_queries if 'rag_queries' in locals() and rag_queries else [],
+            "rag_query": rag_query_str if 'rag_query_str' in locals() and rag_query_str else (rag_queries[0] if 'rag_queries' in locals() and rag_queries else None),
             "resolved_prompt": messages[0]["content"], # Inclui RAG e Regras
             "tool_calls": tool_calls_log,
             "pre_router": pre_router_result if 'pre_router_result' in locals() else None,
-            "context_variables": context_variables
+            "context_variables": context_variables,
+            "semantic_cache": c_diag,
+            "cache_hit": c_diag.get("status") in ["hit_direct", "hit_qualification", "partial_hit"],
+            "cached_similarity": c_diag.get("similarity"),
+            "cached_original_query": c_diag.get("matched_query"),
+            "matched_queries": c_diag.get("matched_queries") or ([c_diag.get("matched_query")] if c_diag.get("matched_query") else []),
+            "from_semantic_cache": c_diag.get("status") == "hit_direct",
+            "user_message_sent": user_prompt_content if 'user_prompt_content' in locals() else message,
+            "model_role": final_role
         }
     }

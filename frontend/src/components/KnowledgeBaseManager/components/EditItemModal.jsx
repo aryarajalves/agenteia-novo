@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useKB } from '../KBContext';
 import ExpandableField from '../../ExpandableField';
+import QuestionVariationsInput from './QuestionVariationsInput';
+import MetadataBadgesInput from './MetadataBadgesInput';
 import { useKBOperations } from '../hooks/useKBOperations';
 import { api } from '../../../api/client';
 
@@ -57,26 +59,49 @@ const VectorSection = ({ itemId, refreshKey }) => {
             )}
 
             <p className="kb-vector-note">
-                O vetor é gerado a partir da {'"'}{'Pergunta'}{'"'} e é recalculado automaticamente sempre que você salvar alterações.
+                O vetor é gerado a partir da {'"'}{'Pergunta'}{'"'} e suas variações, e é recalculado automaticamente sempre que você salvar alterações.
             </p>
         </div>
     );
 };
 
 const EditItemModal = () => {
-    const { isEditOpen, setIsEditOpen, itemToEdit, setItemToEdit, kbLabels } = useKB();
+    const { 
+        isEditOpen, setIsEditOpen, 
+        itemToEdit, setItemToEdit, 
+        kbLabels, 
+        setSimResults, reloadKnowledgeBase 
+    } = useKB();
     const { handleUpdateItem } = useKBOperations();
-    const [form, setForm] = useState({ question: '', answer: '', metadata_val: '', category: 'Geral' });
+    const [form, setForm] = useState({ 
+        question: '', 
+        answer: '', 
+        metadata_val: '', 
+        category: 'Geral', 
+        question_variations: [] 
+    });
     const [isSaving, setIsSaving] = useState(false);
     const [vectorRefreshKey, setVectorRefreshKey] = useState(0);
 
     useEffect(() => {
         if (itemToEdit) {
+            let parsedVars = [];
+            if (Array.isArray(itemToEdit.question_variations)) {
+                parsedVars = itemToEdit.question_variations;
+            } else if (typeof itemToEdit.question_variations === 'string') {
+                try {
+                    parsedVars = JSON.parse(itemToEdit.question_variations);
+                } catch {
+                    parsedVars = [];
+                }
+            }
+
             setForm({
                 question: itemToEdit.question || '',
                 answer: itemToEdit.answer || '',
                 metadata_val: itemToEdit.metadata_val || '',
-                category: itemToEdit.category || 'Geral'
+                category: itemToEdit.category || 'Geral',
+                question_variations: parsedVars
             });
             setVectorRefreshKey(k => k + 1);
         }
@@ -95,7 +120,40 @@ const EditItemModal = () => {
         setIsSaving(true);
         const success = await handleUpdateItem(itemToEdit.id, form);
         setIsSaving(false);
-        if (success) handleClose();
+        if (success) {
+            if (setSimResults) {
+                setSimResults(prev => {
+                    if (!prev) return prev;
+                    const updateItem = (item) => {
+                        if (item.id === itemToEdit.id) {
+                            return {
+                                ...item,
+                                question: form.question,
+                                answer: form.answer,
+                                metadata_val: form.metadata_val,
+                                category: form.category,
+                                question_variations: form.question_variations
+                            };
+                        }
+                        return item;
+                    };
+                    return {
+                        ...prev,
+                        items: (prev.items || []).map(updateItem),
+                        discarded_items: (prev.discarded_items || []).map(updateItem),
+                        grouped_results: (prev.grouped_results || []).map(g => ({
+                            ...g,
+                            items: (g.items || []).map(updateItem),
+                            discarded_items: (g.discarded_items || []).map(updateItem)
+                        }))
+                    };
+                });
+            }
+            if (reloadKnowledgeBase) {
+                reloadKnowledgeBase();
+            }
+            handleClose();
+        }
     };
 
     return createPortal(
@@ -118,10 +176,12 @@ const EditItemModal = () => {
                             />
                         </div>
                         <div className="form-group flex-2">
-                            <ExpandableField
+                            <MetadataBadgesInput
                                 label={kbLabels.metadata}
+                                placeholder="Ex: forma de pagamento | boleto (Enter)"
                                 value={form.metadata_val}
-                                onChange={(e) => setForm({ ...form, metadata_val: e.target.value })}
+                                onChange={(val) => setForm({ ...form, metadata_val: val })}
+                                disabled={isSaving}
                             />
                         </div>
                         <div className="form-group flex-1">
@@ -134,6 +194,12 @@ const EditItemModal = () => {
                             />
                         </div>
                     </div>
+
+                    <QuestionVariationsInput
+                        variations={form.question_variations}
+                        onChange={(vars) => setForm(prev => ({ ...prev, question_variations: vars }))}
+                        disabled={isSaving}
+                    />
 
                     <div className="form-group">
                         <ExpandableField

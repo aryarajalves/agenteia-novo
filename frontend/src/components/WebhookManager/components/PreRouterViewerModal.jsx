@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { showToast } from '../utils/helpers';
 
 export const PreRouterViewerModal = ({ data, onClose }) => {
     const [activeTab, setActiveTab] = useState('organized');
@@ -146,13 +147,25 @@ export const PreRouterViewerModal = ({ data, onClose }) => {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                                 <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', borderRadius: '16px', padding: '1.25rem' }}>
                                     <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, marginBottom: '6px' }}>Tipo de Mensagem</div>
-                                    {parsedJson.eh_saudacao ? (
+                                    {parsedJson.eh_mensagem_automatica ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.25)', padding: '4px 10px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
+                                            🤖 Mensagem Automática
+                                        </span>
+                                    ) : parsedJson.eh_agradecimento || parsedJson.eh_agradecimento_recorrente ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(234, 179, 8, 0.15)', color: '#facc15', border: '1px solid rgba(234, 179, 8, 0.25)', padding: '4px 10px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
+                                            👏 Encerramento / Agradecimento
+                                        </span>
+                                    ) : parsedJson.eh_resposta_ao_agente || (!parsedJson.precisa_rag && !parsedJson.eh_saudacao && (parsedJson.tipo_mensagem?.includes('Resposta') || (parsedJson.perguntas_extraidas && !parsedJson.perguntas_extraidas.includes('?')))) ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.25)', padding: '4px 10px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
+                                            💬 Resposta ao Agente / Declaração
+                                        </span>
+                                    ) : parsedJson.eh_saudacao ? (
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '4px 10px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
-                                            👋 Apenas Saudação / Cumprimento
+                                            👋 Saudação / Cumprimento
                                         </span>
                                     ) : (
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', border: '1px solid rgba(99, 102, 241, 0.2)', padding: '4px 10px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700 }}>
-                                            💬 Dúvida / Requisição Técnica
+                                            ❓ Dúvida / Requisição Técnica
                                         </span>
                                     )}
                                 </div>
@@ -191,9 +204,9 @@ export const PreRouterViewerModal = ({ data, onClose }) => {
 
                             {/* Conteúdo Extraído */}
                             <div style={{ background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.1)', borderRadius: '16px', padding: '1.5rem' }}>
-                                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#818cf8', fontWeight: 800, textTransform: 'uppercase' }}>💬 Pergunta/Requisição Extraída</h4>
+                                <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#818cf8', fontWeight: 800, textTransform: 'uppercase' }}>💭 Intenção / Conteúdo Extraído (Resposta do Lead)</h4>
                                 <div style={{ fontSize: '1rem', color: '#fff', lineHeight: '1.6', fontStyle: parsedJson.perguntas_extraidas ? 'normal' : 'italic' }}>
-                                    {parsedJson.perguntas_extraidas ? `"${parsedJson.perguntas_extraidas}"` : 'Nenhuma pergunta extraída (mensagem tratada como vazia ou apenas saudação).'}
+                                    {parsedJson.perguntas_extraidas ? `"${parsedJson.perguntas_extraidas}"` : 'Nenhum conteúdo extraído (mensagem tratada como vazia ou apenas saudação/encerramento).'}
                                 </div>
                             </div>
 
@@ -270,7 +283,15 @@ export const PreRouterViewerModal = ({ data, onClose }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                                 <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' }}>Prompt do Pre-Router</span>
                                 <button 
-                                    onClick={() => navigator.clipboard.writeText(promptStr || "")} 
+                                    onClick={() => {
+                                        if (navigator?.clipboard?.writeText) {
+                                            Promise.resolve(navigator.clipboard.writeText(promptStr || "")).then(() => {
+                                                showToast('Prompt copiado para a área de transferência!', 'success');
+                                            }).catch(() => {
+                                                showToast('Erro ao copiar prompt.', 'error');
+                                            });
+                                        }
+                                    }} 
                                     style={{ fontSize: '0.65rem', padding: '4px 8px', borderRadius: '4px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', cursor: 'pointer' }}
                                 >Copiar Prompt</button>
                             </div>

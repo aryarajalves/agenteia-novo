@@ -42,7 +42,7 @@ describe('ChatPlayground - Exportação de Conversa em HTML', () => {
         vi.clearAllMocks();
     });
 
-    it('deve renderizar o botão "Exportar Conversa" no cabeçalho do Playground', async () => {
+    it('deve renderizar o botão "Exportar" no cabeçalho do Playground', async () => {
         render(
             <MemoryRouter initialEntries={['/playground?agentId=1']}>
                 <ChatPlayground />
@@ -51,7 +51,7 @@ describe('ChatPlayground - Exportação de Conversa em HTML', () => {
 
         const exportBtn = await screen.findByTestId('export-training-btn');
         expect(exportBtn).toBeInTheDocument();
-        expect(exportBtn).toHaveTextContent('Exportar Conversa');
+        expect(exportBtn).toHaveTextContent(/Exportar/i);
     });
 
     it('deve gerar corretamente o HTML da conversa contendo as perguntas do usuário e respostas do agente', () => {

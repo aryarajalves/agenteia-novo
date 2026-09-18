@@ -17,7 +17,8 @@ from services.rag import (
     LANG_MAP,
     rerank_results,
     evaluate_rag_relevance,
-    generate_multi_queries
+    generate_multi_queries,
+    route_knowledge_bases
 )
 
 __all__ = [
@@ -34,5 +35,6 @@ __all__ = [
     'LANG_MAP',
     'rerank_results',
     'evaluate_rag_relevance',
-    'generate_multi_queries'
+    'generate_multi_queries',
+    'route_knowledge_bases'
 ]

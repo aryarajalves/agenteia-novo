@@ -13,19 +13,21 @@ export const LabelMultiSelect = ({ selected = [], options = [], onChange, accent
 
     const filtered = (options || []).filter(o => typeof o === 'string' && o.toLowerCase().includes(search.toLowerCase()));
 
+    const cleanSelected = (selected || []).filter(s => typeof s === 'string' && s.trim().length > 0);
+
     return (
         <div ref={ref} style={{ position: 'relative' }}>
             <div
                 onClick={() => setOpen(o => !o)}
                 style={{ background: '#0f172a', border: `1px solid ${open ? accentColor + '66' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', minHeight: '42px', display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', transition: 'border 0.15s' }}
             >
-                {(selected || []).length === 0 ? (
+                {cleanSelected.length === 0 ? (
                     <span style={{ color: '#475569', fontSize: '0.82rem' }}>Nenhuma selecionada</span>
                 ) : (
-                    (selected || []).map(s => (
-                        <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: accentColor + '22', border: `1px solid ${accentColor}44`, borderRadius: '20px', padding: '2px 8px 2px 10px', fontSize: '0.75rem', color: accentColor, fontWeight: 600 }}>
+                    cleanSelected.map((s, idx) => (
+                        <span key={`${s}-${idx}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: accentColor + '22', border: `1px solid ${accentColor}44`, borderRadius: '20px', padding: '2px 8px 2px 10px', fontSize: '0.75rem', color: accentColor, fontWeight: 600 }}>
                             {s}
-                            <button type="button" onClick={e => { e.stopPropagation(); onChange((selected || []).filter(x => x !== s)); }}
+                            <button type="button" onClick={e => { e.stopPropagation(); onChange(cleanSelected.filter(x => x !== s)); }}
                                 style={{ background: 'none', border: 'none', color: accentColor, cursor: 'pointer', fontSize: '0.8rem', lineHeight: 1, padding: 0 }}>✕</button>
                         </span>
                     ))
@@ -130,17 +132,19 @@ export const LabelSingleSelect = ({ selected = '', options = [], onChange, accen
 
     const filtered = (options || []).filter(o => typeof o === 'string' && o.toLowerCase().includes(search.toLowerCase()));
 
+    const cleanSingle = typeof selected === 'string' && selected.trim().length > 0 ? selected.trim() : '';
+
     return (
         <div ref={ref} style={{ position: 'relative' }}>
             <div
                 onClick={() => setOpen(o => !o)}
                 style={{ background: '#0f172a', border: `1px solid ${open ? accentColor + '66' : 'rgba(255,255,255,0.1)'}`, borderRadius: '8px', padding: '0.5rem 0.75rem', cursor: 'pointer', minHeight: '42px', display: 'flex', flexWrap: 'wrap', gap: '0.3rem', alignItems: 'center', transition: 'all 0.15s' }}
             >
-                {!selected ? (
+                {!cleanSingle ? (
                     <span style={{ color: '#475569', fontSize: '0.82rem' }}>Nenhuma selecionada</span>
                 ) : (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: accentColor + '22', border: `1px solid ${accentColor}44`, borderRadius: '20px', padding: '2px 8px 2px 10px', fontSize: '0.75rem', color: accentColor, fontWeight: 600 }}>
-                        {selected}
+                        {cleanSingle}
                         <button type="button" onClick={e => { e.stopPropagation(); onChange(''); }}
                             style={{ background: 'none', border: 'none', color: accentColor, cursor: 'pointer', fontSize: '0.8rem', lineHeight: 1, padding: 0 }}>✕</button>
                     </span>

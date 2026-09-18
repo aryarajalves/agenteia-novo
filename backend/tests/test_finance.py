@@ -64,3 +64,35 @@ async def test_financial_report_includes_extractions_and_tests(client: AsyncClie
 
     assert found_mini or found_4o
     assert data["grand_total_cost"] >= (cost * USD_TO_BRL * 2)
+
+@pytest.mark.asyncio
+async def test_financial_report_includes_rag_simulator_consumption(client: AsyncClient, db_session):
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    cost = 0.005
+    
+    log_simulator = InteractionLog(
+        session_id="SYS_RAG_SIMULATOR_KB_42",
+        user_message="Simulador RAG (Curso MLD): como funciona o curso?",
+        agent_response="Retornou 3 itens.",
+        model_used="Simulador RAG (gpt-4o-mini)",
+        input_tokens=1150,
+        output_tokens=150,
+        cost_usd=cost,
+        cost_brl=cost * USD_TO_BRL,
+        timestamp=now
+    )
+    db_session.add(log_simulator)
+    await db_session.commit()
+
+    response = await client.get("/financial/report")
+    assert response.status_code == 200
+    data = response.json()
+    items = data.get("items", [])
+    
+    rag_item = next((item for item in items if "Simulador RAG" in item["agent_name"]), None)
+    assert rag_item is not None
+    assert rag_item["agent_name"] == "Simulador RAG (gpt-4o-mini)"
+    assert rag_item["total_tokens"] >= 1300
+    assert rag_item["total_cost"] >= (cost * USD_TO_BRL)
+

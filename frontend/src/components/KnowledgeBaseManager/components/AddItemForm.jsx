@@ -1,12 +1,20 @@
 import React, { useState } from 'react';
 import { useKB } from '../KBContext';
 import ExpandableField from '../../ExpandableField';
+import QuestionVariationsInput from './QuestionVariationsInput';
+import MetadataBadgesInput from './MetadataBadgesInput';
 import { useKBOperations } from '../hooks/useKBOperations';
 
 const AddItemForm = () => {
     const { kbLabels, kbType } = useKB();
     const { handleAddItem } = useKBOperations();
-    const [newPair, setNewPair] = useState({ question: '', answer: '', metadata_val: '', category: 'Geral' });
+    const [newPair, setNewPair] = useState({ 
+        question: '', 
+        answer: '', 
+        metadata_val: '', 
+        category: 'Geral',
+        question_variations: []
+    });
     const [isSaving, setIsSaving] = useState(false);
 
     if (kbType === 'product') return null;
@@ -16,7 +24,13 @@ const AddItemForm = () => {
         const success = await handleAddItem(newPair);
         setIsSaving(false);
         if (success) {
-            setNewPair({ question: '', answer: '', metadata_val: '', category: 'Geral' });
+            setNewPair({ 
+                question: '', 
+                answer: '', 
+                metadata_val: '', 
+                category: 'Geral',
+                question_variations: []
+            });
         }
     };
 
@@ -37,11 +51,12 @@ const AddItemForm = () => {
                     />
                 </div>
                 <div className="form-group flex-2">
-                    <ExpandableField
+                    <MetadataBadgesInput
                         label={kbLabels.metadata}
-                        placeholder={`Ex: ${kbLabels.metadata === 'Metadado' ? 'PAINEL INICIAL | Chat' : 'Digite aqui...'}`}
+                        placeholder={`Ex: ${kbLabels.metadata === 'Metadado' ? 'PAINEL INICIAL | Chat (Enter)' : 'Digite aqui...'}`}
                         value={newPair.metadata_val}
-                        onChange={(e) => setNewPair({ ...newPair, metadata_val: e.target.value })}
+                        onChange={(val) => setNewPair({ ...newPair, metadata_val: val })}
+                        disabled={isSaving}
                     />
                 </div>
                 <div className="form-group flex-1">
@@ -54,6 +69,13 @@ const AddItemForm = () => {
                     />
                 </div>
             </div>
+
+            <QuestionVariationsInput
+                variations={newPair.question_variations}
+                onChange={(vars) => setNewPair(prev => ({ ...prev, question_variations: vars }))}
+                disabled={isSaving}
+            />
+
             <div className="form-group">
                 <ExpandableField
                     label={kbLabels.answer}

@@ -19,7 +19,8 @@ def test_is_purchase_declaration_variations():
         "paguei pelo cartão",
         "já adquiri",
         "adquiri o curso",
-        "fiz a minha matrícula"
+        "fiz a minha matrícula",
+        "oiee comprei o curso, mas não chegou meu acesso no meu email, como faço?"
     ]
     for phrase in positive_phrases:
         assert _is_purchase_declaration(phrase) is True, f"Deveria reconhecer compra para: '{phrase}'"
@@ -39,7 +40,8 @@ def test_is_purchase_declaration_variations():
 
 
 def test_check_programmatic_shortcuts_purchase_declaration():
-    """Valida o atalho do pre-router para quando o lead informa compra."""
+    """Valida que o atalho determinístico (shortcut-logic) NÃO intercepta declarações de compra,
+    garantindo que mensagens de compra sejam sempre analisadas e respondidas pela IA."""
     mock_agent = MagicMock()
     mock_agent.id = 1
     mock_agent.initial_message = "Olá! Como posso ajudar?"
@@ -55,11 +57,21 @@ def test_check_programmatic_shortcuts_purchase_declaration():
         message="Já comprei o curso ontem!"
     )
 
-    assert result is not None
-    assert result.get("eh_compra_informada") is True
-    assert result.get("eh_saudacao") is True
-    assert "Parabéns" in result.get("resposta_direta")
-    assert result.get("precisa_rag") is False
+    # Deve ser None para não disparar shortcut-logic com resposta enlatada
+    assert result is None
+
+    # Testando também o caso reportado com dúvida pós-compra
+    result_user_case = check_programmatic_shortcuts(
+        raw_user_message="oiee comprei o curso, mas não chegou meu acesso no meu email, como faço?",
+        history=[],
+        main_agent=mock_agent,
+        is_first_msg=False,
+        is_ad=False,
+        similarity_info="",
+        cleaned_message="oiee comprei o curso, mas não chegou meu acesso no meu email, como faço?",
+        message="oiee comprei o curso, mas não chegou meu acesso no meu email, como faço?"
+    )
+    assert result_user_case is None
 
 
 @pytest.mark.asyncio
@@ -74,7 +86,7 @@ async def test_followup_cancel_on_purchased_or_cancel_label():
         mock_db = MagicMock()
         mock_session_cls.return_value = mock_db
         
-        # Config com followup ativado e etiquetas de cancelamento e compra
+        # Config com followup ativado e etiquetas de cancelamento e compra (16 colunas esperadas)
         mock_db.execute.return_value.fetchall.side_effect = [
             # 1ª query: webhook_configs
             [(
@@ -82,7 +94,7 @@ async def test_followup_cancel_on_purchased_or_cancel_label():
                 '[{"delay_minutes": 10}]', '{"enabled": false}',
                 1, "humano", "cancelar_robo", "",
                 "https://api.zapvoice.com", "token_123", "client_1",
-                "followup_enviado", "aluno_comprou"
+                "followup_enviado", "aluno_comprou", "[]"
             )],
             # 2ª query: leads due
             [(
@@ -96,3 +108,28 @@ async def test_followup_cancel_on_purchased_or_cancel_label():
         
         # O lead possui a etiqueta "aluno_comprou", o que deve acionar o cancelamento
         mock_db.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_pre_router_purchase_message_allows_ai_response():
+    """Valida que mensagens de compra no pre-router marcam eh_compra_informada=True sem resposta_direta estática,
+    garantindo que o agente de IA processe e formule a resposta."""
+    from agent_core.logic.pre_router.runner import run_pre_router_ai
+    mock_agent = MagicMock()
+    mock_agent.id = 1
+    mock_agent.initial_message = "Olá! Como posso ajudar?"
+    mock_agent.ad_mode = "panel"
+    mock_agent.initial_ignore_message = None
+    mock_agent.system_prompt = "Você é um assistente prestativo."
+
+    user_msg = "oiee comprei o curso, mas não chegou meu acesso no meu email, como faço?"
+    res = await run_pre_router_ai(
+        message=user_msg,
+        history=[],
+        main_agent=mock_agent,
+        secondary_agents=[]
+    )
+
+    assert res.get("eh_compra_informada") is True
+    assert res.get("resposta_direta") is None
+    assert res.get("_model_used") != "shortcut-logic"

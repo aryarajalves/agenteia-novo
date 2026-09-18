@@ -9,7 +9,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from config_store import AgentConfig
 from models import AgentConfigModel, WebhookEventModel
-from core.timezone import get_now_utc
+from core.timezone import get_now_utc, get_now_br
+from .utils import (
+    build_project_assistant_prompt,
+    execute_pre_rag_search,
+    is_user_answering_assistant_question
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +71,11 @@ async def execute_agent_pipeline(
         "perfeito", "combinado", "otimo", "ótimo", "maravilha", "nenhuma", "nenhum",
         "nada", "nada mais", "nao obrigado", "não obrigado", "nao obrigada", "não obrigada"
     ]
-    if cache_enabled and not is_simulated and mensagem and len(mensagem.strip()) >= 3 and not is_pure_conversational:
+    is_answering_question = is_user_answering_assistant_question(mensagem, history)
+    if is_answering_question:
+        logger.info(f"⏭️ [CACHE SEMÂNTICO PULA] Mensagem é resposta conversacional/qualificação para o assistente: '{mensagem[:40]}...'. Pulando consulta ao cache.")
+
+    if cache_enabled and not is_simulated and mensagem and len(mensagem.strip()) >= 3 and not is_pure_conversational and not is_answering_question:
         try:
             from services.semantic_cache_service import lookup_semantic_cache
             from agent_core.utils import format_whatsapp_message
@@ -224,28 +233,24 @@ async def execute_agent_pipeline(
                 if has_qualification_funnel and not is_already_qualified:
                     # Não encerra o pipeline; injeta a resposta oficial do cache para a IA formular a pergunta do funil
                     partial_cache_items = [cached_item] if not is_multi_hit else multi_matched_items
-                    step_title = f"⚡ Cache Semântico ({sim_pct_str}) + Funil de Qualificação Ativo"
+                    cache_funnel_handled = True
+                    if is_multi_hit and multi_matched_items:
+                        step_title = f"⚡ Cache Semântico ({sim_pct_str} · {len(multi_matched_items)} Perguntas) + Funil de Qualificação Ativo"
+                        bullets = "\n".join([f"  • \"{it.user_query}\" (ID {it.id})" for it in multi_matched_items])
+                        p_label = f"• **Perguntas Identificadas e Respondidas ({len(multi_matched_items)}):**\n{bullets}\n• **Similaridade Média:** {sim_pct_str}"
+                        cache_meta = {"from_semantic_cache": "funnel", "cache_ids": [it.id for it in multi_matched_items], "matched_queries": [it.user_query for it in multi_matched_items], "total_questions": len(multi_matched_items), "similarity": round(sim_score, 4), "similarity_pct": sim_pct_str, "funnel_active": True}
+                    else:
+                        step_title = f"⚡ Cache Semântico ({sim_pct_str}) + Funil de Qualificação Ativo"
+                        p_label = f"• **Pergunta Identificada:** \"{cached_item.user_query}\"\n• **Similaridade Vetorial:** {sim_pct_str}"
+                        cache_meta = {"from_semantic_cache": "funnel", "cache_id": cached_item.id, "similarity": round(sim_score, 4), "similarity_pct": sim_pct_str, "funnel_active": True}
                     step_detail = (
                         f"🎯 **Hit de Cache Semântico Integrado ao Funil de Sondagem**\n\n"
-                        f"• **Pergunta Identificada:** \"{cached_item.user_query}\"\n"
-                        f"• **Similaridade Vetorial:** {sim_pct_str}\n"
+                        f"{p_label}\n"
                         f"• **Origem:** Resposta aprovada no Cache Semântico\n\n"
                         f"💬 **Resposta Oficial do Cache Injetada:**\n{resp_content}\n\n"
                         f"🤖 A resposta oficial do cache foi injetada no contexto para que o Agente responda com precisão e formule a pergunta da próxima etapa do Funil de Qualificação."
                     )
-                    webhook_tasks._add_step(
-                        db,
-                        event_id,
-                        step_title,
-                        step_detail,
-                        metadata={
-                            "from_semantic_cache": "funnel",
-                            "cache_id": cached_item.id,
-                            "similarity": round(sim_score, 4),
-                            "similarity_pct": sim_pct_str,
-                            "funnel_active": True
-                        }
-                    )
+                    webhook_tasks._add_step(db, event_id, step_title, step_detail, metadata=cache_meta)
                     db.commit()
                     logger.info(f"⚡ [PIPELINE] Cache Semântico ({sim_pct_str}) integrado ao Funil de Qualificação ativo para evento {event_id}.")
                 else:
@@ -397,6 +402,43 @@ async def execute_agent_pipeline(
             "_usage": {"prompt_tokens": 85, "completion_tokens": 30, "total_tokens": 115},
             "_debug_prompt": "[MOCK PRE-ROUTER PROMPT] Análise de intenção simulada para teste de carga."
         }
+    elif locals().get('cache_funnel_handled'):
+        pre_router_result = {
+            "eh_saudacao": False,
+            "eh_agradecimento": False,
+            "eh_agradecimento_recorrente": False,
+            "eh_mensagem_automatica": False,
+            "eh_resposta_ao_agente": False,
+            "precisa_esclarecimento": False,
+            "eh_anuncio": False,
+            "resposta_direta": None,
+            "resposta_esclarecimento": None,
+            "id_agente_alvo": db_agent.id,
+            "perguntas_extraidas": mensagem,
+            "lista_perguntas_extraidas": [it.user_query for it in multi_matched_items] if is_multi_hit and multi_matched_items else [mensagem],
+            "data_extraida": None,
+            "precisa_rag": False,
+            "chamada_ferramenta": None,
+            "mensagem_original": mensagem,
+            "mensagem_melhorada": mensagem,
+            "tipo_mensagem": "Dúvida Respondida pelo Cache Semântico + Funil Ativo",
+            "decisao": "Resposta atendida pelo Cache Semântico. Pre-Router LLM e RAG dispensados.",
+            "_model_used": "shortcut-logic",
+            "_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "_debug_prompt": "Atalho do Cache Semântico: Dúvida pré-aprovada pelo Cache com Funil de Qualificação ativo. Pre-Router e RAG dispensados."
+        }
+        shortcut_desc = (
+            f"Todas as {len(multi_matched_items)} dúvidas foram respondidas com precisão pelo Cache Semântico. A triagem do Pre-Router e a busca na Base de Conhecimento foram dispensadas (0 tokens consumidos). O Agente Principal foi acionado diretamente para integrar as respostas oficiais e avançar no Funil de Qualificação."
+            if is_multi_hit and multi_matched_items
+            else "Todas as dúvidas foram respondidas com precisão pelo Cache Semântico. A triagem do Pre-Router e a busca na Base de Conhecimento foram dispensadas (0 tokens consumidos). O Agente Principal foi acionado diretamente para integrar a resposta oficial e avançar no Funil de Qualificação."
+        )
+        webhook_tasks._add_step(
+            db,
+            event_id,
+            "⚡ Atalho Cache Semântico (Pre-Router e RAG Dispensados)",
+            shortcut_desc
+        )
+        db.commit()
     else:
         webhook_tasks._add_step(db, event_id, "🧠 Analisando Intenção (Pre-Router)", "A IA está decidindo o roteamento e entendendo o contexto da mensagem...")
         db.commit()
@@ -678,18 +720,8 @@ async def execute_agent_pipeline(
             db, 
             event_id, 
             "🎉 Compra Informada pelo Cliente", 
-            f"Lead informou que já comprou o curso/produto. Etiqueta '{purchased_lbl}' aplicada e automações de follow-up canceladas com sucesso."
+            f"Lead informou que já comprou o curso/produto. Etiqueta '{purchased_lbl}' aplicada e automações de follow-up canceladas com sucesso. Encaminhando mensagem para a IA analisar e responder."
         )
-        return {
-            "content": pre_router_result.get("resposta_direta"),
-            "usage": pr_usage,
-            "model": pr_model,
-            "debug": {
-                "is_greeting": True,
-                "compra_informada": True,
-                "purchased_label_applied": purchased_lbl
-            }
-        }
 
     if pre_router_result.get("eh_agradecimento_recorrente") or (pre_router_result.get("eh_agradecimento") and not pre_router_result.get("resposta_direta")):
         webhook_tasks._add_step(
@@ -760,50 +792,69 @@ async def execute_agent_pipeline(
         if proj_label.lower().strip() in current_labels_list:
             is_project_assistant = True
 
-    final_db_agent_tools = final_db_agent.tools
+    final_db_agent_tools = list(final_db_agent.tools) if final_db_agent.tools else []
+    is_lead_already_qualified = False
+    active_funnel_id = None
+    if config and config.leads_table and event.telefone:
+        try:
+            check_q = await async_db.execute(
+                text(f"SELECT respostas_qualificacao, active_qualification_funnel_id FROM {config.leads_table} WHERE telefone = :phone LIMIT 1"),
+                {"phone": event.telefone}
+            )
+            q_row = check_q.fetchone()
+            if q_row:
+                if q_row[0] and str(q_row[0]).strip():
+                    is_lead_already_qualified = True
+                    logger.info(f"Lead {event.telefone} já qualificado anteriormente. Suprimindo ferramenta lead_qualificado.")
+                if len(q_row) > 1 and q_row[1]:
+                    active_funnel_id = str(q_row[1]).strip()
+        except Exception as e_qual_check:
+            logger.debug(f"Aviso ao checar qualificação prévia do lead: {e_qual_check}")
+
+    if is_lead_already_qualified:
+        final_db_agent_tools = [t for t in final_db_agent_tools if getattr(t, 'name', '') != 'lead_qualificado']
+
     if is_project_assistant:
         webhook_tasks._add_step(db, event_id, "⚙️ Modo Assistente de Projeto Ativo", "Injetando métricas reais e prompt customizado do projeto.")
         metrics = await webhook_tasks.get_project_assistant_context(async_db, config)
-        final_agent_config.system_prompt = webhook_tasks.build_project_assistant_prompt(metrics)
+        final_agent_config.system_prompt = build_project_assistant_prompt(metrics)
         final_db_agent_tools = []
 
+    raw_user_message = str(mensagem)
     extracted = pre_router_result.get("perguntas_extraidas")
     extracted_date = pre_router_result.get("data_extraida")
     
+    rag_query = str(extracted) if extracted and str(extracted).strip() else raw_user_message
+
     if extracted_date:
-        mensagem = f"[DATA EXTRAÍDA PELO SISTEMA: {extracted_date}]\n{extracted or mensagem}"
-    elif extracted and str(extracted).strip():
-        original_msg = str(mensagem)
-        mensagem = str(extracted)
-        if original_msg != mensagem and pre_router_result.get("precisa_rag"):
-            webhook_tasks._add_step(db, event_id, "🧹 Melhoria de Mensagem Alinhada ao RAG", f"A mensagem do usuário foi alinhada com as perguntas da Base de Conhecimento.\n\n**Antes:** \"{original_msg}\"\n**Depois (Alinhado):** \"{mensagem}\"")
-        elif original_msg != mensagem:
-            webhook_tasks._add_step(db, event_id, "🧹 Mensagem Processada", f"Mensagem processada pelo Pre-Router: \"{mensagem[:1000]}\"")
+        mensagem = f"[DATA EXTRAÍDA PELO SISTEMA: {extracted_date}]\n{raw_user_message}"
+    else:
+        mensagem = raw_user_message
+        
+    if extracted and str(extracted).strip() and str(extracted).strip() != raw_user_message:
+        if pre_router_result.get("precisa_rag"):
+            webhook_tasks._add_step(db, event_id, "🧹 Consulta RAG Alinhada", f"A pergunta para busca na Base de Conhecimento foi alinhada:\n\n**Mensagem Original:** \"{raw_user_message[:1000]}\"\n**Consulta para Busca:** \"{rag_query[:1000]}\"")
         else:
-            webhook_tasks._add_step(db, event_id, "🧹 Mensagem Limpa/Extraída", f"Mensagem mantida para consulta: \"{mensagem[:1000]}\"")
+            webhook_tasks._add_step(db, event_id, "🧹 Mensagem Processada", f"Mensagem processada pelo Pre-Router: \"{rag_query[:1000]}\"")
+    else:
+        webhook_tasks._add_step(db, event_id, "🧹 Mensagem Mantida", f"Mensagem mantida para consulta: \"{mensagem[:1000]}\"")
 
     pre_executed_tool_calls = []
     pre_executed_rag_context = None
     
     # 9. EXECUÇÃO ANTECIPADA DE RAG
-    # Se todas as perguntas já foram pré-resolvidas pelo Cache Semântico, pula o RAG para economizar latência e recursos
-    has_all_resolved_by_cache = bool('partial_cache_items' in locals() and partial_cache_items and len(partial_cache_items) >= len(pre_router_result.get("lista_perguntas_extraidas") or [1]))
-    if pre_router_result.get("precisa_rag") and not has_all_resolved_by_cache:
-        pre_executed_rag_context = await webhook_tasks.execute_pre_rag_search(
-            db=db,
-            async_db=async_db,
-            event_id=event_id,
-            final_db_agent=final_db_agent,
-            pre_router_result=pre_router_result,
-            mensagem=mensagem
+    has_all_resolved = bool(locals().get('cache_funnel_handled') or ('partial_cache_items' in locals() and partial_cache_items and len(partial_cache_items) >= len(pre_router_result.get("lista_perguntas_extraidas") or [1])))
+    if pre_router_result.get("precisa_rag") and not has_all_resolved:
+        pre_executed_rag_context = await execute_pre_rag_search(
+            db=db, async_db=async_db, event_id=event_id,
+            final_db_agent=final_db_agent, pre_router_result=pre_router_result, mensagem=rag_query
         )
 
-    # Se houver respostas oficiais pré-resolvidas pelo Cache Semântico Parcial, injeta no contexto para a IA
+    # Injeta respostas oficiais do Cache Semântico no contexto da IA
     if 'partial_cache_items' in locals() and partial_cache_items:
-        cache_context_block = "\n\n# RESPOSTAS OFICIAIS PRÉ-APROVADAS DO CACHE SEMÂNTICO:\n" + "\n".join([
-            f"- Dúvida: {it.user_query}\n  Resposta Oficial Aprovada: {it.approved_response}"
-            for it in partial_cache_items
-        ]) + "\n\nIMPORTANTE: O usuário fez múltiplas perguntas na mensagem. Utilize obrigatoriamente as Respostas Oficiais Aprovadas acima para responder aos tópicos correspondentes e responda com clareza à(s) dúvida(s) restante(s) do usuário, integrando tudo em uma única mensagem fluida e natural."
+        items_text = "\n".join([f"- Dúvida: {it.user_query}\n  Resposta Oficial Aprovada: {it.approved_response}" for it in partial_cache_items])
+        inst = "Utilize com fidelidade a resposta oficial acima e formule a pergunta do Funil de Qualificação." if locals().get('cache_funnel_handled') else "Utilize as Respostas Oficiais acima para responder aos tópicos e complemente a dúvida restante."
+        cache_context_block = f"\n\n# RESPOSTAS OFICIAIS PRÉ-APROVADAS DO CACHE SEMÂNTICO:\n{items_text}\n\nDIRETRIZ OBRIGATÓRIA:\n{inst}"
         pre_executed_rag_context = (pre_executed_rag_context or "") + cache_context_block
 
     # 10. EXECUÇÃO ANTECIPADA DE FERRAMENTAS
@@ -824,6 +875,7 @@ async def execute_agent_pipeline(
             "thread_id": event.conversa_id,
             "session_id": session_id,
             "leads_table": config.leads_table if config else None,
+            "active_qualification_funnel_id": active_funnel_id,
             "agent_id": final_db_agent.id
         }
         
@@ -836,9 +888,6 @@ async def execute_agent_pipeline(
         elif tool_name == "google_calendar_manager":
             from agent_core.tools.handlers.google import handle_google_calendar
             tool_result = await handle_google_calendar(async_db, context_vars, tool_args)
-        elif tool_name == "lead_qualificado":
-            from agent_core.tools.handlers.internal import handle_lead_qualified
-            tool_result = await handle_lead_qualified(async_db, context_vars, json.dumps(tool_args), final_db_agent.id)
         elif tool_name in ["transferir_atendimento", "transferir_suporte_humano"]:
             from agent_core.tools.handlers.chatwoot import handle_chatwoot_handoff
             t_tool = next((t for t in final_db_agent_tools if t.name == tool_name), None)
@@ -904,11 +953,14 @@ async def execute_agent_pipeline(
                 "thread_id": event.conversa_id,
                 "session_id": session_id,
                 "leads_table": config.leads_table if config else None,
-                "dias_desde_criacao": dias_desde_criacao
+                "dias_desde_criacao": dias_desde_criacao,
+                "lead_already_qualified": is_lead_already_qualified,
+                "active_qualification_funnel_id": active_funnel_id,
+                "raw_user_message": raw_user_message
             },
             db=async_db,
             image_url=image_url,
-            on_step=lambda step, detail: webhook_tasks._add_step(db, event_id, step, detail),
+            on_step=lambda step, detail, metadata=None: webhook_tasks._add_step(db, event_id, step, detail, metadata=metadata),
             pre_executed_tool_calls=pre_executed_tool_calls,
             pre_executed_rag_context=pre_executed_rag_context
         )

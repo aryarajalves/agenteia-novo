@@ -25,6 +25,7 @@ class WebhookConfigCreate(BaseModel):
     window_close_label: List[str] = []
     followup_enabled: bool = False
     followup_steps: List[dict] = []
+    followup_funnels: Union[List[dict], Any, None] = []
     followup_business_hours: Optional[dict] = None
     followup_cancel_label: Optional[str] = None
     followup_required_label: Optional[str] = None
@@ -89,6 +90,7 @@ class WebhookConfigResponse(BaseModel):
     window_close_label: Union[List[str], Any, None] = []
     followup_enabled: Optional[bool] = None
     followup_steps: Union[List[dict], Any, None] = []
+    followup_funnels: Union[List[dict], Any, None] = []
     followup_business_hours: Union[dict, Any, None] = None
     followup_cancel_label: Optional[str] = None
     followup_required_label: Optional[str] = None
@@ -120,7 +122,7 @@ class WebhookConfigResponse(BaseModel):
 
     @field_validator(
         "blocked_messages", "allowed_contacts", "labels_on_message", 
-        "delete_keywords", "delete_labels", "window_close_label", "followup_steps", 
+        "delete_keywords", "delete_labels", "window_close_label", "followup_steps", "followup_funnels",
         "followup_business_hours", "memory_mappings", "handoff_labels_to_add", 
         "handoff_labels_to_remove", "ai_handoff_labels_to_add", 
         "ai_handoff_labels_to_remove", "secondary_agent_ids",
@@ -160,6 +162,7 @@ class WebhookConfigUpdate(BaseModel):
     window_close_label: Optional[List[str]] = None
     followup_enabled: Optional[bool] = None
     followup_steps: Optional[List[dict]] = None
+    followup_funnels: Optional[Union[List[dict], Any]] = None
     followup_business_hours: Optional[dict] = None
     followup_cancel_label: Optional[str] = None
     followup_required_label: Optional[str] = None

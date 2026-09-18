@@ -284,6 +284,40 @@
     color: #fff;
 }
 
+.reset-chat-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.15) 0%, rgba(239, 68, 68, 0.15) 100%);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+    color: #fda4af;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    text-decoration: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.reset-chat-btn:hover {
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.28) 0%, rgba(239, 68, 68, 0.28) 100%);
+    border-color: #f43f5e;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(244, 63, 94, 0.3);
+    color: #ffffff;
+}
+
+.reset-chat-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 .export-training-btn {
     display: flex;
     align-items: center;

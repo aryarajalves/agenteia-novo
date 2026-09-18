@@ -26,6 +26,9 @@ vi.mock('../../components/WebhookManager/components/RaioXViewerModal', () => ({
 vi.mock('../../components/WebhookManager/components/RagViewerModal', () => ({
     default: ({ onClose }) => <div data-testid="rag-modal"><button onClick={onClose}>Fechar RAG</button></div>
 }));
+vi.mock('../../components/WebhookManager/components/ContextMemoryViewerModal', () => ({
+    default: ({ onClose }) => <div data-testid="context-memory-modal"><button onClick={onClose}>Fechar Memoria</button></div>
+}));
 
 describe('pipelineHelpers', () => {
     it('deve formatar data UTC corretamente ou retornar data válida', () => {
@@ -544,6 +547,41 @@ describe('AutomationPipelineModal Component', () => {
         fireEvent.click(closeBtns[0]);
 
         expect(mockOnClose).toHaveBeenCalled();
+    });
+
+    it('deve abrir o modal de memória ao clicar em ver mensagens na etapa de contexto', () => {
+        const mockEvent = {
+            id: 7,
+            webhook_config_id: 10,
+            status: 'completed',
+            created_at: '2026-05-18T10:07:22Z',
+            processing_steps: JSON.stringify([
+                {
+                    step: '🧠 Memória de Contexto',
+                    detail: 'Injetadas 1 interações brutas (2 mensagens) como contexto.',
+                    timestamp: '2026-05-18T10:07:23Z',
+                    metadata: {
+                        messages: [
+                            { role: 'user', content: 'Olá' },
+                            { role: 'assistant', content: 'Oi!' }
+                        ]
+                    }
+                }
+            ])
+        };
+
+        render(
+            <AutomationPipelineModal
+                event={mockEvent}
+                onClose={mockOnClose}
+            />
+        );
+
+        const viewMemoryBtns = screen.getAllByText(/Ver Mensagens/i);
+        expect(viewMemoryBtns.length).toBeGreaterThan(0);
+        fireEvent.click(viewMemoryBtns[0]);
+
+        expect(screen.getByTestId('context-memory-modal')).toBeInTheDocument();
     });
 });
 

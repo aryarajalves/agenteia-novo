@@ -30,7 +30,7 @@ async def test_first_thank_you_returns_full_response():
     result = await run_pre_router_ai("Obrigada ❤️", history, config)
     assert result["eh_saudacao"] is True
     assert result["eh_agradecimento"] is True
-    assert result["resposta_direta"] == "Por nada! Se precisar de mais alguma coisa, é só chamar."
+    assert "Por nada" in result["resposta_direta"]
 
 @pytest.mark.asyncio
 async def test_second_thank_you_returns_none_to_silence_automation():

@@ -19,6 +19,7 @@ import TabSeguranca from './components/TabSeguranca';
 import TabWhitelabel from './components/TabWhitelabel';
 import TabVersoes from './components/TabVersoes';
 import TabSemanticCache from './components/TabSemanticCache';
+import TabQuestionFunnels from './components/TabQuestionFunnels';
 
 const ConfigPanelContent = ({ agentId, onClose, onSaveSuccess }) => {
     const {
@@ -36,6 +37,7 @@ const ConfigPanelContent = ({ agentId, onClose, onSaveSuccess }) => {
         { id: 'geral', label: 'Geral', icon: '⚙️' },
         { id: 'prompts', label: 'Editor Prompt', icon: '💬' },
         { id: 'habilidades', label: 'Habilidades', icon: '⚡' },
+        { id: 'question_funnels', label: 'Funis por Dúvida', icon: '🎯' },
         { id: 'seguranca', label: 'Segurança', icon: '🛡️' },
         { id: 'cache', label: 'Respostas Aprovadas (Cache)', icon: '⚡' },
         { id: 'whitelabel', label: 'Whitelabel', icon: '🎨' },
@@ -98,6 +100,7 @@ const ConfigPanelContent = ({ agentId, onClose, onSaveSuccess }) => {
                 {activeTab === 'geral' && <TabGeral />}
                 {activeTab === 'prompts' && <TabPrompts />}
                 {activeTab === 'habilidades' && <TabHabilidades />}
+                {activeTab === 'question_funnels' && <TabQuestionFunnels />}
                 {activeTab === 'seguranca' && <TabSeguranca />}
                 {activeTab === 'cache' && <TabSemanticCache />}
                 {activeTab === 'whitelabel' && <TabWhitelabel />}

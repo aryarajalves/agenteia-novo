@@ -360,8 +360,8 @@ describe('ChatPlayground Component', () => {
             );
         });
 
-        // Procurar o botão "⚡ Resetar"
-        const resetBtn = screen.getByText(/Resetar/i);
+        // Procurar o botão "⚡ Resetar" da sidebar
+        const resetBtn = screen.getByText('⚡ Resetar');
         expect(resetBtn).toBeInTheDocument();
 
         await act(async () => {

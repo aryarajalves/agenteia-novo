@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from core.timezone import get_now_br
 from models import WebhookEventModel
 
@@ -82,6 +83,93 @@ def _send_chatwoot_message(db, event_id, conversation_id=None, account_id=None, 
     return _send_zapvoice_message(db, event_id, cid, aid, content, config, split_paragraphs=split_paragraphs, delay=delay, meta_data=m_data, total_cost=t_cost)
 
 
+def is_user_answering_assistant_question(mensagem: str, history: list = None) -> bool:
+    """
+    Verifica se a mensagem do usuário é uma resposta conversacional a uma pergunta
+    feita anteriormente pelo assistente (ex: qualificação, objetivo, confirmação, experiência)
+    e que NÃO deve ser enviada para consulta no Cache Semântico.
+    """
+    if not mensagem or not str(mensagem).strip():
+        return False
+        
+    msg_raw = str(mensagem).strip()
+    msg_clean = re.sub(r'[^\w\s]', '', msg_raw.lower()).strip()
+    
+    # Se o usuário fez uma pergunta explícita sobre o produto/curso, precisa ser tratada como dúvida
+    explicit_doubts_regex = (
+        r'\b(?:quem\s+(?:[ée]|s[aã]o|ministra|ensina|criou|fez|d[aá]|atende|trabalha)|'
+        r'o\s+que\s+(?:[ée]|ensina|tem|vou\s+aprender|est[aá]\s+incluso)|'
+        r'qual\s+(?:[ée]|o\s+valor|o\s+pre[çc]o|a\s+dura[çc][aã]o|o\s+hor[aá]rio|a\s+ementa|o\s+conte[uú]do|a\s+plataforma|o\s+link|a\s+garantia|o\s+curso)|'
+        r'quais\s+(?:s[aã]o|os\s+conte[uú]dos|as\s+formas|os\s+m[oó]dulos|os\s+b[oô]nus|os\s+procedimentos|os\s+cursos)|'
+        r'como\s+(?:funciona|[ée]|fa[çc]o|posso|acessar|entrar|comprar|alugar|emitir|receber)|'
+        r'quanto\s+(?:custa|[ée]|tempo|vale)|'
+        r'quantas?\s+(?:aulas?|horas?|sess[oõ]es?|dias?)|'
+        r'onde\s+(?:fica|[ée]|comprar|alugar|encontrar|acessar|assistir)|'
+        r'quando\s+(?:come[çc]a|[ée]|inicia|vai\s+ser|acontece)|'
+        r'por\s*que|porque|pra\s+que|'
+        r'(?:tem|possui|oferece|disponibiliza|d[aá]|emite)\s+(?:certificado|garantia|suporte|acesso|nota|desconto|material|apostila|grupo)|'
+        r'aceita\s+(?:cart[aã]o|pix|boleto|parcelamento)|'
+        r'(?:posso|consigo|d[aá]\s+pra)\s+(?:fazer|alugar|parcelar|comprar|assistir|trabalhar|atender)|'
+        r'vale\s+a\s+pena)\b'
+    )
+    if re.search(explicit_doubts_regex, msg_raw, re.IGNORECASE):
+        return False
+        
+    # Se a mensagem contiver termos interrogativos no início ou acompanhados de '?'
+    interrogative_words = ["o que", "como", "qual", "quais", "onde", "quando", "quanto", "quantos", "quanta", "quantas", "quem", "porque", "por que"]
+    if any(term in msg_clean for term in interrogative_words):
+        if "?" in msg_raw or any(msg_clean.startswith(term) for term in interrogative_words):
+            return False
+
+    # 1. Verifica se há histórico e se o último turno do assistente foi uma pergunta de qualificação
+    if history and isinstance(history, list):
+        last_agent_msg = ""
+        for h in reversed(history):
+            role = h.get("role", "") if isinstance(h, dict) else getattr(h, "role", "")
+            dono = h.get("dono", "") if isinstance(h, dict) else getattr(h, "dono", "")
+            if role in ("assistant", "agent", "bot") or dono in ("agente", "bot"):
+                c = h.get("content", "") if isinstance(h, dict) else getattr(h, "content", "")
+                if c and str(c).strip():
+                    last_agent_msg = str(c).strip()
+                    break
+        
+        if last_agent_msg:
+            # Se o assistente perguntou se o usuário tem dúvidas (ex: "Qual sua dúvida?", "Tem alguma dúvida?", "Ficou com dúvidas?"),
+            # o usuário NÃO está respondendo a uma pergunta de qualificação, está enviando sua dúvida!
+            inviting_doubts_patterns = [
+                r'\bqual\s+(?:sua|a\s+sua)\s+d[uú]vida\b',
+                r'\btem\s+(?:mais\s+)?alguma\s+d[uú]vida\b',
+                r'\bficou\s+(?:com\s+)?(?:alguma\s+)?d[uú]vida\b',
+                r'\bem\s+que\s+posso\s+(?:te\s+)?ajudar\b',
+                r'\bcomo\s+posso\s+(?:te\s+)?ajudar\b'
+            ]
+            if any(re.search(p, last_agent_msg, re.IGNORECASE) for p in inviting_doubts_patterns):
+                return False
+
+            has_assistant_q = "?" in last_agent_msg or any(term in last_agent_msg.lower() for term in [
+                "qual", "como", "você", "voce", "já atua", "ja atua", "começando", "comecando", "objetivo", "interesse", "me conte"
+            ])
+            if has_assistant_q:
+                lead_response_prefixes = (
+                    "sim", "nao", "não", "já", "ja", "ainda", "nunca", "começando", "comecando",
+                    "sou", "tenho", "trabalho", "atuo", "meu objetivo", "quero", "pretendo",
+                    "estou", "faço", "faco", "atendo", "moro", "meu nome", "nenhuma", "nenhum", "nada"
+                )
+                if any(msg_clean.startswith(p) for p in lead_response_prefixes):
+                    return True
+
+    # 2. Se a mensagem não contiver '?' e for puramente declarativa/pessoal sem termos de dúvida
+    if "?" not in msg_raw:
+        personal_declaration_prefixes = (
+            "sim", "já", "ja", "sou", "tenho", "trabalho", "atuo", "começando", "comecando",
+            "meu objetivo", "quero me qualificar", "quero aprender", "pretendo", "estou começando", "estou comecando"
+        )
+        if any(msg_clean.startswith(p) for p in personal_declaration_prefixes):
+            return True
+
+    return False
+
+
 def build_project_assistant_prompt(metrics: dict) -> str:
     """Monta o system prompt enriquecido para o modo Assistente de Projeto."""
     support_str = ""
@@ -149,6 +237,35 @@ async def execute_pre_rag_search(db, async_db, event_id: int, final_db_agent, pr
     if not perguntas_list:
         perguntas_list = [mensagem]
         
+    # ROTEAMENTO AGÊNTICO DE BASES (KB ROUTING)
+    if getattr(final_db_agent, 'rag_kb_routing_enabled', False) and len(kb_ids) > 1:
+        try:
+            from models import KnowledgeBaseModel
+            from sqlalchemy import select
+            from rag_service import route_knowledge_bases
+            
+            stmt_kbs = select(KnowledgeBaseModel.id, KnowledgeBaseModel.name, KnowledgeBaseModel.description).where(KnowledgeBaseModel.id.in_(kb_ids))
+            res_kbs = await async_db.execute(stmt_kbs)
+            kbs_meta = [{"id": r[0], "name": r[1], "description": r[2]} for r in res_kbs.all()]
+            
+            if kbs_meta:
+                routing_info = await route_knowledge_bases(
+                    query=mensagem,
+                    available_kbs=kbs_meta,
+                    context_variables={},
+                    routing_var_name=getattr(final_db_agent, 'rag_kb_routing_variable', None)
+                )
+                if routing_info.get("selected_kb_ids"):
+                    kb_ids = routing_info["selected_kb_ids"]
+                    prod_str = routing_info.get("extracted_product") or "Geral"
+                    base_str = routing_info.get("matched_kb_name") or f"Base ID {kb_ids}"
+                    webhook_tasks._add_step(
+                        db, event_id, "🎯 Roteamento Agêntico de Bases",
+                        f"Produto/Curso: '{prod_str}' ➔ Base direcionada: '{base_str}'. Motivo: {routing_info.get('reason')}"
+                    )
+        except Exception as e_route:
+            logger.warning(f"Erro no roteamento agêntico de bases em webhook_tasks: {e_route}")
+
     all_relevant_items = []
     for q_idx, query_item in enumerate(perguntas_list, 1):
         webhook_tasks._add_step(db, event_id, f"🔍 RAG - Pergunta {q_idx}", f"Consultando bases semânticas para a pergunta {q_idx}: \"{query_item}\"")
@@ -160,10 +277,10 @@ async def execute_pre_rag_search(db, async_db, event_id: int, final_db_agent, pr
             limit=getattr(final_db_agent, 'rag_retrieval_count', 3),
             similarity_threshold=getattr(final_db_agent, 'rag_relevance_threshold', 0.0) or 0.0,
             force_translation=getattr(final_db_agent, 'rag_translation_enabled', False),
-            force_multi_query=getattr(final_db_agent, 'rag_multi_query_enabled', False),
+            force_multi_query=getattr(final_db_agent, 'rag_multi_query_enabled', True),
             force_rerank=getattr(final_db_agent, 'rag_rerank_enabled', True),
             force_agentic_eval=getattr(final_db_agent, 'rag_agentic_eval_enabled', True),
-            force_parent_expansion=getattr(final_db_agent, 'rag_parent_expansion_enabled', True),
+            force_parent_expansion=getattr(final_db_agent, 'rag_parent_expansion_enabled', False),
         )
         
         relevant_items = []

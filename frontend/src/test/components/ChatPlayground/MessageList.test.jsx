@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import MessageList from '../../../components/ChatPlayground/components/MessageList';
 
 const mockMessages = [
@@ -31,8 +31,6 @@ describe('MessageList Component', () => {
 
     it('deve exibir o indicador de carregamento quando loading=true', () => {
         render(<MessageList {...mockProps} loading={true} />);
-        // O TypingIndicator é renderizado. Como é um componente simples, podemos procurar por uma classe ou estrutura.
-        // No MessageList.jsx, o loading renderiza o TypingIndicator.
         const dots = document.querySelector('.typing-indicator');
         expect(dots).toBeInTheDocument();
     });
@@ -49,4 +47,45 @@ describe('MessageList Component', () => {
         expect(screen.getByText('Resposta Desafiante')).toBeInTheDocument();
         expect(screen.getByText('🥊 Challenger')).toBeInTheDocument();
     });
+
+    it('deve fechar outros Raio-X quando um Raio-X for aberto (comportamento de acordeão)', () => {
+        const debugMessages = [
+            {
+                role: 'assistant',
+                content: 'Primeira resposta IA',
+                metrics: { tokens: 15, cost: 0.001 },
+                debug: { system_prompt: 'prompt 1', intent: 'duvida' }
+            },
+            {
+                role: 'assistant',
+                content: 'Segunda resposta IA',
+                metrics: { tokens: 20, cost: 0.002 },
+                debug: { system_prompt: 'prompt 2', intent: 'venda' }
+            }
+        ];
+
+        render(<MessageList {...mockProps} messages={debugMessages} />);
+
+        // Devem existir 2 botões de Raio-X
+        const raioXButtons = screen.getAllByTestId('raio-x-toggle-btn');
+        expect(raioXButtons).toHaveLength(2);
+        expect(raioXButtons[0]).toHaveTextContent('🔍 Raio-X');
+        expect(raioXButtons[1]).toHaveTextContent('🔍 Raio-X');
+
+        // Abre o primeiro Raio-X
+        fireEvent.click(raioXButtons[0]);
+        expect(raioXButtons[0]).toHaveTextContent('Ocultar Detalhes');
+        expect(raioXButtons[1]).toHaveTextContent('🔍 Raio-X');
+
+        // Abre o segundo Raio-X -> o primeiro deve fechar automaticamente!
+        fireEvent.click(raioXButtons[1]);
+        expect(raioXButtons[0]).toHaveTextContent('🔍 Raio-X');
+        expect(raioXButtons[1]).toHaveTextContent('Ocultar Detalhes');
+
+        // Clica novamente no segundo Raio-X -> deve fechar
+        fireEvent.click(raioXButtons[1]);
+        expect(raioXButtons[0]).toHaveTextContent('🔍 Raio-X');
+        expect(raioXButtons[1]).toHaveTextContent('🔍 Raio-X');
+    });
 });
+

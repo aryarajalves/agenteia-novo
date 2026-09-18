@@ -5,6 +5,7 @@ export function useGlobalVariables() {
     const [variables, setVariables] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isAdding, setIsAdding] = useState(false);
+    const [editingVar, setEditingVar] = useState(null);
     const [newVar, setNewVar] = useState({ 
         key: '', 
         value: '', 
@@ -15,6 +16,12 @@ export function useGlobalVariables() {
     });
     const [deleteVar, setDeleteVar] = useState(null);
     const [saving, setSaving] = useState(null);
+
+    const showToast = (message, type = 'success') => {
+        window.dispatchEvent(new CustomEvent('app:toast', {
+            detail: { message, type }
+        }));
+    };
 
     const fetchVariables = async () => {
         try {
@@ -35,9 +42,35 @@ export function useGlobalVariables() {
     const handleUpdate = async (v) => {
         setSaving(v.id);
         try {
-            await api.put(`/global-variables/${v.id}`, v);
+            const res = await api.put(`/global-variables/${v.id}`, v);
+            if (res.ok) {
+                showToast("Variável atualizada com sucesso!");
+            }
         } catch (e) {
-            alert("Erro ao salvar variável");
+            showToast("Erro ao salvar variável", "error");
+        } finally {
+            setSaving(null);
+        }
+    };
+
+    const handleSaveEdit = async (updatedVar) => {
+        if (!updatedVar) return;
+        setSaving(updatedVar.id);
+        try {
+            const res = await api.put(`/global-variables/${updatedVar.id}`, updatedVar);
+            if (res.ok) {
+                setEditingVar(null);
+                await fetchVariables();
+                showToast("Variável atualizada com sucesso!");
+                return true;
+            } else {
+                const data = await res.json();
+                showToast(data.detail || "Erro ao salvar alterações", "error");
+                return false;
+            }
+        } catch (e) {
+            showToast("Erro de conexão ao salvar variável", "error");
+            return false;
         } finally {
             setSaving(null);
         }
@@ -57,13 +90,14 @@ export function useGlobalVariables() {
                     extraction_prompt: '' 
                 });
                 setIsAdding(false);
-                fetchVariables();
+                await fetchVariables();
+                showToast("Variável criada com sucesso!");
             } else {
                 const data = await res.json();
-                alert(data.detail || "Erro ao criar variável");
+                showToast(data.detail || "Erro ao criar variável", "error");
             }
         } catch (e) {
-            alert("Erro de conexão");
+            showToast("Erro de conexão", "error");
         }
     };
 
@@ -71,9 +105,10 @@ export function useGlobalVariables() {
         if (!deleteVar) return;
         try {
             await api.delete(`/global-variables/${deleteVar.id}`);
-            fetchVariables();
+            await fetchVariables();
+            showToast("Variável excluída com sucesso!");
         } catch (e) {
-            alert("Erro ao deletar");
+            showToast("Erro ao deletar", "error");
         } finally {
             setDeleteVar(null);
         }
@@ -85,6 +120,9 @@ export function useGlobalVariables() {
         loading,
         isAdding,
         setIsAdding,
+        editingVar,
+        setEditingVar,
+        handleSaveEdit,
         newVar,
         setNewVar,
         deleteVar,

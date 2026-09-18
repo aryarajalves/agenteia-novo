@@ -77,7 +77,13 @@ export const useKBOperations = () => {
 
         try {
             if (onAdd) {
-                const result = await onAdd(newPair.question, newPair.answer, newPair.category, newPair.metadata_val);
+                const result = await onAdd(
+                    newPair.question, 
+                    newPair.answer, 
+                    newPair.category, 
+                    newPair.metadata_val,
+                    newPair.question_variations || []
+                );
                 return result !== false;
             } else if (onChange) {
                 const updated = [...knowledgeBase, newPair];
@@ -102,7 +108,8 @@ export const useKBOperations = () => {
                     updatedFields.question,
                     updatedFields.answer,
                     updatedFields.category,
-                    updatedFields.metadata_val
+                    updatedFields.metadata_val,
+                    updatedFields.question_variations || []
                 );
                 return result !== false;
             } else if (onChange) {
@@ -111,6 +118,22 @@ export const useKBOperations = () => {
                 );
                 onChange(updated);
                 return true;
+            } else if (kbId) {
+                const res = await api.put(`/knowledge-items/${itemId}`, {
+                    question: updatedFields.question,
+                    answer: updatedFields.answer,
+                    category: updatedFields.category,
+                    metadata_val: updatedFields.metadata_val,
+                    question_variations: updatedFields.question_variations || []
+                });
+                if (res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    setKnowledgeBase(prev => (prev || []).map(item => item.id === itemId ? { ...item, ...updatedFields, ...data } : item));
+                    return true;
+                }
+                const err = await res.json().catch(() => ({}));
+                alert(err.detail || 'Erro ao atualizar item');
+                return false;
             }
             return false;
         } catch (e) {

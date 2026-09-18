@@ -18,9 +18,9 @@ const MessageMetaBar = ({
     debateCostBrl
 }) => {
     const isUser = msg.role === 'user';
-    const isFromCache = !!(msg.metrics?.from_semantic_cache || msg.model_used === 'semantic-cache');
+    const isFromCache = !!(msg.metrics?.from_semantic_cache || msg.model_used === 'semantic-cache' || msg.metrics?.from_question_funnel || msg.model_used === 'question-funnel');
     const fbState = feedbackState?.[msgIndex] || null;
-    const canFeedback = !isUser && msg.metrics && !msg.isError && !isFromCache && handleThumbsUp && handleThumbsDown;
+    const canFeedback = !isUser && msg.metrics && !msg.isError && !isFromCache && handleThumbsUp;
 
     if (!msg.metrics || isRegularUser) return null;
 
@@ -84,25 +84,57 @@ const MessageMetaBar = ({
                 </span>
             ) : null}
 
-            {msg.model_used && msg.model_used !== 'semantic-cache' && (
+            {msg.metrics?.from_question_funnel || msg.model_used === 'question-funnel' || msg.debug?.from_question_funnel ? (
+                <span 
+                    className="meta-pill question-funnel-pill" 
+                    data-testid="question-funnel-pill"
+                    style={{
+                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(168, 85, 247, 0.25))',
+                        color: '#60a5fa',
+                        border: '1px solid rgba(59, 130, 246, 0.5)',
+                        boxShadow: '0 0 10px rgba(59, 130, 246, 0.2)',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                    }}
+                    title={`Disparado via Funil de Conversão por Dúvida (Similaridade: ${(msg.debug?.similarity || msg.funnel_similarity) ? `${((msg.debug?.similarity || msg.funnel_similarity) * 100).toFixed(1)}%` : 'Alta'})`}
+                >
+                    🎯 FUNIL POR DÚVIDA ({(msg.debug?.similarity || msg.funnel_similarity) ? `${((msg.debug?.similarity || msg.funnel_similarity) * 100).toFixed(1)}% MATCH` : 'ALTA CONVERSÃO'} · R$ 0,00)
+                </span>
+            ) : null}
+
+            {msg.model_used && !['semantic-cache', 'question-funnel'].includes(msg.model_used) && (
                 <span className="meta-pill model-pill" style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     ✨ {msg.model_used}
                 </span>
             )}
-            {msg.metrics?.model_role && (
+            {msg.metrics?.model_role && !['semantic-cache', 'question-funnel'].includes(msg.metrics.model_role) && (
                 <span className="meta-pill" style={{
                     background: msg.metrics.model_role === 'main' ? 'rgba(16, 185, 129, 0.15)' :
+                        msg.metrics.model_role === 'router_complex' ? 'rgba(99, 102, 241, 0.15)' :
+                        msg.metrics.model_role === 'router_simple' ? 'rgba(6, 182, 212, 0.15)' :
                         msg.metrics.model_role === 'fallback' ? 'rgba(234, 179, 8, 0.15)' :
-                            'rgba(239, 68, 68, 0.15)',
+                        msg.metrics.model_role === 'pre-router' ? 'rgba(168, 85, 247, 0.15)' :
+                        msg.metrics.model_role === 'emergency' ? 'rgba(239, 68, 68, 0.15)' :
+                            'rgba(148, 163, 184, 0.15)',
                     color: msg.metrics.model_role === 'main' ? '#10b981' :
+                        msg.metrics.model_role === 'router_complex' ? '#818cf8' :
+                        msg.metrics.model_role === 'router_simple' ? '#06b6d4' :
                         msg.metrics.model_role === 'fallback' ? '#eab308' :
-                            '#ef4444',
+                        msg.metrics.model_role === 'pre-router' ? '#c084fc' :
+                        msg.metrics.model_role === 'emergency' ? '#ef4444' :
+                            '#94a3b8',
                     display: 'flex', alignItems: 'center', gap: '4px',
                     fontWeight: 600
                 }}>
                     {msg.metrics.model_role === 'main' ? '🟢 Principal' :
+                        msg.metrics.model_role === 'router_complex' ? '🧠 Complexo (Router)' :
+                        msg.metrics.model_role === 'router_simple' ? '⚡ Simples (Router)' :
                         msg.metrics.model_role === 'fallback' ? '🟡 Fallback' :
-                            '🔴 Emergência'}
+                        msg.metrics.model_role === 'pre-router' ? '⚡ Pré-Router' :
+                        msg.metrics.model_role === 'emergency' ? '🔴 Emergência' :
+                            `ℹ️ ${msg.metrics.model_role}`}
                 </span>
             )}
             {msg.tool_calls && msg.tool_calls.length > 0 && (
@@ -165,31 +197,22 @@ const MessageMetaBar = ({
                 </button>
             )}
 
-            {/* ---- Botões de Feedback ---- */}
+            {/* ---- Botão Treinar Resposta (Cache Semântico) ---- */}
             {canFeedback && (
                 <div className="feedback-btns">
                     {!fbState && (
-                        <>
-                            <button
-                                className="feedback-btn thumbs-up"
-                                onClick={() => handleThumbsUp(msg, msgIndex)}
-                                title="Resposta correta — adicionar ao dataset"
-                            >👍</button>
-                            <button
-                                className="feedback-btn thumbs-down"
-                                onClick={() => handleThumbsDown(msg, msgIndex)}
-                                title="Resposta ruim — corrigir para treinar"
-                            >👎</button>
-                        </>
+                        <button
+                            type="button"
+                            data-testid="btn-train-response"
+                            className="train-response-btn thumbs-up"
+                            onClick={() => handleThumbsUp(msg, msgIndex)}
+                            title="Treinar Resposta — Adicionar ao Cache Semântico como resposta oficial aprovada"
+                        >
+                            🎯 Treinar Resposta
+                        </button>
                     )}
                     {fbState === 'positive' && (
                         <span className="feedback-done positive" style={{ color: '#34d399', fontWeight: 600 }} title="Resposta salva no Cache Semântico!">⚡ Salvo no Cache</span>
-                    )}
-                    {(fbState === 'negative') && (
-                        <span className="feedback-done negative" title="Correção salva no dataset">🎯 Corrigido</span>
-                    )}
-                    {fbState === 'correcting' && (
-                        <span className="feedback-done correcting">✏️ Corrigindo...</span>
                     )}
                 </div>
             )}

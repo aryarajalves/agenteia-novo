@@ -15,10 +15,13 @@ export const useConfigSave = () => {
         ragRetrievalCount, ragTranslationEnabled, ragMultiQueryEnabled,
         ragRerankEnabled, ragAgenticEvalEnabled, ragParentExpansionEnabled,
         ragRelevanceThreshold,
+        ragKbRoutingEnabled, ragKbRoutingVariable,
         semanticCacheEnabled,
         semanticCacheThreshold,
         inboxCaptureEnabled, initialMessage, initialQuestionMessage,
-        initialIgnoreMessage, qualificationQuestions, qualificationLabels, qualificationCriteria, qualificationFinalAction, securityBlacklist, securityForbidden,
+        initialIgnoreMessage, qualificationQuestions, qualificationLabels, qualificationCriteria, qualificationFinalAction, qualificationFinalActionTrigger,
+        qualificationFunnels, setQualificationFunnels, activeFunnelId,
+        securityBlacklist, securityForbidden,
         securityDiscount, securityComplexity, securityPii,
         securityValidatorIa, securityBotProtection, securityMaxMessages,
         securitySemanticThreshold, securityLoopCount, routerEnabled,
@@ -45,10 +48,37 @@ export const useConfigSave = () => {
             setIsSaving(true);
             setStatus('Iniciando salvamento...');
 
+            // Sincronizar dados do funil ativo com a lista de múltiplos funis
+            let updatedFunnels = [...(qualificationFunnels || [])];
+            const activeIdx = updatedFunnels.findIndex(f => f.id === activeFunnelId);
+            const activeFunnelData = {
+                questions: qualificationQuestions || [],
+                labels: qualificationLabels || [],
+                criteria: qualificationCriteria || '',
+                final_action: qualificationFinalAction || '',
+                final_action_trigger: qualificationFinalActionTrigger || 'all'
+            };
+
+            if (activeIdx >= 0) {
+                updatedFunnels[activeIdx] = {
+                    ...updatedFunnels[activeIdx],
+                    ...activeFunnelData
+                };
+            } else if (updatedFunnels.length === 0) {
+                updatedFunnels = [{
+                    id: 'funnel_default',
+                    name: 'Padrão / Principal',
+                    is_default: true,
+                    ...activeFunnelData
+                }];
+            }
+
+            const defaultFunnel = updatedFunnels.find(f => f.is_default) || updatedFunnels[0] || {};
+
             const payload = {
                 name,
                 description,
-                model: selectedModel,
+                model: routerEnabled ? (routerComplexModel || selectedModel) : selectedModel,
                 fallback_model: fallbackModel || null,
                 temperature: parseFloat(temperature) || 1.0,
                 top_p: parseFloat(topP) || 1.0,
@@ -67,6 +97,8 @@ export const useConfigSave = () => {
                 rag_agentic_eval_enabled: !!ragAgenticEvalEnabled,
                 rag_parent_expansion_enabled: !!ragParentExpansionEnabled,
                 rag_relevance_threshold: (parseFloat(ragRelevanceThreshold) || 0) / 100,
+                rag_kb_routing_enabled: !!ragKbRoutingEnabled,
+                rag_kb_routing_variable: ragKbRoutingVariable || null,
                 semantic_cache_enabled: !!semanticCacheEnabled,
                 semantic_cache_threshold: (parseFloat(semanticCacheThreshold) || 92) / 100,
                 inbox_capture_enabled: !!inboxCaptureEnabled,
@@ -93,10 +125,12 @@ export const useConfigSave = () => {
                 question_mode: questionMode || 'panel',
                 ad_mode: adMode || 'panel',
                 initial_ignore_message: initialIgnoreMessage.length > 0 ? JSON.stringify(initialIgnoreMessage) : null,
-                qualification_questions: qualificationQuestions.length > 0 ? JSON.stringify(qualificationQuestions) : null,
-                qualification_labels: qualificationLabels.length > 0 ? JSON.stringify(qualificationLabels) : null,
-                qualification_criteria: qualificationCriteria || null,
-                qualification_final_action: qualificationFinalAction || null,
+                qualification_funnels: updatedFunnels,
+                qualification_questions: (defaultFunnel.questions && defaultFunnel.questions.length > 0) ? JSON.stringify(defaultFunnel.questions) : null,
+                qualification_labels: (defaultFunnel.labels && defaultFunnel.labels.length > 0) ? JSON.stringify(defaultFunnel.labels) : null,
+                qualification_criteria: defaultFunnel.criteria || null,
+                qualification_final_action: defaultFunnel.final_action || null,
+                qualification_final_action_trigger: defaultFunnel.final_action_trigger || 'all',
                 unanswered_handoff_limit: unansweredHandoffEnabled ? (parseInt(unansweredHandoffLimit) || 2) : 0,
                 unanswered_question_prompt: unansweredQuestionPrompt ? unansweredQuestionPrompt.trim() : null,
                 router_enabled: true,
@@ -129,6 +163,8 @@ export const useConfigSave = () => {
             const res = isNew
                 ? await api.post('/agents', payload)
                 : await api.put(`/agents/${id}`, payload);
+
+            setQualificationFunnels(updatedFunnels);
 
             if (!res.ok) {
                 const errorData = await res.json().catch(() => ({ detail: "Erro desconhecido" }));

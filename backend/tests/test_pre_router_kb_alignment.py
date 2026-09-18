@@ -26,8 +26,10 @@ async def test_get_kb_reference_context_sql_catalog():
         res = MagicMock()
         if "agent_configs" in str(stmt).lower():
             res.scalars.return_value = mock_agent_scalars
+            res.all.return_value = [mock_agent]
         else:
             res.scalars.return_value = mock_questions_scalars
+            res.all.return_value = mock_questions_scalars.all.return_value
         return res
 
     mock_db.execute.side_effect = mock_execute_side_effect

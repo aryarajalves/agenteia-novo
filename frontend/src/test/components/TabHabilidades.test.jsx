@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
@@ -14,6 +14,8 @@ const mockSetRagMultiQueryEnabled = vi.fn();
 const mockSetRagRerankEnabled = vi.fn();
 const mockSetRagParentExpansionEnabled = vi.fn();
 const mockSetRagAgenticEvalEnabled = vi.fn();
+const mockSetRagKbRoutingEnabled = vi.fn();
+const mockSetRagKbRoutingVariable = vi.fn();
 const mockSetShowHabilidadesGuide = vi.fn();
 
 const mockConfigValues = {
@@ -32,6 +34,10 @@ const mockConfigValues = {
     setRagParentExpansionEnabled: mockSetRagParentExpansionEnabled,
     ragAgenticEvalEnabled: false,
     setRagAgenticEvalEnabled: mockSetRagAgenticEvalEnabled,
+    ragKbRoutingEnabled: false,
+    setRagKbRoutingEnabled: mockSetRagKbRoutingEnabled,
+    ragKbRoutingVariable: '',
+    setRagKbRoutingVariable: mockSetRagKbRoutingVariable,
     toolsList: [
         { id: 1, name: 'google_calendar_manager', webhook_url: null },
         { id: 2, name: 'transferir_robo', webhook_url: null },
@@ -51,6 +57,20 @@ const mockConfigValues = {
     showHabilidadesGuide: false,
     setShowHabilidadesGuide: mockSetShowHabilidadesGuide
 };
+
+vi.mock('../../api/client', () => ({
+    api: {
+        get: vi.fn().mockResolvedValue({
+            data: [
+                { id: 1, key: 'curso_interesse', description: 'Curso de interesse do lead' },
+                { id: 2, key: 'produto_interesse', description: 'Produto do lead' }
+            ]
+        }),
+        post: vi.fn(),
+        put: vi.fn(),
+        delete: vi.fn()
+    }
+}));
 
 vi.mock('../../components/ConfigPanel/ConfigContext', () => ({
     useConfig: () => mockConfigValues
@@ -113,5 +133,29 @@ describe('TabHabilidades Component', () => {
         // O chip do transferir_robo não deve aparecer de jeito nenhum
         const chipTransferirRobo = screen.queryByText(/transferir_robo/i);
         expect(chipTransferirRobo).not.toBeInTheDocument();
+    });
+
+    it('deve exibir o módulo de Roteamento Agêntico de Bases na lista de módulos avançados', () => {
+        renderWithRouter(<TabHabilidades />);
+        expect(screen.getByText('🎯 Roteamento Agêntico de Bases (KB Routing)')).toBeInTheDocument();
+        expect(screen.getByText(/direciona a busca apenas para a base certa/i)).toBeInTheDocument();
+    });
+
+    it('deve exibir o seletor de variável quando ragKbRoutingEnabled for true e permitir alternar', async () => {
+        mockConfigValues.ragKbRoutingEnabled = true;
+        mockConfigValues.ragKbRoutingVariable = 'curso_interesse';
+
+        renderWithRouter(<TabHabilidades />);
+
+        expect(screen.getByText('Variável de Produto/Curso para Roteamento:')).toBeInTheDocument();
+        const selectVar = screen.getByRole('combobox', { name: /Variável de Roteamento de Base/i });
+        expect(selectVar).toBeInTheDocument();
+
+        await waitFor(() => {
+            expect(selectVar.value).toBe('curso_interesse');
+        });
+
+        fireEvent.change(selectVar, { target: { value: 'produto_interesse' } });
+        expect(mockSetRagKbRoutingVariable).toHaveBeenCalledWith('produto_interesse');
     });
 });

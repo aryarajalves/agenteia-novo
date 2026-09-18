@@ -2,8 +2,16 @@ import httpx
 import logging
 import json
 import os
+import asyncio
 
 logger = logging.getLogger(__name__)
+
+def resolve_fast_zapvoice_url(raw_url: str) -> str:
+    """Substitui URL pública pela URL interna do Docker quando disponível para acelerar requisições em 100x."""
+    url = (raw_url or "").rstrip("/")
+    if "api.aryaraj.shop" in url or "localhost:8000" in url or "127.0.0.1:8000" in url:
+        return os.getenv("ZAPVOICE_INTERNAL_URL", "http://zapvoice_app:8000").rstrip("/")
+    return url
 
 async def sync_conversation_labels(zapvoice_url: str, client_id: str, conversation_id: int, token: str, to_add: list = None, to_remove: list = None):
     """
@@ -14,7 +22,7 @@ async def sync_conversation_labels(zapvoice_url: str, client_id: str, conversati
         logger.warning(f"Dados insuficientes para sincronizar etiquetas ZapVoice: url={zapvoice_url}, client_id={client_id}, conv={conversation_id}")
         return False, []
 
-    zapvoice_url = zapvoice_url.rstrip("/")
+    zapvoice_url = resolve_fast_zapvoice_url(zapvoice_url)
     if not zapvoice_url.endswith("/api"):
         zapvoice_url = f"{zapvoice_url}/api"
     to_add = to_add or []
@@ -76,12 +84,195 @@ async def sync_conversation_labels(zapvoice_url: str, client_id: str, conversati
         logger.error(f"⚠️ Exceção ao sincronizar etiquetas ZapVoice: {e}")
         return False, []
 
+def get_default_reset_labels(config) -> list:
+    """
+    Retorna a lista de etiquetas padrão para reset/deleção de um lead.
+    Prioridade:
+    1. config.delete_labels
+    2. config.labels_on_message (etiquetas padrão da conversa)
+    3. [] (caso nenhum esteja configurado)
+    """
+    if not config:
+        return []
+    
+    # 1. Tentar delete_labels
+    raw_delete = getattr(config, "delete_labels", None)
+    if raw_delete:
+        if isinstance(raw_delete, list):
+            return [str(l).strip() for l in raw_delete if str(l).strip()]
+        if isinstance(raw_delete, str) and raw_delete.strip():
+            try:
+                parsed = json.loads(raw_delete)
+                if isinstance(parsed, list):
+                    return [str(l).strip() for l in parsed if str(l).strip()]
+            except Exception:
+                pass
+
+    # 2. Fallback: labels_on_message (etiquetas padrão adicionadas nas conversas)
+    raw_msg_labels = getattr(config, "labels_on_message", None)
+    if raw_msg_labels:
+        if isinstance(raw_msg_labels, list):
+            return [str(l).strip() for l in raw_msg_labels if str(l).strip()]
+        if isinstance(raw_msg_labels, str) and raw_msg_labels.strip():
+            try:
+                parsed = json.loads(raw_msg_labels)
+                if isinstance(parsed, list):
+                    return [str(l).strip() for l in parsed if str(l).strip()]
+            except Exception:
+                pass
+
+    return []
+
+async def reset_conversation_labels(zapvoice_url: str, client_id: str, conversation_id: int or str, token: str, labels: list = None) -> bool:
+    """
+    Substitui todas as etiquetas de uma conversa no ZapVoice pelas etiquetas padrão fornecidas.
+    """
+    if not zapvoice_url or not conversation_id or not token:
+        logger.warning(f"Dados insuficientes para resetar etiquetas ZapVoice: url={zapvoice_url}, conv={conversation_id}")
+        return False
+
+    zapvoice_url = zapvoice_url.rstrip("/")
+    if not zapvoice_url.endswith("/api"):
+        zapvoice_url = f"{zapvoice_url}/api"
+
+    labels_url = f"{zapvoice_url}/chat/conversations/{conversation_id}/labels"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    if client_id:
+        headers["X-Client-ID"] = str(client_id)
+
+    payload_labels = labels if labels is not None else []
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+            resp = await client.post(labels_url, json={"labels": payload_labels}, headers=headers)
+            if resp.status_code in (200, 201):
+                logger.info(f"🏷️ Etiquetas da conversa {conversation_id} resetadas no ZapVoice para o padrão: {payload_labels}")
+                return True
+            else:
+                logger.error(f"❌ Erro ao resetar etiquetas no ZapVoice ({resp.status_code}): {resp.text}")
+                return False
+    except Exception as e:
+        logger.error(f"⚠️ Exceção ao resetar etiquetas ZapVoice: {e}")
+        return False
+
+
+async def bulk_reset_conversation_labels(
+    zapvoice_url: str,
+    default_client_id: str,
+    conv_info_list: list,
+    token: str,
+    labels: list = None,
+    concurrency: int = 5
+) -> dict:
+    """
+    Reseta as etiquetas de múltiplas conversas no ZapVoice de forma concorrente e reutilizando o pool HTTP.
+    Ideal para exclusão em lote de contatos sem travar a interface do usuário.
+    conv_info_list: lista de tuplas (conv_id, acc_id)
+    """
+    if not zapvoice_url or not conv_info_list or not token:
+        return {"total": 0, "success": 0, "failed": 0}
+
+    zapvoice_url = resolve_fast_zapvoice_url(zapvoice_url)
+    if not zapvoice_url.endswith("/api"):
+        zapvoice_url = f"{zapvoice_url}/api"
+
+    # Deduplicar conversas para não fazer requisições repetidas
+    seen = set()
+    unique_convs = []
+    for item in conv_info_list:
+        if not item or not item[0]:
+            continue
+        c_id = str(item[0])
+        if c_id not in seen:
+            seen.add(c_id)
+            unique_convs.append((c_id, item[1] if len(item) > 1 else None))
+
+    payload_labels = labels if labels is not None else []
+    total = len(unique_convs)
+    if total == 0:
+        return {"total": 0, "success": 0, "failed": 0}
+
+    logger.info(f"🏷️ [BULK-RESET] Iniciando reset concorrente de etiquetas para {total} conversas no ZapVoice.")
+
+    semaphore = asyncio.Semaphore(concurrency)
+    success_count = 0
+    fail_count = 0
+
+    limits = httpx.Limits(max_keepalive_connections=concurrency, max_connections=concurrency + 5)
+    async with httpx.AsyncClient(timeout=10.0, verify=False, limits=limits) as client:
+        async def _reset_one(conv_id, acc_id):
+            nonlocal success_count, fail_count
+            eff_aid = acc_id or default_client_id
+            labels_url = f"{zapvoice_url}/chat/conversations/{conv_id}/labels"
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            if eff_aid:
+                headers["X-Client-ID"] = str(eff_aid)
+            async with semaphore:
+                try:
+                    resp = await client.post(labels_url, json={"labels": payload_labels}, headers=headers)
+                    if resp.status_code in (200, 201):
+                        success_count += 1
+                    else:
+                        fail_count += 1
+                        logger.warning(f"Aviso ao resetar etiquetas da conversa {conv_id} ({resp.status_code})")
+                except Exception as e:
+                    fail_count += 1
+                    logger.warning(f"Exceção ao resetar etiquetas da conversa {conv_id}: {e}")
+
+        tasks = [_reset_one(c_id, a_id) for c_id, a_id in unique_convs]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    logger.info(f"✅ [BULK-RESET] Concluído reset para {total} conversas ({success_count} sucesso, {fail_count} falhas).")
+    return {"total": total, "success": success_count, "failed": fail_count}
+
+
+def reset_conversation_labels_sync(zapvoice_url: str, client_id: str, conversation_id: int or str, token: str, labels: list = None) -> bool:
+    """
+    Versão síncrona para resetar etiquetas de conversa no ZapVoice.
+    """
+    if not zapvoice_url or not conversation_id or not token:
+        logger.warning(f"Dados insuficientes para resetar etiquetas ZapVoice (sync): url={zapvoice_url}, conv={conversation_id}")
+        return False
+
+    zapvoice_url = resolve_fast_zapvoice_url(zapvoice_url)
+    if not zapvoice_url.endswith("/api"):
+        zapvoice_url = f"{zapvoice_url}/api"
+
+    labels_url = f"{zapvoice_url}/chat/conversations/{conversation_id}/labels"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    if client_id:
+        headers["X-Client-ID"] = str(client_id)
+
+    payload_labels = labels if labels is not None else []
+
+    try:
+        with httpx.Client(timeout=10.0, verify=False) as client:
+            resp = client.post(labels_url, json={"labels": payload_labels}, headers=headers)
+            if resp.status_code in (200, 201):
+                logger.info(f"🏷️ Etiquetas da conversa {conversation_id} resetadas no ZapVoice (sync) para o padrão: {payload_labels}")
+                return True
+            else:
+                logger.error(f"❌ Erro ao resetar etiquetas no ZapVoice sync ({resp.status_code}): {resp.text}")
+                return False
+    except Exception as e:
+        logger.error(f"⚠️ Exceção ao resetar etiquetas ZapVoice (sync): {e}")
+        return False
+
 async def is_conversation_paused(zapvoice_url: str, client_id: str, conversation_id: int, token: str, ignore_label: str) -> bool:
     """
     Verifica se uma conversa deve ser ignorada baseada em uma etiqueta de pausa no ZapVoice.
     Retorna True se a etiqueta estiver presente, False caso contrário.
     """
-    zapvoice_url = zapvoice_url.rstrip("/")
+    zapvoice_url = resolve_fast_zapvoice_url(zapvoice_url)
     if not zapvoice_url.endswith("/api"):
         zapvoice_url = f"{zapvoice_url}/api"
     conversas_url = f"{zapvoice_url}/chat/conversations"
@@ -115,7 +306,7 @@ async def send_zapvoice_message(zapvoice_url: str, client_id: str, conversation_
     """Envia uma mensagem (normal ou nota privada/handoff) para uma conversa no ZapVoice."""
     if not zapvoice_url or not client_id or not conversation_id or not token or not content:
         return False
-    zapvoice_url = zapvoice_url.rstrip("/")
+    zapvoice_url = resolve_fast_zapvoice_url(zapvoice_url)
     if not zapvoice_url.endswith("/api"):
         zapvoice_url = f"{zapvoice_url}/api"
     url = f"{zapvoice_url}/chat/conversations/{conversation_id}/messages"
@@ -136,7 +327,7 @@ def get_conversation_labels_sync(zapvoice_url: str, client_id: str, conversation
     """
     Busca as etiquetas de uma conversa de forma síncrona no ZapVoice.
     """
-    zapvoice_url = zapvoice_url.rstrip("/")
+    zapvoice_url = resolve_fast_zapvoice_url(zapvoice_url)
     if not zapvoice_url.endswith("/api"):
         zapvoice_url = f"{zapvoice_url}/api"
     url = f"{zapvoice_url}/chat/conversations"

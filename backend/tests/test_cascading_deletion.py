@@ -14,6 +14,8 @@ async def test_manual_deletion_cascading(client, db_session):
         name=f"Test Casc {uid}",
         token=f"token_{uid}",
         leads_table=f"leads_{uid}",
+        zapvoice_url="https://api.zapvoice.com",
+        zapvoice_api_token="test_token",
         delete_message="Adeus!"
     )
     db_session.add(config)
@@ -71,18 +73,16 @@ async def test_manual_deletion_cascading(client, db_session):
     await db_session.commit()
 
     # 2. Executar Deleção Manual via API
-    # Mock do envio de mensagem para o Chatwoot
+    # Mock do envio de mensagem para o ZapVoice
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = MagicMock(status_code=200)
-        
         response = await client.delete(f"/webhooks/{config.id}/leads/{lead_id}")
         assert response.status_code == 204
         
         # Verificar se tentou enviar a mensagem de despedida
         assert mock_post.called
         args, kwargs = mock_post.call_args
-        assert "/conversations/conv123/messages" in args[0]
-        # httpx post with json= already has the dict
+        assert "/chat/conversations/conv123/messages" in args[0]
         assert kwargs["json"]["content"] == "Adeus!"
 
     # 3. Verificar se tudo foi apagado
@@ -98,9 +98,9 @@ async def test_manual_deletion_cascading(client, db_session):
     res = await db_session.execute(select(func.count(UserMemoryModel.id)).where(or_(UserMemoryModel.session_id == "5511999999999", UserMemoryModel.session_id == str(lead_id))))
     assert res.scalar() == 0
 
-    # Interaction Logs
+    # Interaction Logs (Preservados para métricas de tokens e custo no dashboard)
     res = await db_session.execute(select(func.count(InteractionLog.id)).where(or_(InteractionLog.session_id == "5511999999999", InteractionLog.session_id == str(lead_id))))
-    assert res.scalar() == 0
+    assert res.scalar() == 2, "Interaction logs devem ser preservados após a deleção do contato para não zerar custos e tokens"
 
     # Knowledge Items
     res = await db_session.execute(select(func.count(KnowledgeItemModel.id)).where(KnowledgeItemModel.metadata_val == "phone:5511999999999"))
@@ -152,7 +152,7 @@ async def test_auto_deletion_cascading(db_session):
     # 2. Executar a tarefa do Celery (simulada)
     from webhook_tasks import process_webhook_automation
     
-    with patch("webhook_tasks._send_chatwoot_message") as mock_send:
+    with patch("webhook_services._send_zapvoice_message") as mock_send:
         with patch("webhook_tasks.SessionLocal") as mock_session_factory:
             mock_s = MagicMock()
             mock_session_factory.return_value = mock_s

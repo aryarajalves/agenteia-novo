@@ -56,6 +56,7 @@ const sanitizeWebhookPayload = (form) => {
     payload.ai_handoff_labels_to_remove = parseListSafe(form.ai_handoff_labels_to_remove);
     payload.memory_mappings = parseListSafe(form.memory_mappings);
     payload.followup_steps = parseListSafe(form.followup_steps);
+    payload.followup_funnels = parseListSafe(form.followup_funnels);
 
     return payload;
 };
@@ -184,6 +185,13 @@ export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchCha
 
     const handleOpenEdit = useCallback((webhook) => {
         setEditingWebhook(webhook);
+        if (fetchChatwootLabels && (webhook.zapvoice_url || webhook.zapvoice_api_token)) {
+            fetchChatwootLabels({
+                zapvoice_url: webhook.zapvoice_url,
+                zapvoice_api_token: webhook.zapvoice_api_token,
+                zapvoice_client_id: webhook.zapvoice_client_id
+            }).catch(err => console.warn('Aviso ao carregar labels ao abrir edição:', err));
+        }
         setEditForm({
             ...INITIAL_FORM_STATE,
             ...webhook,
@@ -195,6 +203,7 @@ export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchCha
             blocked_messages: webhook.blocked_messages || [],
             delete_keywords: webhook.delete_keywords || [],
             delete_message: webhook.delete_message || '',
+            delete_labels: parseListSafe(webhook.delete_labels),
             zapvoice_url: webhook.zapvoice_url || '',
             zapvoice_api_token: webhook.zapvoice_api_token || '',
             zapvoice_client_id: webhook.zapvoice_client_id || '',
@@ -211,6 +220,7 @@ export const useWebhookOperations = (fetchWebhooks, setSelectedWebhook, fetchCha
             window_close_label: webhook.window_close_label || [],
             followup_enabled: webhook.followup_enabled || false,
             followup_steps: webhook.followup_steps || [],
+            followup_funnels: webhook.followup_funnels || [],
             followup_business_hours: webhook.followup_business_hours || { enabled: false, start: '08:00', end: '18:00', weekdays: true, saturday: false, sunday: false },
             followup_cancel_label: webhook.followup_cancel_label || '',
             followup_required_label: webhook.followup_required_label || '',

@@ -13,6 +13,7 @@ const IntegrationsPanel = () => {
     const [errorModal, setErrorModal] = useState(null);
     const [showGuide, setShowGuide] = useState(false);
     const [activeView, setActiveView] = useState('list'); // 'list' or 'whatsapp'
+    const [activeTab, setActiveTab] = useState('all'); // 'all', 'productivity', 'communication'
 
     useEffect(() => {
         const checkStatus = async () => {
@@ -135,13 +136,56 @@ const IntegrationsPanel = () => {
                 </button>
             </div>
 
-            <GoogleCalendarCard 
-                googleConnected={googleConnected} 
-                onConnect={handleConnectGoogle} 
-                onProvision={handleProvisionTools} 
-            />
+            {/* BARRA DE NAVEGAÇÃO POR ABAS */}
+            <div className="integrations-tabs-nav">
+                <button
+                    type="button"
+                    data-testid="integrations-tab-all"
+                    className={`integrations-tab-btn ${activeTab === 'all' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('all')}
+                >
+                    <span>🌟</span>
+                    <span>Todas</span>
+                    <span className="integrations-tab-badge">2</span>
+                </button>
+                <button
+                    type="button"
+                    data-testid="integrations-tab-productivity"
+                    className={`integrations-tab-btn ${activeTab === 'productivity' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('productivity')}
+                >
+                    <span>📅</span>
+                    <span>Produtividade & Agendas</span>
+                    {googleConnected && <span className="integrations-tab-badge connected">✓ Conectado</span>}
+                </button>
+                <button
+                    type="button"
+                    data-testid="integrations-tab-communication"
+                    className={`integrations-tab-btn ${activeTab === 'communication' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('communication')}
+                >
+                    <span>💬</span>
+                    <span>Comunicação & Mensageria</span>
+                    <span className="integrations-tab-badge">ZapJords</span>
+                </button>
+            </div>
 
-            <WhatsAppCard onConfigClick={() => setActiveView('whatsapp')} />
+            {/* CARDS DAS INTEGRAÇÕES FILTRADOS POR ABA */}
+            {(activeTab === 'all' || activeTab === 'productivity') && (
+                <div className="fade-in">
+                    <GoogleCalendarCard 
+                        googleConnected={googleConnected} 
+                        onConnect={handleConnectGoogle} 
+                        onProvision={handleProvisionTools} 
+                    />
+                </div>
+            )}
+
+            {(activeTab === 'all' || activeTab === 'communication') && (
+                <div className="fade-in">
+                    <WhatsAppCard onConfigClick={() => setActiveView('whatsapp')} />
+                </div>
+            )}
 
             <IntegrationsGuide showGuide={showGuide} setShowGuide={setShowGuide} />
             

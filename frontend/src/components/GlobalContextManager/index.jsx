@@ -3,6 +3,7 @@ import { useGlobalVariables } from './hooks/useGlobalVariables';
 import GlobalContextCardHeader from './components/GlobalContextCardHeader';
 import GlobalVariablesList from './components/GlobalVariablesList';
 import AddVariableModal from './components/AddVariableModal';
+import EditVariableModal from './components/EditVariableModal';
 import ConfirmModal from '../ConfirmModal';
 import './styles/GlobalContextManager.css';
 
@@ -13,6 +14,9 @@ const GlobalContextManager = () => {
         loading,
         isAdding,
         setIsAdding,
+        editingVar,
+        setEditingVar,
+        handleSaveEdit,
         newVar,
         setNewVar,
         deleteVar,
@@ -39,6 +43,7 @@ const GlobalContextManager = () => {
                 variables={variables}
                 saving={saving}
                 onUpdate={handleUpdate}
+                onEditRequest={setEditingVar}
                 onDeleteRequest={setDeleteVar}
                 onChangeField={handleChangeField}
             />
@@ -49,6 +54,14 @@ const GlobalContextManager = () => {
                 setNewVar={setNewVar}
                 onClose={() => setIsAdding(false)}
                 onCreate={handleCreate}
+            />
+
+            <EditVariableModal
+                isOpen={!!editingVar}
+                variable={editingVar}
+                onClose={() => setEditingVar(null)}
+                onSave={handleSaveEdit}
+                saving={!!saving}
             />
 
             <ConfirmModal

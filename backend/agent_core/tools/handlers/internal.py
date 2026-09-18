@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import datetime
 from ...clients import get_openai_client
 
@@ -102,7 +103,7 @@ async def handle_unanswered_question(db, context_variables, func_args_str, histo
         return "Erro: Sem conexão com banco."
     except Exception as e: return f"Erro ao registrar dúvida: {str(e)}"
 
-async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
+async def handle_lead_qualified(db, context_variables, func_args_str, agent_id, on_step=None):
     try:
         from models import AgentConfigModel, WebhookConfigModel
         from zapvoice_utils import sync_conversation_labels
@@ -124,39 +125,73 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
         
         leads_table = context_variables.get("leads_table")
         phone = context_variables.get("contact_phone")
+        active_funnel_id = context_variables.get("active_qualification_funnel_id")
         
         agent = None
         wh = None
         to_add = []
+        active_funnel = {}
+        lead_score = 0
+        lead_classification = "Indefinido"
+        class_lower = "indefinido"
+        allowed_triggers = ["all"]
+        is_actually_qualified = True
+        labels_to_apply = []
+        to_remove = []
         
         if db:
-            # Buscar o agente para obter as etiquetas configuradas
-            agent_res = await db.execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id))
+            from sqlalchemy import text
+            from sqlalchemy.ext.asyncio import AsyncSession
+            import inspect
+            from agent_core.logic.qualification_prompt import resolve_active_qualification_funnel
+
+            async def _safe_execute(stmt, params=None):
+                res = db.execute(stmt, params) if params else db.execute(stmt)
+                if inspect.isawaitable(res):
+                    return await res
+                return res
+
+            # Buscar o agente para obter as configurações do funil ativo
+            agent_res = await _safe_execute(select(AgentConfigModel).where(AgentConfigModel.id == agent_id))
             agent = agent_res.scalars().first()
             
-            if agent and agent.qualification_labels:
-                try:
-                    to_add = json.loads(agent.qualification_labels)
-                except Exception:
-                    pass
+            active_funnel = resolve_active_qualification_funnel(agent, active_funnel_id)
+            trigger = active_funnel.get("final_action_trigger", "all") if isinstance(active_funnel, dict) else "all"
+            if not isinstance(trigger, str):
+                trigger = "all"
+            trigger = trigger.strip() if trigger else "all"
+
+            try:
+                trigger_str = str(trigger).strip()
+                if trigger_str.startswith("["):
+                    allowed_triggers = [str(x).lower().strip() for x in json.loads(trigger_str)]
+                else:
+                    allowed_triggers = [x.lower().strip() for x in trigger_str.split(",") if x.strip()]
+            except Exception:
+                allowed_triggers = [str(trigger).lower().strip()]
+            if not allowed_triggers:
+                allowed_triggers = ["all"]
             
-            if isinstance(to_add, list):
-                to_add = [str(x) for x in to_add]
+            raw_labels = active_funnel.get("labels") or []
+            if isinstance(raw_labels, str):
+                try:
+                    to_add = json.loads(raw_labels)
+                except Exception:
+                    to_add = [l.strip() for l in raw_labels.split(",") if l.strip()]
+            elif isinstance(raw_labels, list):
+                to_add = [str(x).strip() for x in raw_labels if str(x).strip()]
             else:
                 to_add = []
                 
-            if "qualificado" not in to_add:
-                to_add.append("qualificado")
-                
             # Buscar webhook para credenciais e ID da config
-            wh_res = await db.execute(
+            wh_res = await _safe_execute(
                 select(WebhookConfigModel)
                 .where(WebhookConfigModel.agent_id == agent_id)
                 .limit(1)
             )
             wh = wh_res.scalars().first()
             if not wh:
-                wh_sec_res = await db.execute(
+                wh_sec_res = await _safe_execute(
                     select(WebhookConfigModel)
                     .where(WebhookConfigModel.secondary_agent_ids.like(f"%{agent_id}%"))
                     .limit(1)
@@ -168,36 +203,125 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
             from sqlalchemy import text
             from lead_scoring_service import calculate_lead_score
             
-            # Calcular o score e a classificação usando a IA
-            score_data = await calculate_lead_score(db, agent_id, respostas)
+            # Calcular o score e a classificação usando a IA com os critérios do funil ativo
+            funnel_criteria = active_funnel.get("criteria")
+            score_data = await calculate_lead_score(db, agent_id, respostas, criteria=funnel_criteria)
             lead_score = score_data.get("lead_score", 0)
             lead_classification = score_data.get("lead_classification", "Frio ❄️")
             lead_justification = score_data.get("lead_justification", "")
             
             respostas_str = json.dumps(respostas, ensure_ascii=False)
+
+            # Avaliar condição de qualificação e gatilho de fechamento do funil ativo
+            trigger = active_funnel.get("final_action_trigger", "all")
+            if not isinstance(trigger, str):
+                trigger = "all"
+            trigger = trigger.strip() if trigger else "all"
+
+            allowed_triggers = []
+            try:
+                trigger_str = str(trigger).strip()
+                if trigger_str.startswith("["):
+                    allowed_triggers = [str(x).lower().strip() for x in json.loads(trigger_str)]
+                else:
+                    allowed_triggers = [x.lower().strip() for x in trigger_str.split(",") if x.strip()]
+            except Exception:
+                allowed_triggers = [str(trigger).lower().strip()]
+
+            class_lower = (lead_classification or "").strip().lower()
+            is_cold_or_disqualified = "frio" in class_lower or "desqualificado" in class_lower
+
+            # Só deve etiquetar esse lead caso ele se qualificar de fato:
+            # - Se trigger for hot (Apenas Quente): deve ser quente e não frio
+            # - Se trigger for warm (Apenas Morno): deve ser morno e não frio
+            # - Se trigger for cold (Apenas Frio): deve ser frio
+            # - Se trigger for hot_warm (Quente ou Morno): deve ser quente ou morno e não frio
+            # - Se trigger for all (Todas as classificações): deve ser aprovado (não desqualificado/frio)
+            if any(k in allowed_triggers for k in ("hot", "quente")):
+                is_actually_qualified = ("quente" in class_lower) and not is_cold_or_disqualified
+            elif any(k in allowed_triggers for k in ("warm", "morno")):
+                is_actually_qualified = ("morno" in class_lower) and not is_cold_or_disqualified
+            elif any(k in allowed_triggers for k in ("cold", "frio")):
+                is_actually_qualified = is_cold_or_disqualified
+            elif "hot_warm" in allowed_triggers:
+                is_actually_qualified = ("quente" in class_lower or "morno" in class_lower) and not is_cold_or_disqualified
+            else:  # "all", "todas", "sempre"
+                is_actually_qualified = not is_cold_or_disqualified
+
+            # Etiquetas que serão adicionadas se o lead qualificou de fato
+            if is_actually_qualified:
+                labels_to_apply = [x for x in to_add if x]
+                logger.info(f"Lead {phone} QUALIFICADO de fato ({lead_classification}). Etiquetas a aplicar: {labels_to_apply}")
+            else:
+                labels_to_apply = []
+                logger.info(f"Lead {phone} NÃO qualificado de fato ({lead_classification}). Nenhuma etiqueta de qualificação será aplicada.")
+
+            # Etiquetas a remover no ZapVoice (respeita apenas o configurado no funil ou desqualificação)
+            to_remove = []
+            raw_labels_remove = active_funnel.get("labels_to_remove") or [] if isinstance(active_funnel, dict) else []
+            if isinstance(raw_labels_remove, str):
+                try:
+                    to_remove = json.loads(raw_labels_remove)
+                except Exception:
+                    to_remove = [l.strip() for l in raw_labels_remove.split(",") if l.strip()]
+            elif isinstance(raw_labels_remove, list):
+                to_remove = [str(x).strip() for x in raw_labels_remove if str(x).strip()]
+            else:
+                to_remove = []
+
+            if not is_actually_qualified:
+                for item in to_add:
+                    if item not in to_remove:
+                        to_remove.append(item)
             
             # Buscar lead existente para ler etiquetas atuais e evitar sobrescrever labels já aplicadas
             existing_labels = []
             try:
-                lead_query = f"SELECT labels FROM {leads_table} WHERE telefone = :phone"
-                lead_res = await db.execute(text(lead_query), {"phone": phone})
+                lead_query = f"SELECT labels, respostas_qualificacao FROM {leads_table} WHERE telefone = :phone"
+                lead_res = await _safe_execute(text(lead_query), {"phone": phone})
                 lead_row = lead_res.fetchone()
-                if lead_row and lead_row[0]:
-                    raw_labels = lead_row[0]
-                    try:
-                        parsed = json.loads(raw_labels)
-                        if isinstance(parsed, list):
-                            existing_labels = [str(x) for x in parsed]
-                        else:
-                            existing_labels = [str(raw_labels)]
-                    except Exception:
-                        existing_labels = [x.strip() for x in raw_labels.split(",") if x.strip()]
+                if lead_row:
+                    if lead_row[1] and str(lead_row[1]).strip():
+                        logger.info(f"Lead com telefone {phone} já qualificado anteriormente. Ignorando chamada repetida de lead_qualificado.")
+                        if on_step:
+                            try:
+                                on_step(
+                                    "🎯 Lead Qualificado (Finalização do Funil)",
+                                    f"ℹ️ **Contato já qualificado anteriormente.**\n\nAs respostas coletadas já haviam sido registradas no banco para o telefone `{phone}`.",
+                                    metadata={"already_qualified": True}
+                                )
+                            except TypeError:
+                                on_step(
+                                    "🎯 Lead Qualificado (Finalização do Funil)",
+                                    f"ℹ️ **Contato já qualificado anteriormente.**\n\nAs respostas coletadas já haviam sido registradas no banco para o telefone `{phone}`."
+                                )
+                        return "Lead já qualificado anteriormente. Nenhuma ação necessária."
+                    if lead_row[0]:
+                        raw_labels = lead_row[0]
+                        try:
+                            parsed = json.loads(raw_labels)
+                            if isinstance(parsed, list):
+                                existing_labels = [str(x) for x in parsed]
+                            else:
+                                existing_labels = [str(raw_labels)]
+                        except Exception:
+                            existing_labels = [x.strip() for x in raw_labels.split(",") if x.strip()]
             except Exception as e_read_labels:
                 logger.error(f"Erro ao ler etiquetas existentes do lead: {e_read_labels}")
             
-            # Unir novas etiquetas do agente com as existentes
-            final_labels = list(existing_labels)
-            for item in to_add:
+            # Montar etiquetas finais locais:
+            # - Remove 'qualificado' legado se não estiver no dropdown to_add
+            # - Se não qualificou de fato, remove as etiquetas de qualificação do dropdown caso existam
+            final_labels = []
+            for lbl in existing_labels:
+                if lbl.strip().lower() == "qualificado" and "qualificado" not in to_add:
+                    continue
+                if not is_actually_qualified and lbl in to_add:
+                    continue
+                if lbl not in final_labels:
+                    final_labels.append(lbl)
+
+            for item in labels_to_apply:
                 if item not in final_labels:
                     final_labels.append(item)
             
@@ -215,7 +339,7 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
                     updated_at = CURRENT_TIMESTAMP
                 WHERE telefone = :phone
             """
-            result = await db.execute(text(update_query), {
+            result = await _safe_execute(text(update_query), {
                 "respostas": respostas_str,
                 "phone": phone,
                 "labels": final_labels_json,
@@ -251,7 +375,7 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
                         TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     )
                 """
-                await db.execute(text(insert_query), {
+                await _safe_execute(text(insert_query), {
                     "webhook_config_id": wh.id if wh else None,
                     "qualified_by_agent_id": agent_id,
                     "conta_id": str(conta_id) if conta_id is not None else None,
@@ -272,31 +396,29 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
             await db.commit()
             logger.info(f"Respostas de qualificação e Lead Score processados com sucesso na tabela {leads_table} para o telefone {phone}")
             
-        # 3. Adicionar as etiquetas do Chatwoot
+        # 3. Adicionar as etiquetas no ZapVoice (Chat)
+        zv_url = None
+        api_token = None
+        account_id = context_variables.get("account_id") or context_variables.get("conta_id")
+        conversation_id = context_variables.get("conversation_id") or context_variables.get("conversa_id")
+
         if db:
-            account_id = context_variables.get("account_id")
-            conversation_id = context_variables.get("conversation_id")
-            
-            # --- FALLBACK DE CREDENCIAIS DO CHATWOOT ---
             import os
-            cw_url = None
-            api_token = None
-            
-            if wh and wh.chatwoot_url and wh.chatwoot_api_token:
-                cw_url = wh.chatwoot_url.rstrip("/")
-                api_token = wh.chatwoot_api_token
+            if wh and wh.zapvoice_url and wh.zapvoice_api_token:
+                zv_url = wh.zapvoice_url.rstrip("/")
+                api_token = wh.zapvoice_api_token
             else:
-                cw_url = os.getenv("CHATWOOT_URL")
-                api_token = os.getenv("CHATWOOT_API_TOKEN")
-                if cw_url:
-                    cw_url = cw_url.rstrip("/")
+                zv_url = os.getenv("ZAPVOICE_URL")
+                api_token = os.getenv("ZAPVOICE_API_TOKEN")
+                if zv_url:
+                    zv_url = zv_url.rstrip("/")
                 if not account_id:
-                    account_id = os.getenv("CHATWOOT_ACCOUNT_ID")
+                    account_id = os.getenv("ZAPVOICE_CLIENT_ID") or os.getenv("CHATWOOT_ACCOUNT_ID")
             
             # Tentar recuperar account_id no banco com o último evento se ainda for nulo
             if not account_id and wh:
                 from models import WebhookEventModel
-                evt_result = await db.execute(
+                evt_result = await _safe_execute(
                     select(WebhookEventModel.conta_id)
                     .where(WebhookEventModel.webhook_config_id == wh.id)
                     .where(WebhookEventModel.conta_id.isnot(None))
@@ -306,40 +428,241 @@ async def handle_lead_qualified(db, context_variables, func_args_str, agent_id):
                 db_account_id = evt_result.scalar()
                 if db_account_id:
                     account_id = db_account_id
-            
-            if cw_url and api_token and account_id and conversation_id:
-                await sync_conversation_labels(
-                    cw_url=cw_url,
-                    account_id=int(account_id),
-                    conversation_id=int(conversation_id),
-                    token=api_token,
-                    to_add=to_add
-                )
-                instruction_closing = (
-                    "INSTRUÇÃO PARA SUA RESPOSTA: "
-                    "1. Agradeça e acolha calorosamente os dados fornecidos pelo lead (ex: agradeça pelo e-mail/nome). "
-                    "2. SE o usuário fez qualquer dúvida ou pergunta nesta mesma mensagem (ex: 'como funciona', valores, etc.), você DEVE OBRIGATORIAMENTE responder à dúvida dele detalhadamente antes de concluir. "
-                    "3. Conclua com simpatia direcionando para a oferta ou formulando a pergunta final de fechamento."
-                )
-                return f"Lead qualificado com sucesso. Etiquetas sincronizadas: {', '.join(to_add)}. {instruction_closing}"
-            
-            if to_add:
-                instruction_closing = (
-                    "INSTRUÇÃO PARA SUA RESPOSTA: "
-                    "1. Agradeça e acolha calorosamente os dados fornecidos pelo lead (ex: agradeça pelo e-mail/nome). "
-                    "2. SE o usuário fez qualquer dúvida ou pergunta nesta mesma mensagem (ex: 'como funciona', valores, etc.), você DEVE OBRIGATORIAMENTE responder à dúvida dele detalhadamente antes de concluir. "
-                    "3. Conclua com simpatia direcionando para a oferta ou formulando a pergunta final de fechamento."
-                )
-                return f"Lead qualificado com sucesso (salvo localmente). Etiquetas: {', '.join(to_add)}. {instruction_closing}"
-                
-        instruction_closing = (
-            "INSTRUÇÃO PARA SUA RESPOSTA: "
-            "1. Agradeça e acolha calorosamente os dados fornecidos pelo lead (ex: agradeça pelo e-mail/nome). "
-            "2. SE o usuário fez qualquer dúvida ou pergunta nesta mesma mensagem (ex: 'como funciona', valores, etc.), você DEVE OBRIGATORIAMENTE responder à dúvida dele detalhadamente antes de concluir. "
-            "3. Conclua com simpatia direcionando para a oferta ou formulando a pergunta final de fechamento."
+
+        # 4. Avaliar condição de disparo da Pergunta / Ação Final (qualification_final_action_trigger)
+        should_trigger_closing = False
+        lead_classification_str = (lead_classification or "").strip()
+        funnel_final_action = active_funnel.get("final_action") if 'active_funnel' in locals() and active_funnel else (getattr(agent, 'qualification_final_action', None) if agent else None)
+
+        if funnel_final_action and str(funnel_final_action).strip():
+            if "all" in allowed_triggers or "sempre" in allowed_triggers or "todas" in allowed_triggers:
+                should_trigger_closing = True
+            elif any(k in allowed_triggers for k in ("hot", "quente")) and "quente" in class_lower:
+                should_trigger_closing = True
+            elif any(k in allowed_triggers for k in ("warm", "morno")) and "morno" in class_lower:
+                should_trigger_closing = True
+            elif any(k in allowed_triggers for k in ("cold", "frio")) and "frio" in class_lower:
+                should_trigger_closing = True
+            elif "hot_warm" in allowed_triggers and ("quente" in class_lower or "morno" in class_lower):
+                should_trigger_closing = True
+
+        proibicao_termos = (
+            "🚫 SIGILO ABSOLUTO (NUNCA MENCIONE QUALIFICAÇÃO): É expressamente proibido dizer ao cliente frases como 'você está qualificado para prosseguir', 'seus dados foram aprovados' ou usar termos técnicos como 'qualificação', 'etiquetas' ou 'score'. Apenas agradeça as informações fornecidas e prossiga de forma humana e acolhedora."
         )
-        return f"Lead qualificado com sucesso. {instruction_closing}"
+
+        if should_trigger_closing and funnel_final_action:
+            instruction_closing = (
+                f"\n\n🚨 [INSTRUÇÃO OBRIGATÓRIA DE RESPOSTA - QUALIFICAÇÃO CONCLUÍDA]:\n"
+                f"O lead concluiu a qualificação e a ferramenta 'lead_qualificado' foi executada com sucesso!\n"
+                f"Sua resposta final ao usuário DEVE cumprir RIGOROSAMENTE as regras abaixo:\n"
+                f"1. Agradeça calorosamente pelos dados fornecidos pelo lead (ex: pelo e-mail/nome). {proibicao_termos}\n"
+                f"2. SE o usuário fez alguma dúvida nesta mesma mensagem, responda com clareza antes de concluir.\n"
+                f"3. 🚨 PERGUNTA DE FECHAMENTO OBRIGATÓRIA: Você DEVE concluir a mensagem formulando a pergunta de fechamento baseada EXCLUSIVAMENTE nesta diretriz: '{str(funnel_final_action).strip()}'.\n"
+                f"   - Esta pergunta de fechamento é OBRIGATÓRIA e SUBSTITUI qualquer pergunta genérica como 'Posso ajudar com mais alguma dúvida?' de <Primeira_Resposta> ou regras que dizem para não perguntar no final.\n"
+                f"   - ⚠️ REGRA DE DOIS PASSOS (NUNCA ENVIE O LINK ANTES DO 'SIM'): Como a diretriz pede para perguntar se pode enviar o link (ex: 'Pergunte se eu posso enviar o link do curso...'), você DEVE FAZER APENAS A PERGUNTA nesta resposta! NÃO envie o link, URL ou checkout agora. O link informado na diretriz servirá apenas para o próximo turno após o usuário confirmar que quer receber o link."
+            )
+        else:
+            instruction_closing = (
+                f"\n\n[INSTRUÇÃO DE RESPOSTA - QUALIFICAÇÃO CONCLUÍDA]:\n"
+                f"1. Agradeça calorosamente pelos dados fornecidos. {proibicao_termos}\n"
+                f"2. SE o usuário fez alguma dúvida nesta mensagem, responda antes de concluir.\n"
+                f"3. Conclua com simpatia e cordialidade deixando nossa equipe à disposição para qualquer dúvida futura (NÃO faça oferta de fechamento nem envie link de checkout)."
+            )
+
+        if not (db and leads_table and phone) and to_add and not labels_to_apply:
+            labels_to_apply = [x for x in to_add if x]
+
+        # Montar diagnóstico detalhado da etapa para o pipeline
+        funnel_name = active_funnel.get("name", "Padrão / Principal") if isinstance(active_funnel, dict) else "Padrão / Principal"
+        funnel_id_str = active_funnel.get("id", "funnel_default") if isinstance(active_funnel, dict) else "funnel_default"
+
+        if is_actually_qualified:
+            if labels_to_apply:
+                labels_str = ", ".join([f"`{lbl}`" for lbl in labels_to_apply])
+                status_labels = f"• **Etiquetas Aplicadas no Contato:** {labels_str}"
+            else:
+                status_labels = "• **Etiquetas Aplicadas no Contato:** Nenhuma etiqueta configurada para este funil."
+        else:
+            status_labels = f"• **Etiquetas de Qualificação:** Nenhuma etiqueta aplicada (o contato foi avaliado como {lead_classification} e não atingiu a condição de qualificação do funil)."
+
+        if to_remove:
+            removidas_str = ", ".join([f"`{lbl}`" for lbl in to_remove])
+            status_labels += f"\n• **Etiquetas Removidas (Higienização):** {removidas_str}"
+
+        respostas_text = ""
+        if respostas and isinstance(respostas, dict):
+            respostas_itens = "\n".join([f"  - **{k}:** {v}" for k, v in respostas.items()])
+            respostas_text = f"\n\n📋 **Dados Coletados nas Etapas:**\n{respostas_itens}"
+
+        score_display = f" (Score: {lead_score}/100)" if lead_score is not None else ""
+        step_detail = (
+            f"🎯 **Finalização do Funil de Qualificação**\n\n"
+            f"• **Funil Ativo:** {funnel_name} (`{funnel_id_str}`)\n"
+            f"• **Classificação do Lead:** {lead_classification}{score_display}\n"
+            f"{status_labels}"
+            f"{respostas_text}"
+        )
+
+        step_metadata = {
+            "labels_applied": labels_to_apply if is_actually_qualified else [],
+            "labels_removed": to_remove,
+            "lead_classification": lead_classification,
+            "lead_score": lead_score,
+            "funnel_id": funnel_id_str,
+            "funnel_name": funnel_name
+        }
+
+        if on_step:
+            try:
+                on_step("🎯 Lead Qualificado (Finalização do Funil)", step_detail, metadata=step_metadata)
+            except TypeError:
+                on_step("🎯 Lead Qualificado (Finalização do Funil)", step_detail)
+
+        if zv_url and api_token and account_id and conversation_id:
+            try:
+                conv_id_num = int(conversation_id) if str(conversation_id).isdigit() else 0
+                if conv_id_num > 0:
+                    if labels_to_apply or to_remove:
+                        await sync_conversation_labels(
+                            zapvoice_url=zv_url,
+                            client_id=str(account_id),
+                            conversation_id=conv_id_num,
+                            token=api_token,
+                            to_add=labels_to_apply,
+                            to_remove=to_remove
+                        )
+            except Exception as e_sync:
+                logger.error(f"Erro ao sincronizar etiquetas no ZapVoice: {e_sync}")
+        
+        if is_actually_qualified:
+            # Persistir estado de lead já qualificado no contexto e na memória da sessão
+            if context_variables:
+                context_variables["lead_already_qualified"] = True
+            
+            sid = context_variables.get("session_id") if context_variables else None
+            if db and sid:
+                try:
+                    from models import UserMemoryModel
+                    from sqlalchemy.ext.asyncio import AsyncSession
+                    import inspect
+                    stmt_qm = select(UserMemoryModel).where(
+                        UserMemoryModel.session_id == str(sid),
+                        UserMemoryModel.key == "lead_already_qualified"
+                    )
+                    res_raw = db.execute(stmt_qm)
+                    res_qm = await res_raw if inspect.isawaitable(res_raw) else res_raw
+                    if hasattr(res_qm, "scalars") and not res_qm.scalars().first():
+                        db.add(UserMemoryModel(
+                            session_id=str(sid),
+                            key="lead_already_qualified",
+                            value="True",
+                            source_message="lead_qualificado"
+                        ))
+                        commit_raw = db.commit()
+                        if inspect.isawaitable(commit_raw):
+                            await commit_raw
+                except Exception as e_qm:
+                    logger.warning(f"Erro ao salvar flag de qualificação em UserMemoryModel: {e_qm}")
+
+            if labels_to_apply:
+                return f"Operação 'lead_qualificado' concluída com sucesso no sistema interno. Etiquetas sincronizadas: {', '.join(labels_to_apply)}.{instruction_closing}"
+            return f"Operação 'lead_qualificado' concluída com sucesso no sistema interno.{instruction_closing}"
+        else:
+            return f"Operação 'lead_qualificado' concluída no sistema interno (classificação: {lead_classification}). Nenhuma etiqueta de qualificação aplicada.{instruction_closing}"
+            
     except Exception as e:
         logger.error(f"Erro ao processar lead qualificado: {e}")
-        return f"Erro ao qualificar lead: {str(e)}"
+        return (
+            f"ERRO: Instabilidade temporária ao processar registro de qualificação ({str(e)}). "
+            "INSTRUÇÃO: Se esta for a primeira tentativa com erro, tente no máximo mais 1 única vez. "
+            "Se persistir ou falhar novamente, NÃO chame a ferramenta novamente. Peça desculpas ao cliente "
+            "com gentileza informando que houve uma instabilidade momentânea no sistema e continue o atendimento naturalmente."
+        )
+
+
+async def check_and_apply_qualification_fallback(db, context_variables, config, history, message, tool_calls_log, last_response="", on_step=None):
+    """
+    Garante que as etiquetas, o status de qualificação e a pergunta de fechamento sejam aplicados
+    caso o modelo LLM apenas gere o texto final esquecendo de emitir o tool_call 'lead_qualificado'.
+    """
+    if any(tc.get("name") == "lead_qualificado" for tc in tool_calls_log):
+        return last_response
+        
+    qq = getattr(config, "qualification_questions", None)
+    if not qq:
+        return last_response
+        
+    try:
+        last_asst = ""
+        if history:
+            for h in reversed(history):
+                r = h.get("role") if isinstance(h, dict) else getattr(h, "role", "")
+                if r == "assistant":
+                    last_asst = (h.get("content") if isinstance(h, dict) else getattr(h, "content", "")).lower()
+                    break
+                    
+        # Se a última pergunta do assistente foi sobre e-mail e o usuário forneceu um e-mail válido
+        is_email_answer = ("email" in last_asst or "e-mail" in last_asst) and ("@" in message and "." in message)
+        
+        if is_email_answer:
+            respostas_payload = {"email": message.strip()}
+            c_name = context_variables.get("contact_name") if context_variables else None
+            if c_name:
+                respostas_payload["nome"] = c_name
+            res_str = await handle_lead_qualified(
+                db, 
+                context_variables, 
+                json.dumps({"respostas": respostas_payload, "origem": "auto_completion"}), 
+                config.id,
+                on_step=on_step
+            )
+            tool_calls_log.append({
+                "name": "lead_qualificado",
+                "args": json.dumps({**respostas_payload, "auto_completed": True}, ensure_ascii=False),
+                "output": res_str
+            })
+
+            # Atualizar last_response se a pergunta final de fechamento estiver ausente
+            from ...logic.qualification_prompt import resolve_active_qualification_funnel
+            active_funnel_id = context_variables.get("active_qualification_funnel_id") if context_variables else None
+            active_funnel = resolve_active_qualification_funnel(config, active_funnel_id)
+            final_action = active_funnel.get("final_action") or getattr(config, "qualification_final_action", None)
+            
+            if final_action and str(final_action).strip():
+                final_action_str = str(final_action).strip()
+                closing_q = ""
+                first_line = final_action_str.split("\n")[0].strip()
+                if "?" in first_line:
+                    closing_q = first_line
+                elif "pergunte se" in first_line.lower() or "pergunte se" in final_action_str.lower():
+                    closing_q = "Posso enviar o link do curso para você?"
+                elif "link" in final_action_str.lower():
+                    closing_q = "Posso te enviar o link com mais detalhes?"
+                else:
+                    closing_q = first_line
+
+                if closing_q:
+                    clean_response = last_response or ""
+                    generic_patterns = [
+                        r"Se (tiver|houver|precisar|restar).*dúvida.*",
+                        r"Qualquer dúvida.*",
+                        r"Se precisar de algo mais.*",
+                        r"Estou à disposição.*",
+                        r"Fico à disposição.*",
+                        r"Posso ajudar.*dúvida.*",
+                    ]
+                    for pat in generic_patterns:
+                        clean_response = re.sub(pat, "", clean_response, flags=re.IGNORECASE).strip()
+                    
+                    if closing_q.lower() not in clean_response.lower():
+                        if clean_response:
+                            last_response = f"{clean_response}\n\n{closing_q}"
+                        else:
+                            name_part = f", {c_name}" if c_name else ""
+                            last_response = f"Muito obrigado pelas informações{name_part}!\n\n{closing_q}"
+    except Exception as err:
+        logger.warning(f"Erro no fallback de lead_qualificado: {err}")
+
+    return last_response
+
 

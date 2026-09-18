@@ -71,6 +71,9 @@ backend_logs.txt
 *.jpg
 *.jpeg
 scratch_*.py
+**/take_screenshot*.py
+**/take_screenshot*.js
+take_screenshot*.js
 take_screenshot*.py
 run_browser.py
 generate_evidence.py
@@ -82,3 +85,4 @@ scratch/
 codigo_obsoleto/
 *.backup.*
 backend/backup/
+Estudo/

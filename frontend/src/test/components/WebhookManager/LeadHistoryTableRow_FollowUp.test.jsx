@@ -82,4 +82,29 @@ describe('LeadHistoryTableRow - Omissão do ícone de Cache Semântico em Follow
         expect(saveBtn).toBeInTheDocument();
         expect(screen.getByTestId('save-cache-btn-405')).toBeInTheDocument();
     });
+
+    it('DEVE renderizar o badge TEMPLATE e o gatilho de disparo quando for mensagem de template', () => {
+        const templateEvent = {
+            id: 901,
+            event_type: 'message_created',
+            message_type: 'template',
+            is_template: true,
+            mensagem: null,
+            agent_response: 'Olá! Seja muito bem-vindo(a) à Bússola Astrológica! 🧭✨',
+            dono: 'agente',
+            created_at: '2026-09-16T07:50:00'
+        };
+
+        render(
+            <table>
+                <tbody>
+                    <LeadHistoryTableRow {...defaultProps} event={templateEvent} />
+                </tbody>
+            </table>
+        );
+
+        expect(screen.getByText(/Disparo Template WhatsApp/i)).toBeInTheDocument();
+        expect(screen.getByText('📋 TEMPLATE')).toBeInTheDocument();
+        expect(screen.getByText(/Bússola Astrológica/i)).toBeInTheDocument();
+    });
 });

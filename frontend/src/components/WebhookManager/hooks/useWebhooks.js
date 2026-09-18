@@ -7,6 +7,7 @@ export const useWebhooks = (showToast) => {
     const [chatwootGlobal, setChatwootGlobal] = useState({ configured: false });
     const [loading, setLoading] = useState(true);
     const [togglingId, setTogglingId] = useState(null);
+    const [syncingAgentId, setSyncingAgentId] = useState(null);
 
     const [chatwootLabels, setChatwootLabels] = useState([]);
     const [labelsLoading, setLabelsLoading] = useState(false);
@@ -34,25 +35,15 @@ export const useWebhooks = (showToast) => {
         }
     }, []);
 
-    const fetchChatwootConfig = useCallback(async () => {
-        try {
-            const res = await api.get('/webhooks/chatwoot-config');
-            const data = await res.json();
-            setChatwootGlobal(data);
-        } catch (e) {
-            console.error('Erro ao buscar config do chatwoot:', e);
-        }
-    }, []);
-
     const fetchChatwootLabels = useCallback(async (params = {}) => {
         setLabelsLoading(true);
         try {
             const queryParams = new URLSearchParams();
-            if (params.zapvoice_url) queryParams.append('zapvoice_url', params.zapvoice_url);
-            if (params.zapvoice_api_token) queryParams.append('zapvoice_api_token', params.zapvoice_api_token);
-            if (params.zapvoice_client_id) queryParams.append('zapvoice_client_id', params.zapvoice_client_id);
-            
-            const res = await api.get(`/chatwoot/labels?${queryParams.toString()}`);
+            if (params?.zapvoice_url) queryParams.append('zapvoice_url', params.zapvoice_url);
+            if (params?.zapvoice_api_token) queryParams.append('zapvoice_api_token', params.zapvoice_api_token);
+            if (params?.zapvoice_client_id) queryParams.append('zapvoice_client_id', params.zapvoice_client_id);
+            const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : '';
+            const res = await api.get(`/chatwoot/labels${queryStr}`);
             if (res.ok) {
                 const data = await res.json();
                 setChatwootLabels(Array.isArray(data) ? data : []);
@@ -64,17 +55,36 @@ export const useWebhooks = (showToast) => {
         }
     }, []);
 
+    const fetchChatwootConfig = useCallback(async () => {
+        try {
+            const res = await api.get('/webhooks/chatwoot-config');
+            const data = await res.json();
+            setChatwootGlobal(data);
+            if (data.configured) {
+                fetchChatwootLabels();
+            }
+        } catch (e) {
+            console.error('Erro ao buscar config do chatwoot:', e);
+        }
+    }, [fetchChatwootLabels]);
+
     const handleGenerateDescription = async (agentId) => {
-        if (!agentId) return;
+        if (!agentId || syncingAgentId) return;
+        setSyncingAgentId(agentId);
         try {
             showToast('✨ Gerando descrição...', 'info');
             const res = await api.post(`/agents/${agentId}/generate-description`);
             if (res.ok) {
                 await fetchAgents(); // Atualiza a lista com a nova descrição
                 showToast('✅ Descrição gerada com sucesso!');
+            } else {
+                const err = await res.json().catch(() => ({}));
+                showToast(err.detail || '❌ Erro ao gerar descrição.', 'error');
             }
         } catch (e) {
             showToast('❌ Erro ao gerar descrição.', 'error');
+        } finally {
+            setSyncingAgentId(null);
         }
     };
 
@@ -136,6 +146,7 @@ export const useWebhooks = (showToast) => {
         handleToggleActive,
         deleteWebhook,
         handleGenerateDescription,
+        syncingAgentId,
         fetchChatwootLabels
     };
 

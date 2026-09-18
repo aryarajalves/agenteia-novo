@@ -435,26 +435,37 @@ def check_followup_due():
     db = SessionLocal()
     try:
         configs = db.execute(_text(
-            "SELECT id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_business_hours, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zapvoice_url, zapvoice_api_token, zapvoice_client_id, followup_add_label, purchased_label "
+            "SELECT id, leads_table, chatwoot_url, chatwoot_api_token, followup_steps, followup_business_hours, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zapvoice_url, zapvoice_api_token, zapvoice_client_id, followup_add_label, purchased_label, followup_funnels "
             "FROM webhook_configs "
-            "WHERE followup_enabled = TRUE AND followup_steps IS NOT NULL AND followup_steps != '' AND followup_steps != '[]'"
+            "WHERE followup_enabled = TRUE AND ((followup_steps IS NOT NULL AND followup_steps != '' AND followup_steps != '[]') OR (followup_funnels IS NOT NULL AND followup_funnels != '' AND followup_funnels != '[]'))"
         )).fetchall()
 
-        for config_id, leads_table, cw_url_cfg, cw_token_cfg, followup_steps_raw, followup_bh_raw, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zv_url_cfg, zv_token_cfg, zv_client_cfg, followup_add_label, purchased_label in configs:
+        for config_id, leads_table, cw_url_cfg, cw_token_cfg, followup_steps_raw, followup_bh_raw, agent_id, ignore_by_label, followup_cancel_label, followup_required_label, zv_url_cfg, zv_token_cfg, zv_client_cfg, followup_add_label, purchased_label, followup_funnels_raw in configs:
             cw_url = (cw_url_cfg or zv_url_cfg or cw_url_global or os.getenv("ZAPVOICE_URL") or "").rstrip("/")
             cw_token = cw_token_cfg or zv_token_cfg or cw_token_global or os.getenv("ZAPVOICE_API_TOKEN") or ""
 
-            try:
-                steps = json.loads(followup_steps_raw)
-            except Exception:
-                continue
+            funnels_to_run = []
+            if followup_funnels_raw:
+                try:
+                    loaded_f = json.loads(followup_funnels_raw)
+                    if isinstance(loaded_f, list) and len(loaded_f) > 0:
+                        funnels_to_run = loaded_f
+                except Exception:
+                    pass
+            if not funnels_to_run and followup_steps_raw:
+                try:
+                    s_list = json.loads(followup_steps_raw)
+                    if isinstance(s_list, list) and len(s_list) > 0:
+                        funnels_to_run = [{"id": "followup_default", "name": "Padrão / Principal", "is_default": True, "steps": s_list}]
+                except Exception:
+                    pass
 
             try:
                 business_hours = json.loads(followup_bh_raw) if followup_bh_raw else None
             except Exception:
                 business_hours = None
 
-            if not steps or not cw_url or not cw_token or not leads_table:
+            if not funnels_to_run or not cw_url or not cw_token or not leads_table:
                 continue
 
             if not _is_within_business_hours(business_hours):
@@ -472,24 +483,36 @@ def check_followup_due():
             if not cancel_labels_list:
                 cancel_labels_list = ["humano"]
 
-            for step_index, step in enumerate(steps):
-                delay_hours = float(step.get("delay_hours", 0))
-                # Suporta novo formato (minutos) ou fallback pro legado
-                delay_minutes = int(step.get("delay_minutes", delay_hours * 60))
-                if delay_minutes <= 0:
+            for funnel in funnels_to_run:
+                f_id = funnel.get("id", "followup_default")
+                is_def = funnel.get("is_default", False) or f_id == "followup_default"
+                steps = funnel.get("steps", [])
+                if not steps:
                     continue
 
-                try:
-                    # Busca leads no step_index inativos há até 30 dias (suporta passos de minutos, horas ou dias)
-                    cutoff_30d = datetime.utcnow() - timedelta(days=30)
-                    due = db.execute(_text(f"""
-                        SELECT id, conta_id, conversa_id, telefone, contato_nome, 
-                               COALESCE(ultima_mensagem_em, ultima_resposta_agente_em, created_at) AS ref_time, 
-                               mensagem, ultima_resposta_agente, labels
-                        FROM {leads_table}
-                        WHERE followup_step = :step_index
-                          AND COALESCE(ultima_mensagem_em, ultima_resposta_agente_em, created_at) >= :cutoff_30d
-                    """), {"step_index": step_index, "cutoff_30d": cutoff_30d}).fetchall()
+                for step_index, step in enumerate(steps):
+                    delay_hours = float(step.get("delay_hours", 0))
+                    # Suporta novo formato (minutos) ou fallback pro legado
+                    delay_minutes = int(step.get("delay_minutes", delay_hours * 60))
+                    if delay_minutes <= 0:
+                        continue
+
+                    try:
+                        # Busca leads no step_index inativos há até 30 dias (suporta passos de minutos, horas ou dias)
+                        cutoff_30d = datetime.utcnow() - timedelta(days=30)
+                        funnel_filter = "(active_followup_funnel_id = :f_id OR active_followup_funnel_id IS NULL OR active_followup_funnel_id = '')" if is_def else "active_followup_funnel_id = :f_id"
+                        due = db.execute(_text(f"""
+                            SELECT id, conta_id, conversa_id, telefone, contato_nome, 
+                                   COALESCE(ultima_mensagem_em, ultima_resposta_agente_em, created_at) AS ref_time, 
+                                   mensagem, ultima_resposta_agente, labels
+                            FROM {leads_table}
+                            WHERE followup_step = :step_index
+                              AND {funnel_filter}
+                              AND COALESCE(ultima_mensagem_em, ultima_resposta_agente_em, created_at) >= :cutoff_30d
+                        """), {"step_index": step_index, "f_id": f_id, "cutoff_30d": cutoff_30d}).fetchall()
+                    except Exception as e:
+                        logger.error(f"[FollowUp] Erro ao buscar leads devidos para o passo {step_index}: {e}")
+                        continue
 
                     if not due:
                         continue
@@ -536,7 +559,7 @@ def check_followup_due():
                                     c_lbl_lower = cancel_lbl.lower().strip()
                                     if c_lbl_lower in local_labels_lower:
                                         is_cancelled = True
-                                    elif cw_url and cw_token and eff_conversa_id and eff_conversa_id != "None":
+                                    elif lead_labels_raw is None and cw_url and cw_token and eff_conversa_id and eff_conversa_id != "None":
                                         if asyncio.run(is_conversation_paused(cw_url, eff_conta_id, eff_conversa_id, cw_token, cancel_lbl)):
                                             is_cancelled = True
 
@@ -553,7 +576,7 @@ def check_followup_due():
                                 if followup_required_label and followup_required_label.strip():
                                     req_lbl = followup_required_label.strip().lower()
                                     has_req = req_lbl in local_labels_lower
-                                    if not has_req and cw_url and cw_token and eff_conversa_id and eff_conversa_id != "None":
+                                    if not has_req and lead_labels_raw is None and cw_url and cw_token and eff_conversa_id and eff_conversa_id != "None":
                                         has_req = asyncio.run(is_conversation_paused(cw_url, eff_conta_id, eff_conversa_id, cw_token, followup_required_label.strip()))
                                     if not has_req:
                                         logger.info(f"[FollowUp] Pulando {telefone}: não possui a etiqueta obrigatória '{followup_required_label.strip()}'.")
@@ -851,10 +874,6 @@ def check_followup_due():
                                 logger.warning(f"[FollowUp] Erro no lead {lead_id}: {e}")
                                 pipeline_steps.append({"step": "Erro", "detail": f"Exceção interna: {str(e)}", "timestamp": datetime.utcnow().isoformat()})
                                 _save_followup_event(db, config_id, conta_id, conversa_id, telefone, nome, None, pipeline_steps, "error")
-
-                except Exception as e:
-                    logger.error(f"[FollowUp] Erro no step {step_index} config {config_id}: {e}")
-                    db.rollback()
     finally:
         db.close()
 

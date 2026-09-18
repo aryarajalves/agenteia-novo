@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import MessageMetaBar from './MessageMetaBar';
+import DebugPanel from './DebugPanel';
+import SourceAttributionView from './SourceAttributionView';
 
 const getLinkDetails = (urlStr) => {
     try {
@@ -77,7 +80,29 @@ const getLinkDetails = (urlStr) => {
     }
 };
 
-const LinkMessageBubble = ({ msg }) => {
+const LinkMessageBubble = ({ 
+    msg,
+    msgIndex,
+    isRegularUser,
+    feedbackState,
+    handleThumbsUp,
+    handleThumbsDown,
+    readFbFromStorage,
+    selectedAgentId,
+    showDebug,
+    setShowDebug,
+    showAttribution,
+    setShowAttribution,
+    handleFetchAttribution,
+    explanationData,
+    debateCostBrl,
+    explainProps,
+    setActiveModal,
+    setActivePreRouterTab,
+    setActiveResolvedPromptTab,
+    attributionState,
+    attributionData
+}) => {
     const [copied, setCopied] = useState(false);
     const url = (msg.content || '').trim();
     const details = getLinkDetails(url);
@@ -148,6 +173,60 @@ const LinkMessageBubble = ({ msg }) => {
                         </div>
                     </div>
                 </a>
+
+                {msg.metrics && msg.created_at && (
+                    <div className="message-timestamp" data-testid="assistant-timestamp" style={{ 
+                        fontSize: '0.8rem', 
+                        color: '#94a3b8', 
+                        textAlign: 'left', 
+                        marginTop: '8px',
+                        fontWeight: '600',
+                        letterSpacing: '0.5px'
+                    }}>
+                        {new Date(msg.created_at).toLocaleDateString('pt-BR')} {new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                )}
+
+                {msg.metrics && (
+                    <MessageMetaBar
+                        msg={msg}
+                        msgIndex={msgIndex}
+                        isRegularUser={isRegularUser}
+                        feedbackState={feedbackState}
+                        handleThumbsUp={handleThumbsUp}
+                        handleThumbsDown={handleThumbsDown}
+                        readFbFromStorage={readFbFromStorage}
+                        selectedAgentId={selectedAgentId}
+                        showDebug={showDebug}
+                        setShowDebug={setShowDebug}
+                        showAttribution={showAttribution}
+                        setShowAttribution={setShowAttribution}
+                        handleFetchAttribution={handleFetchAttribution}
+                        explanationData={explanationData}
+                        debateCostBrl={debateCostBrl}
+                    />
+                )}
+
+                {showAttribution && (
+                    <SourceAttributionView
+                        attributionState={attributionState}
+                        attributionData={attributionData}
+                        handleFetchAttribution={handleFetchAttribution}
+                        onClose={() => setShowAttribution && setShowAttribution(false)}
+                        selectedAgentId={selectedAgentId}
+                    />
+                )}
+
+                {msg.metrics && (
+                    <DebugPanel
+                        msg={msg}
+                        showDebug={showDebug}
+                        setActiveModal={setActiveModal}
+                        setActivePreRouterTab={setActivePreRouterTab}
+                        setActiveResolvedPromptTab={setActiveResolvedPromptTab}
+                        explainProps={explainProps}
+                    />
+                )}
             </div>
         </div>
     );

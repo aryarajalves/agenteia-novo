@@ -3,12 +3,12 @@ import ReactDOM from 'react-dom';
 import CacheThresholdControl from './CacheThresholdControl';
 import ProductCategoryTagSelector from './ProductCategoryTagSelector';
 import FullscreenTextareaModal from '../../../WebhookManager/components/FullscreenTextareaModal';
+import AlternateQueriesInput from './AlternateQueriesInput';
 
 const EditSemanticCacheModal = ({ isOpen, item, onClose, onSave, isSaving, defaultThreshold = 92 }) => {
     const [userQuery, setUserQuery] = useState('');
     const [approvedResponse, setApprovedResponse] = useState('');
     const [alternateQueries, setAlternateQueries] = useState([]);
-    const [newAltInput, setNewAltInput] = useState('');
     const [similarityThreshold, setSimilarityThreshold] = useState(null);
     const [categoryTag, setCategoryTag] = useState('');
     const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
@@ -18,7 +18,6 @@ const EditSemanticCacheModal = ({ isOpen, item, onClose, onSave, isSaving, defau
             setUserQuery(item.user_query || '');
             setApprovedResponse(item.approved_response || '');
             setAlternateQueries(Array.isArray(item.alternate_queries) ? item.alternate_queries : []);
-            setNewAltInput('');
             setSimilarityThreshold(item.similarity_threshold !== undefined ? item.similarity_threshold : null);
             setCategoryTag(item.category_tag || '');
             setIsFullscreenOpen(false);
@@ -26,19 +25,6 @@ const EditSemanticCacheModal = ({ isOpen, item, onClose, onSave, isSaving, defau
     }, [item]);
 
     if (!isOpen || !item) return null;
-
-    const handleAddAlt = (e) => {
-        if (e) e.preventDefault();
-        const clean = newAltInput.trim();
-        if (clean && !alternateQueries.includes(clean)) {
-            setAlternateQueries([...alternateQueries, clean]);
-            setNewAltInput('');
-        }
-    };
-
-    const handleRemoveAlt = (index) => {
-        setAlternateQueries(alternateQueries.filter((_, i) => i !== index));
-    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -138,85 +124,11 @@ const EditSemanticCacheModal = ({ isOpen, item, onClose, onSave, isSaving, defau
                                 />
                             </div>
 
-                            {/* Variações de Pergunta */}
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#c7d2fe', marginBottom: '6px' }}>
-                                    ➕ Outras Perguntas / Variações que ativam esta resposta (Opcional):
-                                </label>
-                                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                                    <input
-                                        type="text"
-                                        value={newAltInput}
-                                        onChange={(e) => setNewAltInput(e.target.value)}
-                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAlt(); } }}
-                                        data-testid="edit-cache-alt-input"
-                                        style={{
-                                            flex: 1,
-                                            background: 'rgba(15, 23, 42, 0.8)',
-                                            border: '1px solid rgba(255, 255, 255, 0.1)',
-                                            borderRadius: '8px',
-                                            padding: '8px 12px',
-                                            color: '#fff',
-                                            fontSize: '0.85rem'
-                                        }}
-                                        placeholder="Ex: qual o valor do investimento?"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleAddAlt}
-                                        data-testid="edit-add-alt-btn"
-                                        style={{
-                                            background: 'rgba(99, 102, 241, 0.2)',
-                                            border: '1px solid rgba(99, 102, 241, 0.4)',
-                                            borderRadius: '8px',
-                                            padding: '8px 14px',
-                                            color: '#a5b4fc',
-                                            fontSize: '0.85rem',
-                                            fontWeight: 600,
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        ＋ Adicionar
-                                    </button>
-                                </div>
-
-                                {alternateQueries.length > 0 && (
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                        {alternateQueries.map((alt, idx) => (
-                                            <span
-                                                key={idx}
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: '6px',
-                                                    background: 'rgba(99, 102, 241, 0.15)',
-                                                    border: '1px solid rgba(99, 102, 241, 0.3)',
-                                                    borderRadius: '6px',
-                                                    padding: '3px 8px',
-                                                    fontSize: '0.8rem',
-                                                    color: '#e0e7ff'
-                                                }}
-                                            >
-                                                {alt}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveAlt(idx)}
-                                                    style={{
-                                                        background: 'none',
-                                                        border: 'none',
-                                                        color: '#f87171',
-                                                        cursor: 'pointer',
-                                                        padding: 0,
-                                                        fontSize: '0.85rem'
-                                                    }}
-                                                >
-                                                    ✕
-                                                </button>
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
+                            {/* Variações de Pergunta com Edição */}
+                            <AlternateQueriesInput
+                                queries={alternateQueries}
+                                onChange={setAlternateQueries}
+                            />
 
                             {/* Tag de Produto / Categoria */}
                             <ProductCategoryTagSelector

@@ -2,6 +2,7 @@ import React from 'react';
 import RaioXViewerModal from '../../RaioXViewerModal';
 import PreRouterViewerModal from '../../PreRouterViewerModal';
 import RagViewerModal from '../../RagViewerModal';
+import ContextMemoryViewerModal from '../../ContextMemoryViewerModal';
 
 export default function PipelineMaximizedModal({
     maximizedStep,
@@ -31,6 +32,15 @@ export default function PipelineMaximizedModal({
         return (
             <RagViewerModal
                 data={maximizedStep.content}
+                onClose={onClose}
+            />
+        );
+    }
+
+    if (maximizedStep.title.includes('Memória') || maximizedStep.title.includes('Contexto')) {
+        return (
+            <ContextMemoryViewerModal
+                step={maximizedStep}
                 onClose={onClose}
             />
         );

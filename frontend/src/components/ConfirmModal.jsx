@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 
-function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", type = "danger", isLoading = false }) {
+function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, confirmText = "Confirmar", cancelText = "Cancelar", type = "danger", isLoading = false, icon = null }) {
     if (!isOpen) return null;
 
     return ReactDOM.createPortal(
@@ -17,7 +17,9 @@ function ConfirmModal({ isOpen, title, message, onConfirm, onCancel, confirmText
                     ) : (
                         <>
                             <div className={`modal-icon-wrapper ${type}`}>
-                                {type === 'danger' ? (
+                                {icon ? (
+                                    typeof icon === 'string' ? <span style={{ fontSize: '2rem' }}>{icon}</span> : icon
+                                ) : type === 'danger' ? (
                                     <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                         <path d="M3 6h18"></path>
                                         <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>

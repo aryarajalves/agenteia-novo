@@ -110,7 +110,37 @@ async def execute_agent(
             
     if request.context_variables:
         ctx.update(request.context_variables)
-    if session_id: ctx["session_id"] = session_id
+    if session_id:
+        ctx["session_id"] = session_id
+        # Verificar se esta sessão já concluiu a qualificação de lead anteriormente
+        try:
+            from models import UserMemoryModel
+            mem_qual = await db.execute(
+                select(UserMemoryModel).where(
+                    UserMemoryModel.session_id == str(session_id),
+                    UserMemoryModel.key == "lead_already_qualified"
+                )
+            )
+            if mem_qual.scalars().first():
+                ctx["lead_already_qualified"] = True
+            else:
+                from sqlalchemy import or_
+                log_qual = await db.execute(
+                    select(InteractionLog).where(
+                        InteractionLog.session_id == str(session_id),
+                        or_(
+                            InteractionLog.debug_info.like('%"name": "lead_qualificado"%'),
+                            InteractionLog.debug_info.like('%"name":"lead_qualificado"%'),
+                            InteractionLog.debug_info.like('%Operação \'lead_qualificado\' concluída%'),
+                            InteractionLog.debug_info.like('%"lead_already_qualified": true%'),
+                            InteractionLog.debug_info.like('%"lead_already_qualified":true%')
+                        )
+                    ).limit(1)
+                )
+                if log_qual.scalars().first():
+                    ctx["lead_already_qualified"] = True
+        except Exception as e_chat_qual:
+            logger.debug(f"Aviso ao verificar qualificação prévia em chat.py: {e_chat_qual}")
 
     # 4. Processar mensagem
     start_perf = time.perf_counter()
@@ -196,10 +226,15 @@ async def execute_agent(
         output_tokens=usage.completion_tokens if usage else 0,
         cached_tokens=getattr(usage, 'cached_tokens', 0) if usage else 0,
         model_used=model_used,
+        model_role=result.get("model_role") or result.get("debug", {}).get("model_role", "main"),
         response_time_ms=response_time_ms,
-        from_semantic_cache=result.get("from_semantic_cache", False),
-        cached_similarity=result.get("cached_similarity"),
-        cached_original_query=result.get("cached_original_query"),
+        from_semantic_cache=result.get("from_semantic_cache", False) or result.get("debug", {}).get("from_semantic_cache", False),
+        cached_similarity=result.get("cached_similarity") or result.get("debug", {}).get("cached_similarity"),
+        cached_original_query=result.get("cached_original_query") or result.get("debug", {}).get("cached_original_query"),
+        semantic_cache=result.get("semantic_cache") or result.get("debug", {}).get("semantic_cache"),
+        from_question_funnel=result.get("from_question_funnel", False) or result.get("debug", {}).get("from_question_funnel", False),
+        funnel_steps=result.get("funnel_steps") or result.get("steps") or result.get("debug", {}).get("funnel_steps"),
+        question_funnel=result.get("question_funnel") or result.get("debug", {}).get("question_funnel"),
         error=result.get("error", False),
         system_error=result.get("system_error"),
         debug=result.get("debug"),

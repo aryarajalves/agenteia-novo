@@ -113,7 +113,9 @@ function App() {
       </Routes>
       {toast && (
         <div className={`global-toast global-toast-${toast.type}`}>
-          <span className="global-toast-icon">{toast.type === 'success' ? '✅' : '❌'}</span>
+          <span className="global-toast-icon">
+            {toast.type === 'success' ? '✅' : toast.type === 'info' ? 'ℹ️' : toast.type === 'warning' ? '⚠️' : '❌'}
+          </span>
           <span>{toast.message}</span>
         </div>
       )}

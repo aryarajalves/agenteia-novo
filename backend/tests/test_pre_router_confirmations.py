@@ -102,7 +102,7 @@ async def test_pre_router_silences_recurrent_closing_after_ta_bom(mock_agent):
 
 @pytest.mark.asyncio
 async def test_pre_router_handles_nao_after_doubt_question(mock_agent):
-    """Valida que quando o usuário responde 'Não.' para 'Você possui mais alguma dúvida?', o Pre-Router intercepta com encerramento amigável, NÃO aciona RAG e NÃO reescreve como 'Como funciona o curso?'."""
+    """Valida que quando o usuário responde 'Não.' para 'Você possui mais alguma dúvida?', o Pre-Router preserva a resposta 'Não.', NÃO aciona RAG e direciona para o agente principal continuar a qualificação."""
     history = [
         {"role": "user", "content": "Como funciona o curso?"},
         {"role": "assistant", "content": "O curso é 100% online...\n\nVocê possui mais alguma  dúvida sobre o Método Laser Day?"}
@@ -111,12 +111,12 @@ async def test_pre_router_handles_nao_after_doubt_question(mock_agent):
 
     result = await run_pre_router_ai(user_msg, history, mock_agent)
 
-    assert result["eh_saudacao"] is True
-    assert result["eh_agradecimento"] is True
+    assert result["eh_saudacao"] is False
+    assert result["eh_agradecimento"] is False
     assert result["precisa_rag"] is False
-    assert result["perguntas_extraidas"] is None
-    assert result["resposta_direta"] is not None
-    assert "disposição" in result["resposta_direta"] or "precisar" in result["resposta_direta"]
+    assert result["perguntas_extraidas"] == "Não."
+    assert result["resposta_direta"] is None
+    assert result["tipo_mensagem"] == "Resposta Conversacional / Qualificação do Usuário"
 
     # Testar que o enriquecimento não reescreve "Não." para "Como funciona o curso?"
     mock_client = MagicMock()

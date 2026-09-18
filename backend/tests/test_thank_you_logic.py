@@ -26,11 +26,8 @@ def test_first_thank_you_after_explanation():
         message="obrigado"
     )
 
-    assert res is not None
-    assert res.get("eh_agradecimento") is True
-    assert res.get("eh_agradecimento_recorrente") is not True
-    assert res.get("resposta_direta") is not None
-    assert "Por nada" in res.get("resposta_direta")
+    # O 1º agradecimento não deve ser interceptado com shortcut-logic, deve delegar à LLM pequena
+    assert res is None
 
 
 def test_second_consecutive_thank_you():
