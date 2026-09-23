@@ -201,32 +201,28 @@ async def bulk_reset_conversation_labels(
     success_count = 0
     fail_count = 0
 
-    limits = httpx.Limits(max_keepalive_connections=concurrency, max_connections=concurrency + 5)
-    async with httpx.AsyncClient(timeout=10.0, verify=False, limits=limits) as client:
-        async def _reset_one(conv_id, acc_id):
-            nonlocal success_count, fail_count
-            eff_aid = acc_id or default_client_id
-            labels_url = f"{zapvoice_url}/chat/conversations/{conv_id}/labels"
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-            if eff_aid:
-                headers["X-Client-ID"] = str(eff_aid)
-            async with semaphore:
-                try:
-                    resp = await client.post(labels_url, json={"labels": payload_labels}, headers=headers)
-                    if resp.status_code in (200, 201):
-                        success_count += 1
-                    else:
-                        fail_count += 1
-                        logger.warning(f"Aviso ao resetar etiquetas da conversa {conv_id} ({resp.status_code})")
-                except Exception as e:
+    async def _reset_one(conv_id, acc_id):
+        nonlocal success_count, fail_count
+        eff_aid = acc_id or default_client_id
+        async with semaphore:
+            try:
+                res = await reset_conversation_labels(
+                    zapvoice_url,
+                    str(eff_aid) if eff_aid else "",
+                    conv_id,
+                    token,
+                    payload_labels
+                )
+                if res:
+                    success_count += 1
+                else:
                     fail_count += 1
-                    logger.warning(f"Exceção ao resetar etiquetas da conversa {conv_id}: {e}")
+            except Exception as e:
+                fail_count += 1
+                logger.warning(f"Exceção ao resetar etiquetas da conversa {conv_id}: {e}")
 
-        tasks = [_reset_one(c_id, a_id) for c_id, a_id in unique_convs]
-        await asyncio.gather(*tasks, return_exceptions=True)
+    tasks = [_reset_one(c_id, a_id) for c_id, a_id in unique_convs]
+    await asyncio.gather(*tasks, return_exceptions=True)
 
     logger.info(f"✅ [BULK-RESET] Concluído reset para {total} conversas ({success_count} sucesso, {fail_count} falhas).")
     return {"total": total, "success": success_count, "failed": fail_count}

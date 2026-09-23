@@ -1,3 +1,4 @@
+import openai
 from .prompts import (
     get_date_context,
     DEFAULT_PRE_ROUTER_PROMPT_TEMPLATE,

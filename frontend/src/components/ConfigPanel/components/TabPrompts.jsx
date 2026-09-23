@@ -77,7 +77,7 @@ const TabPrompts = () => {
                 />
 
                 {/* Navegação por Sub-Abas do Editor de Prompt */}
-                <div style={{
+                <div className="prompt-subtabs" style={{
                     display: 'flex',
                     gap: '8px',
                     background: 'rgba(15, 23, 42, 0.7)',

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import FollowupStepWhatsAppTemplate from './FollowupStepWhatsAppTemplate';
 
 const FollowupStepMessageFormat = ({
@@ -17,6 +17,8 @@ const FollowupStepMessageFormat = ({
     setFullscreenModal
 }) => {
     const stepType = st?.type || 'ai';
+    const isAbEnabled = !!st?.ab_test_enabled;
+    const [activeAbTab, setActiveAbTab] = useState('A');
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -107,24 +109,98 @@ const FollowupStepMessageFormat = ({
                 </button>
             </div>
 
+            {/* Bloco de Teste A/B de Copy */}
+            <div style={{
+                background: isAbEnabled ? 'rgba(245, 158, 11, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                border: isAbEnabled ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(255, 255, 255, 0.05)',
+                borderRadius: '8px',
+                padding: '0.5rem 0.75rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.2s'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.9rem' }}>🧪</span>
+                    <div>
+                        <div style={{ fontSize: '0.74rem', fontWeight: 700, color: isAbEnabled ? '#fbbf24' : '#e2e8f0' }}>
+                            Teste A/B de Copy (Divisão 50% / 50%)
+                        </div>
+                        <div style={{ fontSize: '0.66rem', color: '#94a3b8' }}>
+                            Compare duas abordagens diferentes para medir qual converte mais respostas
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    {isAbEnabled && (
+                        <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', padding: '2px', borderRadius: '6px' }}>
+                            <button
+                                type="button"
+                                data-testid="followup-ab-tab-a"
+                                onClick={() => setActiveAbTab('A')}
+                                style={{
+                                    padding: '0.2rem 0.5rem',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    background: activeAbTab === 'A' ? '#6366f1' : 'transparent',
+                                    color: activeAbTab === 'A' ? '#fff' : '#94a3b8'
+                                }}
+                            >
+                                Variação A (50%)
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="followup-ab-tab-b"
+                                onClick={() => setActiveAbTab('B')}
+                                style={{
+                                    padding: '0.2rem 0.5rem',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    borderRadius: '4px',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    background: activeAbTab === 'B' ? '#f59e0b' : 'transparent',
+                                    color: activeAbTab === 'B' ? '#fff' : '#94a3b8'
+                                }}
+                            >
+                                Variação B (50%)
+                            </button>
+                        </div>
+                    )}
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', margin: 0 }}>
+                        <input
+                            type="checkbox"
+                            data-testid="followup-ab-toggle"
+                            checked={isAbEnabled}
+                            onChange={(e) => updateStepProperty('ab_test_enabled', e.target.checked)}
+                            style={{ width: '16px', height: '16px', accentColor: '#f59e0b', cursor: 'pointer' }}
+                        />
+                    </label>
+                </div>
+            </div>
+
             {/* Conteúdo específico de cada modo */}
             {stepType === 'ai' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <label className="premium-label" style={{ fontSize: '0.72rem', color: '#818cf8', margin: 0, fontWeight: 700 }}>
-                            🧠 Diretriz Específica do Passo (Prompt da IA)
+                        <label className="premium-label" style={{ fontSize: '0.72rem', color: isAbEnabled && activeAbTab === 'B' ? '#fbbf24' : '#818cf8', margin: 0, fontWeight: 700 }}>
+                            🧠 Diretriz Específica do Passo {isAbEnabled ? `(Variação ${activeAbTab})` : '(Prompt da IA)'}
                         </label>
                         {setFullscreenModal && (
                             <button
                                 type="button"
                                 onClick={() => setFullscreenModal({
                                     isOpen: true,
-                                    title: `🧠 Prompt de IA - Passo #${i + 1}`,
+                                    title: `🧠 Prompt de IA - Passo #${i + 1} ${isAbEnabled ? `(Variação ${activeAbTab})` : ''}`,
                                     subtitle: 'Edite as instruções detalhadas que a IA usará para gerar a mensagem deste follow-up',
-                                    value: st.custom_prompt || '',
-                                    onChange: (v) => updateStepProperty('custom_prompt', v),
+                                    value: (isAbEnabled && activeAbTab === 'B') ? (st.variation_b_prompt || '') : (st.custom_prompt || ''),
+                                    onChange: (v) => updateStepProperty(isAbEnabled && activeAbTab === 'B' ? 'variation_b_prompt' : 'custom_prompt', v),
                                     placeholder: 'Ex: Retome o assunto focando em tirar dúvidas sobre o checkout...',
-                                    accentColor: '#6366f1'
+                                    accentColor: isAbEnabled && activeAbTab === 'B' ? '#f59e0b' : '#6366f1'
                                 })}
                                 style={{
                                     background: 'rgba(99, 102, 241, 0.12)',
@@ -146,14 +222,15 @@ const FollowupStepMessageFormat = ({
                         )}
                     </div>
                     <textarea 
-                        placeholder="Ex: Retome o assunto de forma amigável, perguntando se o lead ficou com alguma dúvida sobre o curso e ofereça ajuda para concluir a inscrição..." 
-                        value={st.custom_prompt || ''} 
-                        onChange={e => updateStepProperty('custom_prompt', e.target.value)} 
+                        data-testid="followup-step-prompt-input"
+                        placeholder={isAbEnabled && activeAbTab === 'B' ? "Variação B: Teste outra abordagem (ex: ofereça bônus exclusivo ou tire dúvidas sobre a garantia)..." : "Ex: Retome o assunto focando na principal dúvida e ofereça ajuda para concluir a inscrição..."} 
+                        value={(isAbEnabled && activeAbTab === 'B') ? (st.variation_b_prompt || '') : (st.custom_prompt || '')} 
+                        onChange={e => updateStepProperty(isAbEnabled && activeAbTab === 'B' ? 'variation_b_prompt' : 'custom_prompt', e.target.value)} 
                         className="premium-input" 
                         style={{ minHeight: '80px', fontSize: '0.8rem', resize: 'vertical', lineHeight: '1.45' }}
                     />
-                    <div style={{ fontSize: '0.68rem', color: '#64748b' }}>
-                        💡 A IA consultará o histórico recente da conversa e o contexto deste produto para formular a resposta ideal.
+                    <div style={{ fontSize: '0.68rem', color: '#64748b', fontStyle: 'italic' }}>
+                        Dica: Esta instrução é enviada para a IA analisar o contexto recente da conversa e criar uma mensagem natural e personalizada.
                     </div>
                 </div>
             )}
@@ -161,21 +238,20 @@ const FollowupStepMessageFormat = ({
             {stepType === 'fixed' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <label className="premium-label" style={{ fontSize: '0.72rem', color: '#c084fc', margin: 0, fontWeight: 700 }}>
-                            📝 Template de Mensagem Fixa
+                        <label className="premium-label" style={{ fontSize: '0.72rem', color: isAbEnabled && activeAbTab === 'B' ? '#fbbf24' : '#c084fc', margin: 0, fontWeight: 700 }}>
+                            📝 Mensagem de Texto Fixa {isAbEnabled ? `(Variação ${activeAbTab})` : ''}
                         </label>
                         {setFullscreenModal && (
                             <button
                                 type="button"
                                 onClick={() => setFullscreenModal({
                                     isOpen: true,
-                                    title: `📝 Mensagem Fixa - Passo #${i + 1}`,
-                                    subtitle: 'Edite o texto pré-definido enviado neste passo de follow-up',
-                                    value: st.fixed_message || '',
-                                    onChange: (v) => updateStepProperty('fixed_message', v),
-                                    variables: ['{nome}', '{primeiro_nome}', '{telefone}'],
-                                    placeholder: 'Ex: Olá {primeiro_nome}! Vi que você ainda não finalizou seu pedido. Posso te ajudar?',
-                                    accentColor: '#a855f7'
+                                    title: `📝 Mensagem Fixa - Passo #${i + 1} ${isAbEnabled ? `(Variação ${activeAbTab})` : ''}`,
+                                    subtitle: 'Edite o texto fixo com suporte a variáveis dinâmicas {nome}, {primeiro_nome} e {telefone}',
+                                    value: (isAbEnabled && activeAbTab === 'B') ? (st.variation_b_message || '') : (st.fixed_message || ''),
+                                    onChange: (v) => updateStepProperty(isAbEnabled && activeAbTab === 'B' ? 'variation_b_message' : 'fixed_message', v),
+                                    placeholder: 'Ex: Olá {primeiro_nome}! Tudo bem? Vi que você não finalizou sua matrícula...',
+                                    accentColor: isAbEnabled && activeAbTab === 'B' ? '#f59e0b' : '#a855f7'
                                 })}
                                 style={{
                                     background: 'rgba(168, 85, 247, 0.12)',
@@ -197,17 +273,27 @@ const FollowupStepMessageFormat = ({
                         )}
                     </div>
                     <textarea 
-                        placeholder="Ex: Olá {primeiro_nome}! Vi que você ainda não finalizou sua compra. Ficou com alguma dúvida sobre o valor ou formas de pagamento?" 
-                        value={st.fixed_message || ''} 
-                        onChange={e => updateStepProperty('fixed_message', e.target.value)} 
+                        data-testid="followup-step-fixed-input"
+                        placeholder={isAbEnabled && activeAbTab === 'B' ? "Variação B: Olá {primeiro_nome}! Preparei uma condição especial para você fechar hoje..." : "Ex: Olá {primeiro_nome}! Vi que você ainda não finalizou sua compra. Ficou com alguma dúvida sobre o valor ou formas de pagamento?"} 
+                        value={(isAbEnabled && activeAbTab === 'B') ? (st.variation_b_message || '') : (st.fixed_message || '')} 
+                        onChange={e => updateStepProperty(isAbEnabled && activeAbTab === 'B' ? 'variation_b_message' : 'fixed_message', e.target.value)} 
                         className="premium-input" 
                         style={{ minHeight: '80px', fontSize: '0.8rem', resize: 'vertical', lineHeight: '1.45' }}
                     />
                     <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.68rem', color: '#64748b' }}>Inserir variável:</span>
-                        <code onClick={() => updateStepProperty('fixed_message', (st.fixed_message || '') + ' {nome}')} style={{ fontSize: '0.68rem', color: '#c084fc', background: 'rgba(168,85,247,0.12)', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>{`{nome}`}</code>
-                        <code onClick={() => updateStepProperty('fixed_message', (st.fixed_message || '') + ' {primeiro_nome}')} style={{ fontSize: '0.68rem', color: '#c084fc', background: 'rgba(168,85,247,0.12)', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>{`{primeiro_nome}`}</code>
-                        <code onClick={() => updateStepProperty('fixed_message', (st.fixed_message || '') + ' {telefone}')} style={{ fontSize: '0.68rem', color: '#c084fc', background: 'rgba(168,85,247,0.12)', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>{`{telefone}`}</code>
+                        <code onClick={() => {
+                            const field = (isAbEnabled && activeAbTab === 'B') ? 'variation_b_message' : 'fixed_message';
+                            updateStepProperty(field, (st[field] || '') + ' {nome}');
+                        }} style={{ fontSize: '0.68rem', color: '#c084fc', background: 'rgba(168,85,247,0.12)', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>{`{nome}`}</code>
+                        <code onClick={() => {
+                            const field = (isAbEnabled && activeAbTab === 'B') ? 'variation_b_message' : 'fixed_message';
+                            updateStepProperty(field, (st[field] || '') + ' {primeiro_nome}');
+                        }} style={{ fontSize: '0.68rem', color: '#c084fc', background: 'rgba(168,85,247,0.12)', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>{`{primeiro_nome}`}</code>
+                        <code onClick={() => {
+                            const field = (isAbEnabled && activeAbTab === 'B') ? 'variation_b_message' : 'fixed_message';
+                            updateStepProperty(field, (st[field] || '') + ' {telefone}');
+                        }} style={{ fontSize: '0.68rem', color: '#c084fc', background: 'rgba(168,85,247,0.12)', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>{`{telefone}`}</code>
                     </div>
                 </div>
             )}

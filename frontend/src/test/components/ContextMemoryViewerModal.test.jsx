@@ -76,14 +76,14 @@ describe('ContextMemoryViewerModal', () => {
         expect(screen.getByText('O curso custa R$ 497 à vista no PIX ou cartão.')).toBeDefined();
     });
 
-    it('deve copiar todo o histórico ao clicar no botão Copiar Tudo', () => {
+    it('deve copiar todo o histórico ao clicar no botão Copiar Tudo', async () => {
         render(<ContextMemoryViewerModal step={mockStepWithMessages} onClose={vi.fn()} />);
 
         const copyAllBtn = screen.getByText('Copiar Tudo');
         fireEvent.click(copyAllBtn);
 
         expect(navigator.clipboard.writeText).toHaveBeenCalled();
-        expect(screen.getByText('Copiado!')).toBeDefined();
+        expect(await screen.findByText('Copiado!')).toBeDefined();
     });
 
     it('deve fechar ao clicar no botão de fechar', () => {

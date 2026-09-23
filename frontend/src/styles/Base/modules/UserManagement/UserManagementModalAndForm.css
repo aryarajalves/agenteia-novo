@@ -1,0 +1,131 @@
+﻿/* User Management - Compact Modal, Form & Navigation Tabs */
+.modal-header-refined {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.modal-title-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-icon-circle {
+  width: 42px;
+  height: 42px;
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border: 1px solid rgba(168, 85, 247, 0.4);
+}
+
+.user-emoji { font-size: 1.2rem; }
+
+.plus-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  background: #3b82f6;
+  color: white;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #1e293b;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.modal-close-btn:hover { background: rgba(255, 255, 255, 0.05); color: #fff; }
+
+.user-form label {
+  display: block;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 0.4rem;
+  padding-left: 0.2rem;
+}
+
+.user-form input,
+.user-form select {
+  width: 100%;
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff !important;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  outline: none;
+  font-size: 0.9rem;
+  transition: all 0.3s;
+}
+
+.user-form input:-webkit-autofill,
+.user-form input:-webkit-autofill:hover,
+.user-form input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #fff !important;
+  -webkit-box-shadow: 0 0 0px 1000px #0f172a inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Abas de Navegação na Gestão de Usuários */
+.tabs-container {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 1px;
+}
+
+.tabs-container .tab-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.8rem 1.5rem;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.3s;
+  border-radius: 8px 8px 0 0;
+}
+
+.tabs-container .tab-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tabs-container .tab-btn.active {
+  color: #3b82f6;
+}
+
+.tabs-container .tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #3b82f6;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}

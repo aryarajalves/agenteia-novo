@@ -4,6 +4,7 @@ import FollowupBusinessHours from './FollowupBusinessHours';
 import FollowupSmartTriggers from './FollowupSmartTriggers';
 import FollowupAbandonmentDelay from './FollowupAbandonmentDelay';
 import FollowupFunnelsBar from './FollowupFunnelsBar';
+import FollowupMetricsModal from '../FollowupMetricsModal';
 
 const FollowupTab = ({
     safeEditForm,
@@ -27,6 +28,26 @@ const FollowupTab = ({
 }) => {
     const [activeFollowupFunnelId, setActiveFollowupFunnelId] = useState('followup_default');
     const [activeFollowupSubTab, setActiveFollowupSubTab] = useState('steps');
+    const [showMetricsModal, setShowMetricsModal] = useState(false);
+
+    const handleUpdateSteps = (newSteps) => {
+        const rawF = safeEditForm.followup_funnels;
+        const funnels = Array.isArray(rawF) && rawF.length > 0
+            ? rawF
+            : [{ id: 'followup_default', name: 'Padrão / Principal', is_default: true, steps: safeEditForm.followup_steps || [] }];
+        const targetId = activeFollowupFunnelId || 'followup_default';
+        const updatedFunnels = funnels.map(f => {
+            if (f.id === targetId || (!activeFollowupFunnelId && f.is_default)) {
+                return { ...f, steps: newSteps };
+            }
+            return f;
+        });
+        setEditForm({
+            ...safeEditForm,
+            followup_steps: newSteps,
+            followup_funnels: updatedFunnels
+        });
+    };
 
     const stepsCount = safeEditForm.followup_steps?.length || 0;
     const isHoursEnabled = safeEditForm.followup_business_hours?.enabled ?? false;
@@ -81,15 +102,42 @@ const FollowupTab = ({
                         </div>
                     </div>
                 </div>
-                <button
-                    type="button"
-                    data-testid="followup-master-switch"
-                    onClick={() => setEditForm({ ...safeEditForm, followup_enabled: !safeEditForm.followup_enabled })}
-                    className={`premium-switch ${safeEditForm.followup_enabled ? 'active' : ''}`}
-                    title={safeEditForm.followup_enabled ? 'Desativar Follow-Up' : 'Ativar Follow-Up'}
-                >
-                    <div className="switch-knob" />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {safeEditForm.id && (
+                        <button
+                            type="button"
+                            data-testid="open-followup-metrics-btn"
+                            onClick={() => setShowMetricsModal(true)}
+                            style={{
+                                background: 'rgba(99, 102, 241, 0.15)',
+                                border: '1px solid rgba(99, 102, 241, 0.35)',
+                                borderRadius: '8px',
+                                color: '#a5b4fc',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                padding: '6px 12px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                transition: 'all 0.2s ease'
+                            }}
+                            title="Ver métricas de conversão e testes A/B"
+                        >
+                            <span>📊</span>
+                            <span>Métricas</span>
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        data-testid="followup-master-switch"
+                        onClick={() => setEditForm({ ...safeEditForm, followup_enabled: !safeEditForm.followup_enabled })}
+                        className={`premium-switch ${safeEditForm.followup_enabled ? 'active' : ''}`}
+                        title={safeEditForm.followup_enabled ? 'Desativar Follow-Up' : 'Ativar Follow-Up'}
+                    >
+                        <div className="switch-knob" />
+                    </button>
+                </div>
             </div>
 
             {safeEditForm.followup_enabled && (
@@ -242,6 +290,7 @@ const FollowupTab = ({
                                 stepItem={st}
                                 safeEditForm={safeEditForm}
                                 setEditForm={setEditForm}
+                                onUpdateSteps={handleUpdateSteps}
                                 setActiveFollowupStepTab={setActiveFollowupStepTab}
                                 zapvoiceTemplates={zapvoiceTemplates}
                                 loadingTemplates={loadingTemplates}
@@ -293,6 +342,13 @@ const FollowupTab = ({
                 </div>
             )}
                 </>
+            )}
+
+            {showMetricsModal && safeEditForm.id && (
+                <FollowupMetricsModal
+                    webhookId={safeEditForm.id}
+                    onClose={() => setShowMetricsModal(false)}
+                />
             )}
         </div>
     );

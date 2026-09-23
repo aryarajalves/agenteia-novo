@@ -15,7 +15,9 @@
     gap: 15px;
 }
 
-/* Oculta a bolinha do assistente quando modais de configuração ou alertas estiverem abertos */
+/* Oculta a bolinha do assistente quando em tela cheia ou modais de configuração/alertas estiverem abertos */
+body.prompt-fullscreen-active .prompt-advisor-wrapper,
+body:has(.prompt-editor-layout.expanded) .prompt-advisor-wrapper,
 body:has(.modal-overlay) .prompt-advisor-wrapper,
 body:has(.guide-modal-overlay) .prompt-advisor-wrapper,
 body:has(.premium-modal-overlay) .prompt-advisor-wrapper,

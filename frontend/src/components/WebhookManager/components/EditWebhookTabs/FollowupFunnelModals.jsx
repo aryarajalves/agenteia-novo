@@ -55,7 +55,7 @@ const FollowupFunnelModals = ({
                             Crie uma esteira de follow-up dedicada para outro produto (ex: Mentoria, VSL, High Ticket).
                         </p>
 
-                        <form onSubmit={handleCreate}>
+                        <div>
                             <div style={{ marginBottom: '1rem' }}>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', marginBottom: '6px' }}>
                                     Nome do Produto / Fluxo *
@@ -66,6 +66,13 @@ const FollowupFunnelModals = ({
                                     required
                                     placeholder="Ex: Mentoria VIP, VSL Produto X"
                                     value={newFunnelName}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleCreate(e);
+                                        }
+                                    }}
                                     onChange={(e) => {
                                         setNewFunnelName(e.target.value);
                                         if (!newFunnelId) {
@@ -96,6 +103,13 @@ const FollowupFunnelModals = ({
                                     required
                                     placeholder="Ex: mentoria_vip"
                                     value={newFunnelId}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleCreate(e);
+                                        }
+                                    }}
                                     onChange={(e) => setNewFunnelId(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
                                     style={{
                                         width: '100%',
@@ -133,8 +147,13 @@ const FollowupFunnelModals = ({
                                     Cancelar
                                 </button>
                                 <button
-                                    type="submit"
+                                    type="button"
                                     data-testid="confirm-create-followup-funnel-btn"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleCreate(e);
+                                    }}
                                     style={{
                                         padding: '9px 18px',
                                         borderRadius: '8px',
@@ -150,7 +169,7 @@ const FollowupFunnelModals = ({
                                     Criar Fluxo
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
             )}
@@ -190,13 +209,20 @@ const FollowupFunnelModals = ({
                             Altere o nome exibido deste fluxo no painel. O identificador <code>{currentFunnel.id}</code> permanece inalterado.
                         </p>
 
-                        <form onSubmit={handleRename}>
+                        <div>
                             <div style={{ marginBottom: '1.5rem' }}>
                                 <input
                                     data-testid="rename-followup-funnel-input"
                                     type="text"
                                     required
                                     value={renameValue}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleRename(e);
+                                        }
+                                    }}
                                     onChange={(e) => setRenameValue(e.target.value)}
                                     style={{
                                         width: '100%',
@@ -230,8 +256,13 @@ const FollowupFunnelModals = ({
                                     Cancelar
                                 </button>
                                 <button
-                                    type="submit"
+                                    type="button"
                                     data-testid="confirm-rename-followup-funnel-btn"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleRename(e);
+                                    }}
                                     style={{
                                         padding: '9px 18px',
                                         borderRadius: '8px',
@@ -246,7 +277,7 @@ const FollowupFunnelModals = ({
                                     Salvar Nome
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
             )}

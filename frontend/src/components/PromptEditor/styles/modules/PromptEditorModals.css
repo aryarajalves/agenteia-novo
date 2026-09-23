@@ -1,26 +1,8 @@
-/* PromptEditor Fullscreen Overrides and Draft Modal */
-n/* Global Fullscreen Overrides */
-:global(body.prompt-fullscreen-active) .sidebar,
-:global(body.prompt-fullscreen-active) .config-header,
-:global(body.prompt-fullscreen-active) .tab-navigation,
-:global(body.prompt-fullscreen-active) .config-footer {
-    display: none !important;
-}
-
-:global(body.prompt-fullscreen-active) .main-content {
-    padding: 0 !important;
-    margin: 0 !important;
+/* Global Fullscreen Overrides */
+body.prompt-fullscreen-active {
     overflow: hidden !important;
 }
 
-:global(body.prompt-fullscreen-active) .content-container {
-    max-width: 100% !important;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-}
-
-/* For non-CSS-Modules environments */
 body.prompt-fullscreen-active .sidebar,
 body.prompt-fullscreen-active .config-header,
 body.prompt-fullscreen-active .tab-navigation,
@@ -39,16 +21,39 @@ body.prompt-fullscreen-active .main-content {
 }
 
 body.prompt-fullscreen-active .content-container {
-    max-width: 100% !important;
-    width: 100% !important;
+    max-width: 100vw !important;
+    width: 100vw !important;
     margin: 0 !important;
     padding: 0 !important;
 }
 
-body.prompt-fullscreen-active .config-panel-container {
+body.prompt-fullscreen-active .config-panel-container,
+body.prompt-fullscreen-active .tab-content-area {
     padding: 0 !important;
     margin: 0 !important;
+    width: 100vw !important;
     height: 100vh !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+body.prompt-fullscreen-active .form-section {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    transform: none !important;
+    filter: none !important;
+}
+
+body.prompt-fullscreen-active .fade-in {
+    animation: none !important;
+    transform: none !important;
+    filter: none !important;
 }
 
 /* Modal Open - Blur & Sidebar Hide */

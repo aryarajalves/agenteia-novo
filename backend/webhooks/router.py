@@ -51,7 +51,8 @@ from .events import (
     retry_webhook_event_endpoint,
     get_webhook_event_detail,
     get_webhook_event_detail_by_id,
-    explain_webhook_event_response
+    explain_webhook_event_response,
+    get_webhook_followup_metrics
 )
 from .leads import (
     full_purge_lead_by_phone,
@@ -99,6 +100,7 @@ router.add_api_route("/{webhook_id}/events/{event_id}", get_webhook_event_detail
 router.add_api_route("/events/{event_id}", get_webhook_event_detail_by_id, methods=["GET"])
 router.add_api_route("/events/{event_id}/explain-response", explain_webhook_event_response, methods=["POST"])
 router.add_api_route("/{webhook_id}/events/{event_id}/explain-response", explain_webhook_event_response, methods=["POST"])
+router.add_api_route("/{webhook_id}/followup-metrics", get_webhook_followup_metrics, methods=["GET"])
 
 # 4. Leads & Pipelines
 router.add_api_route("/{webhook_id}/leads-by-phone/{phone}/full-purge", full_purge_lead_by_phone, methods=["DELETE"], status_code=204)

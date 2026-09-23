@@ -27,7 +27,7 @@ const extractErrorMessage = (errData, fallbackMsg) => {
     return fallbackMsg;
 };
 
-const sanitizeWebhookPayload = (form) => {
+export const sanitizeWebhookPayload = (form) => {
     const payload = { ...form };
     delete payload.created_at;
     delete payload.updated_at;
@@ -55,8 +55,23 @@ const sanitizeWebhookPayload = (form) => {
     payload.ai_handoff_labels_to_add = parseListSafe(form.ai_handoff_labels_to_add);
     payload.ai_handoff_labels_to_remove = parseListSafe(form.ai_handoff_labels_to_remove);
     payload.memory_mappings = parseListSafe(form.memory_mappings);
-    payload.followup_steps = parseListSafe(form.followup_steps);
-    payload.followup_funnels = parseListSafe(form.followup_funnels);
+    const formSteps = parseListSafe(form.followup_steps);
+    let formFunnels = parseListSafe(form.followup_funnels);
+
+    // Garante sincronização bidirecional do funil padrão com followup_steps
+    if (Array.isArray(formFunnels) && formFunnels.length > 0) {
+        formFunnels = formFunnels.map(f => {
+            if (f.id === 'followup_default' || f.is_default) {
+                return { ...f, steps: formSteps };
+            }
+            return f;
+        });
+    } else if (formSteps && formSteps.length > 0) {
+        formFunnels = [{ id: 'followup_default', name: 'Padrão / Principal', is_default: true, steps: formSteps }];
+    }
+
+    payload.followup_steps = formSteps;
+    payload.followup_funnels = formFunnels;
 
     return payload;
 };

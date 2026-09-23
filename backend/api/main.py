@@ -7,8 +7,12 @@ O main.py legado pode importar `app` daqui como proxy de compatibilidade.
 import os
 import logging
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI, Request, Response
+from core.logging_setup import configure_logging
+
+# Configura o formato de log global persistente com data e hora
+configure_logging("backend")
+logger = logging.getLogger(__name__)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -16,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
 from api.limiter import limiter
-from api.routers import auth, agents, knowledge, analytics, media, sessions, tools, variables, feedback, chat, tester, integrations, inbox, leads, objections, backups, sales, semantic_cache, question_funnels
+from api.routers import auth, agents, knowledge, analytics, media, sessions, tools, variables, feedback, chat, tester, integrations, inbox, leads, objections, backups, sales, semantic_cache, question_funnels, transcriptions
 from fastapi import WebSocket, WebSocketDisconnect
 from core.websocket import manager
 
@@ -355,6 +359,7 @@ except Exception:
 app.include_router(auth.router)
 app.include_router(agents.router)
 app.include_router(knowledge.router)
+app.include_router(transcriptions.router)
 app.include_router(analytics.router)
 app.include_router(media.router)
 app.include_router(sessions.router)

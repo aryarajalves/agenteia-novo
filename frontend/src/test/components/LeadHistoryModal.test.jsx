@@ -233,5 +233,109 @@ describe('LeadHistoryModal Component', () => {
         // Validar que o cabeçalho possui a coluna AÇÕES
         expect(screen.getByText('AÇÕES')).toBeInTheDocument();
     });
+
+    it('deve ocultar eco duplicado de template/memória quando já existe evento de followup equivalente', async () => {
+        const eventsWithFollowupAndEcho = [
+            {
+                id: 101,
+                message_type: 'text',
+                event_type: 'message',
+                mensagem: 'Oi, tudo bem?',
+                dono: 'usuario',
+                created_at: '2026-05-16T12:00:00Z',
+            },
+            {
+                id: 102,
+                message_type: 'followup',
+                event_type: 'followup',
+                mensagem: 'Olá! Notei que você se interessou pelo nosso plano...',
+                dono: 'agente',
+                created_at: '2026-05-16T12:05:00Z',
+            },
+            {
+                id: 103,
+                message_type: 'text',
+                event_type: 'memory',
+                mensagem: 'Olá! Notei que você se interessou pelo nosso plano...',
+                dono: 'usuario',
+                created_at: '2026-05-16T12:05:02Z',
+            }
+        ];
+
+        api.get.mockImplementation(() => Promise.resolve(createMockResponse({
+            items: eventsWithFollowupAndEcho,
+            total: 3,
+            page: 1,
+            page_size: 20
+        })));
+
+        render(
+            <LeadHistoryModal
+                lead={mockLead}
+                webhook={mockWebhook}
+                onClose={() => {}}
+            />
+        );
+
+        expect(await screen.findByText('Oi, tudo bem?')).toBeInTheDocument();
+        // O texto do followup deve aparecer
+        expect(screen.getByText(/Notei que você se interessou/)).toBeInTheDocument();
+        // Como o id 103 foi filtrado por dedup de eco, só deve haver 1 ocorrência do texto na tabela
+        const matches = screen.getAllByText(/Notei que você se interessou/);
+        expect(matches.length).toBe(1);
+    });
+
+    it('deve ocultar notificações e badges internos de sistema do histórico de conversas', async () => {
+        const eventsWithSystemBadge = [
+            {
+                id: 201,
+                message_type: 'text',
+                event_type: 'message',
+                mensagem: 'Olá, qual o valor do curso?',
+                dono: 'usuario',
+                created_at: '2026-05-16T12:00:00Z',
+            },
+            {
+                id: 202,
+                message_type: 'text',
+                event_type: 'message',
+                mensagem: '',
+                agent_response: 'O atendente Super Admin adicionou marcador(es): robo, whatsapp',
+                dono: 'agente',
+                created_at: '2026-05-16T12:01:00Z',
+            },
+            {
+                id: 203,
+                message_type: 'text',
+                event_type: 'message',
+                mensagem: 'Marcador(es) adicionado(s): aluno',
+                agent_response: '',
+                dono: 'usuario',
+                created_at: '2026-05-16T12:02:00Z',
+            }
+        ];
+
+        api.get.mockImplementation(() => Promise.resolve(createMockResponse({
+            items: eventsWithSystemBadge,
+            total: 3,
+            page: 1,
+            page_size: 20
+        })));
+
+        render(
+            <LeadHistoryModal
+                lead={mockLead}
+                webhook={mockWebhook}
+                onClose={() => {}}
+            />
+        );
+
+        // A mensagem do usuário deve estar presente
+        expect(await screen.findByText('Olá, qual o valor do curso?')).toBeInTheDocument();
+
+        // Os badges e notificações internas de marcadores do atendente NÃO devem ser exibidos
+        expect(screen.queryByText(/adicionou marcador/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Marcador\(es\) adicionado/i)).not.toBeInTheDocument();
+    });
 });
 

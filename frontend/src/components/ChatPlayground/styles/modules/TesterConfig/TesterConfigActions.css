@@ -1,0 +1,56 @@
+/* ============================================================
+   STRESS TEST / TESTER AI - Action Buttons & Tip Styles
+   ============================================================ */
+
+/* Start / Stop Button */
+.start-tester-btn-modern {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: none;
+    border-radius: 14px;
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: #ffffff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 15px rgba(244, 63, 94, 0.3);
+}
+
+.start-tester-btn-modern.idle {
+    background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%);
+}
+
+.start-tester-btn-modern.idle:hover:not(:disabled) {
+    background: linear-gradient(135deg, #fb7185 0%, #f43f5e 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 22px rgba(244, 63, 94, 0.45);
+}
+
+.start-tester-btn-modern.running {
+    background: linear-gradient(135deg, #ef4444 0%, #991b1b 100%);
+    animation: testerPulseBtn 1.5s infinite;
+}
+
+.start-tester-btn-modern:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+@keyframes testerPulseBtn {
+    0%, 100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 25px rgba(239, 68, 68, 0.8); }
+}
+
+.tester-footer-tip {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    text-align: center;
+    line-height: 1.4;
+    margin: 0.25rem 0 0;
+}

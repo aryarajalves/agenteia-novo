@@ -8,6 +8,7 @@ const FollowupStepCard = ({
     stepItem: st,
     safeEditForm,
     setEditForm,
+    onUpdateSteps,
     setActiveFollowupStepTab,
     zapvoiceTemplates = [],
     loadingTemplates = false,
@@ -41,14 +42,22 @@ const FollowupStepCard = ({
             unit: newUnit,
             value: val
         };
-        setEditForm({ ...safeEditForm, followup_steps: s });
+        if (onUpdateSteps) {
+            onUpdateSteps(s);
+        } else {
+            setEditForm({ ...safeEditForm, followup_steps: s });
+        }
     };
 
     const stepType = st.type || 'ai';
     const updateStepProperty = (prop, val) => {
         const s = [...safeEditForm.followup_steps];
         s[i] = { ...s[i], [prop]: val };
-        setEditForm({ ...safeEditForm, followup_steps: s });
+        if (onUpdateSteps) {
+            onUpdateSteps(s);
+        } else {
+            setEditForm({ ...safeEditForm, followup_steps: s });
+        }
     };
 
     // Badges dinâmicos e concisos para cada sub-aba do passo

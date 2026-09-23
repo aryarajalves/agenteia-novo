@@ -99,7 +99,7 @@ def sanitize_and_split_questions(
         result["perguntas_extraidas"] = None
         result["lista_perguntas_extraidas"] = []
         result["mensagem_melhorada"] = raw_user_message.strip()
-        result["tipo_mensagem"] = "Resposta Conversacional / Qualificação do Usuário"
+        result["tipo_mensagem"] = "Resposta ao Agente / Declaração"
         result["resposta_direta"] = None
         return result
 

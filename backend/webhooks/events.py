@@ -77,14 +77,15 @@ async def list_webhook_events(
                     RIGHT(REGEXP_REPLACE(telefone, '[^0-9]', '', 'g'), 7) = :suffix7 OR 
                     RIGHT(REGEXP_REPLACE(telefone, '[^0-9]', '', 'g'), 8) = :suffix8 OR 
                     contato_nome ILIKE :search OR 
-                    mensagem ILIKE :search
+                    mensagem ILIKE :search OR
+                    agent_response ILIKE :search
                 )""")
             params["clean_search"] = clean_search
             params["plus_search"] = plus_search
             params["suffix7"] = suffix7
             params["suffix8"] = suffix8
         else:
-            where_clauses.append("(telefone LIKE :search OR contato_nome ILIKE :search OR mensagem ILIKE :search)")
+            where_clauses.append("(telefone LIKE :search OR contato_nome ILIKE :search OR mensagem ILIKE :search OR agent_response ILIKE :search)")
         params["search"] = f"%{search}%"
 
     where_str = " AND ".join(where_clauses)
@@ -193,6 +194,8 @@ async def list_webhook_events(
             item["is_partial_cache"] = is_partial
             item["is_free"] = (is_cache and cost == 0.0) or (item.get("event_type") == "followup" and cost == 0.0)
             item["cost"] = round(cost, 4)
+            if item.get("message_type") == "template" or (isinstance(raw_p, str) and '"is_template": true' in raw_p.lower()):
+                item["is_template"] = True
 
         filtered_items.append(item)
 
@@ -507,4 +510,14 @@ Retorne APENAS um JSON válido no seguinte formato:
     except Exception as e:
         logger.error(f"Erro ao explicar resposta da automação no evento {event_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro ao gerar explicação da resposta: {str(e)}")
+
+
+@router.get("/{webhook_id}/followup-metrics")
+async def get_webhook_followup_metrics(
+    webhook_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retorna métricas consolidadas de conversão, disparos e teste A/B do Follow-Up."""
+    from services.followup_modules.metrics import calculate_followup_metrics
+    return await db.run_sync(lambda session: calculate_followup_metrics(session, webhook_id))
 

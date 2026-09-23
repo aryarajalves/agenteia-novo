@@ -26,8 +26,9 @@ async def test_followup_on_reply_logic():
             webhook_config_id=1
         )
     
-    # Verificar se a query UPDATE continha a lógica de followup_on_reply
+    # Verificar se a query UPDATE preserva o followup_step para reiniciar a contagem de tempo
     called_sql = str(mock_conn.execute.call_args[0][0])
-    assert "followup_on_reply" in called_sql
     assert "followup_step = CASE" in called_sql
+    assert "WHEN followup_step = -1 THEN -1" in called_sql
+    assert "WHEN followup_step IS NOT NULL THEN followup_step" in called_sql
 

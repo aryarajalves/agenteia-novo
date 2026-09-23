@@ -8,7 +8,8 @@ from .prompts import get_date_context, _build_pre_router_system_prompt
 from .shortcuts import (
     check_programmatic_shortcuts,
     is_user_answering_assistant_question,
-    _is_purchase_declaration
+    _is_purchase_declaration,
+    _is_disinterest_declaration
 )
 from .enrichment import enrich_user_message, _get_kb_reference_context
 from .post_processing import sanitize_and_split_questions, format_debug_and_memory
@@ -193,15 +194,22 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
                 "lista_perguntas_extraidas": [],
                 "precisa_rag": False,
                 "eh_anuncio": False,
-                "detalhe_anuncio": None
+                "detalhe_anuncio": None,
+                "mensagem_original": raw_user_message,
+                "tipo_mensagem": "Agradecimento (Atalho Programático)",
+                "eh_compra_informada": False,
+                "eh_desinteresse": False,
             }
         return {
             "eh_saudacao": False, 
             "eh_agradecimento": False,
             "id_agente_alvo": main_agent.id, 
             "perguntas_extraidas": message,
+            "resposta_direta": None,
             "eh_anuncio": False,
-            "detalhe_anuncio": None
+            "detalhe_anuncio": None,
+            "eh_compra_informada": _is_purchase_declaration(raw_user_message),
+            "eh_desinteresse": _is_disinterest_declaration(raw_user_message),
         }
     
     # Enriquecimento da Mensagem com IA baseado no Histórico
@@ -350,6 +358,9 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
         if _is_purchase_declaration(raw_user_message):
             result["eh_compra_informada"] = True
 
+        if _is_disinterest_declaration(raw_user_message):
+            result["eh_desinteresse"] = True
+
         return result
     except Exception as e:
         logger.error(f"❌ Erro no Pre-Router (OpenAI): {e}")
@@ -365,5 +376,6 @@ async def run_pre_router_ai(message: str, history: list, main_agent, secondary_a
             "eh_anuncio": is_ad,
             "detalhe_anuncio": similarity_info,
             "eh_compra_informada": _is_purchase_declaration(raw_user_message),
+            "eh_desinteresse": _is_disinterest_declaration(raw_user_message),
             "pre_router_error": str(e)
         }

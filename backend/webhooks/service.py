@@ -45,8 +45,13 @@ CREATE TABLE IF NOT EXISTS {table} (
 )
 """
 
+_ENSURED_TABLES = set()
+
 async def ensure_leads_table(table_name: str):
     """Garante a existência da tabela de leads e suas colunas (migração automática)."""
+    if table_name in _ENSURED_TABLES:
+        return
+
     async with engine.begin() as conn:
         ddl = LEADS_TABLE_DDL
         if conn.dialect.name == "sqlite":
@@ -76,14 +81,20 @@ async def ensure_leads_table(table_name: str):
             ("qualified_by_agent_id", "INTEGER")
         ]
         
+        if is_sqlite:
+            info = await conn.execute(text(f"PRAGMA table_info({table_name})"))
+            existing_cols = set(row[1] for row in info.fetchall())
+        else:
+            cols_res = await conn.execute(
+                text("SELECT column_name FROM information_schema.columns WHERE table_name = :tbl"),
+                {"tbl": table_name}
+            )
+            existing_cols = set(row[0] for row in cols_res.fetchall())
+
         for col_name, col_type in migrations:
-            if is_sqlite:
-                info = await conn.execute(text(f"PRAGMA table_info({table_name})"))
-                columns = [row[1] for row in info.fetchall()]
-                if col_name not in columns:
-                    await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
-            else:
-                await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            if col_name not in existing_cols:
+                await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
+                existing_cols.add(col_name)
                 
         # Criar índices para otimização de performance das queries e listagem do LeadsModal
         if is_sqlite:
@@ -94,6 +105,8 @@ async def ensure_leads_table(table_name: str):
             await conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_webhook_config_id ON {table_name}(webhook_config_id)"))
             await conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_telefone ON {table_name}(telefone)"))
             await conn.execute(text(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_ultima_msg ON {table_name}(ultima_mensagem_em DESC NULLS LAST)"))
+
+    _ENSURED_TABLES.add(table_name)
 
 async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
     """Insere ou atualiza lead considerando o telefone e sufixos."""
@@ -234,10 +247,8 @@ async def upsert_lead(table_name: str, data: dict, webhook_config_id: int):
                         END,
                         window_close_processed = FALSE,
                         followup_step = CASE 
-                            WHEN COALESCE((SELECT followup_on_reply FROM webhook_configs WHERE id = :webhook_config_id), 'stop') = 'stop' AND followup_step > 0 THEN -1
-                            WHEN (SELECT followup_on_reply FROM webhook_configs WHERE id = :webhook_config_id) = 'continue_next' AND followup_step > 0 THEN followup_step
-                            WHEN (SELECT followup_on_reply FROM webhook_configs WHERE id = :webhook_config_id) = 'restart' THEN 0
                             WHEN followup_step = -1 THEN -1
+                            WHEN followup_step IS NOT NULL THEN followup_step
                             ELSE 0
                         END,
                         updated_at = :now_utc

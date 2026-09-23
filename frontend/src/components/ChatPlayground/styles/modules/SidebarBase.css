@@ -1,0 +1,72 @@
+.playground-sidebar { 
+    width: 320px; 
+    flex-shrink: 0; 
+    background: transparent !important; 
+    backdrop-filter: none !important; 
+    border: none !important; 
+    border-radius: 0 !important; 
+    display: flex; 
+    flex-direction: column; 
+    box-shadow: none !important; 
+    overflow: hidden; 
+}
+
+.sidebar-tabs { 
+    display: flex; 
+    background: rgba(15, 23, 42, 0.6); 
+    margin: 1.5rem 1.5rem 0.5rem 1.5rem;
+    padding: 4px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.sidebar-tabs .tab-btn { 
+    flex: 1; 
+    padding: 0.6rem 1rem; 
+    background: transparent; 
+    border: none; 
+    color: #64748b; 
+    cursor: pointer; 
+    font-weight: 700; 
+    font-size: 0.85rem; 
+    border-radius: 8px; 
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+} 
+.sidebar-tabs .tab-btn.active { 
+    color: white; 
+    background: #6366f1; 
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); 
+}
+
+.sidebar-header { padding: 0 0 1rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 1rem; }
+.sidebar-header h3 { margin: 0; color: #fff; } 
+.sidebar-header p { margin: 0; color: #94a3b8; font-size: 0.8rem; }
+.sidebar-content { padding: 1.5rem; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1.2rem; }
+
+.control-group label { display: block; color: #94a3b8; font-size: 0.8rem; margin-bottom: 0.5rem; }
+.control-group select { width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 0.6rem; border-radius: 8px; }
+
+.sidebar-section .reset-btn,
+.playground-sidebar .reset-btn { 
+    width: 100%; 
+    padding: 0.8rem; 
+    background: rgba(245, 158, 11, 0.08); 
+    color: #fbbf24; 
+    border: 1px solid rgba(245, 158, 11, 0.2); 
+    border-radius: 12px; 
+    cursor: pointer; 
+    font-weight: 800; 
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-top: 1rem;
+}
+
+.sidebar-section .reset-btn:hover,
+.playground-sidebar .reset-btn:hover {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: #f59e0b;
+    box-shadow: 0 4px 15px rgba(245, 158, 11, 0.1);
+    transform: translateY(-1px);
+}
+

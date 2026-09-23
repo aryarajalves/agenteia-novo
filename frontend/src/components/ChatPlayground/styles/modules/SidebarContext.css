@@ -1,0 +1,84 @@
+/* Context Card Styles */
+.context-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 16px;
+    padding: 1.2rem;
+    margin: 1.5rem 0;
+}
+
+.context-card h4 {
+    margin: 0 0 1.2rem 0;
+    font-size: 0.85rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.context-fields-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.context-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.context-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: #64748b;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.context-input {
+    background: rgba(0, 0, 0, 0.25) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+    color: #fff !important;
+    font-size: 0.85rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 100%;
+}
+
+.context-input:focus {
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    background: rgba(0, 0, 0, 0.35) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    outline: none;
+}
+
+.context-input::placeholder {
+    color: rgba(255, 255, 255, 0.15);
+}
+
+.guide-trigger-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #94a3b8;
+    border-radius: 10px;
+    padding: 0.4rem 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.guide-trigger-btn:hover {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: rgba(99, 102, 241, 0.3);
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.guide-trigger-btn span:first-child { font-size: 0.9rem; }
+

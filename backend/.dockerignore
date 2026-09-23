@@ -1,48 +1,12 @@
-# Cache do Python e Compilação
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-
-# Ambientes Virtuais
 venv/
-env/
-ENV/
 .venv/
-
-# Testes e Cobertura
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 .pytest_cache/
 .coverage
 htmlcov/
-tests/
-
-# Variáveis de Ambiente e Segredos (NUNCA entrar na imagem)
-.env
-.env.*
-!.env.example
-
-# Bancos de Dados Locais
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs e Arquivos Temporários
 *.log
 logs/
-tmp/
-debug/
-
-# Documentação e Markdown
-*.md
-*.txt
-!requirements.txt
-!.gitkeep
-
-# Git e IDEs
 .git/
-.gitignore
-.cursor/
-.cursorrules
-.vscode/
-.idea/

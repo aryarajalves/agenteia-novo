@@ -128,6 +128,29 @@ async def update_webhook(webhook_id: int, payload: WebhookConfigUpdate, db: Asyn
         if dup.scalar_one_or_none(): 
             raise HTTPException(status_code=400, detail="Token em uso")
 
+    # Sincroniza o funil padrão em followup_funnels com followup_steps
+    if "followup_steps" in update_data:
+        steps_val = update_data["followup_steps"]
+        funnels_val = update_data.get("followup_funnels")
+        if funnels_val is None and config.followup_funnels:
+            try:
+                funnels_val = json.loads(config.followup_funnels) if isinstance(config.followup_funnels, str) else config.followup_funnels
+            except Exception:
+                funnels_val = []
+
+        if isinstance(funnels_val, list) and funnels_val:
+            has_default = False
+            for f in funnels_val:
+                if f.get("id") == "followup_default" or f.get("is_default"):
+                    f["steps"] = steps_val
+                    has_default = True
+                    break
+            if not has_default:
+                funnels_val.append({"id": "followup_default", "name": "Padrão / Principal", "is_default": True, "steps": steps_val})
+            update_data["followup_funnels"] = funnels_val
+        elif isinstance(steps_val, list) and steps_val:
+            update_data["followup_funnels"] = [{"id": "followup_default", "name": "Padrão / Principal", "is_default": True, "steps": steps_val}]
+
     for key, value in update_data.items():
         if isinstance(value, (list, dict)):
             value = json.dumps(value, ensure_ascii=False)

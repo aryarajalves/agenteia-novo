@@ -136,6 +136,17 @@ const EditorContent = () => {
         };
     }, [isExpanded, showSaveModal, showCondModal]);
 
+    // Listener para fechar tela cheia ao pressionar ESC
+    React.useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape' && isExpanded && !showSaveModal && !showCondModal) {
+                toggleExpanded();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isExpanded, showSaveModal, showCondModal, toggleExpanded]);
+
     return (
         <div className={`prompt-editor-layout ${isExpanded ? 'expanded' : ''}`}>
             <div className="editor-main-area">
@@ -201,7 +212,11 @@ const EditorContent = () => {
                         >
                             {isCopied ? '✅ Copiado!' : '📋 Copiar Prompt'}
                         </button>
-                        <button onClick={toggleExpanded} className="action-btn primary">
+                        <button
+                            onClick={toggleExpanded}
+                            className={`action-btn ${isExpanded ? 'fullscreen-exit-btn' : 'primary fullscreen-toggle-btn'}`}
+                            title={isExpanded ? 'Sair do modo tela cheia (Esc)' : 'Expandir editor para tela cheia'}
+                        >
                             {isExpanded ? '✖ Sair da Tela Cheia' : '🔲 Tela Cheia'}
                         </button>
                     </div>

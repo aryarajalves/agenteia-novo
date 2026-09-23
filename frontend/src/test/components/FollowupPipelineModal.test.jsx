@@ -132,4 +132,50 @@ describe('FollowupPipelineModal Component', () => {
         fireEvent.click(btnCloseTop);
         expect(onClose).toHaveBeenCalledTimes(2);
     });
+
+    it('deve exibir horários de início de contagem, previsão de disparo e alerta de temporizador reiniciado', async () => {
+        const enrichedData = {
+            ...mockPipelineData,
+            overall_status: 'active',
+            steps: [
+                {
+                    step_index: 0,
+                    step_number: 1,
+                    delay_minutes: 60,
+                    type: 'ai',
+                    custom_prompt: 'Prompt teste',
+                    status: 'active',
+                    started_at: '2026-09-23T10:00:00Z',
+                    estimated_dispatch_at: '2026-09-23T11:00:00Z',
+                    reset_by_lead_message: true,
+                    lead_last_message_at: '2026-09-23T10:00:00Z',
+                    cancellation_reason: null
+                },
+                {
+                    step_index: 1,
+                    step_number: 2,
+                    delay_minutes: 1440,
+                    type: 'whatsapp_template',
+                    status: 'cancelled',
+                    cancellation_reason: "Contato possui a etiqueta: 'compra-aprovada'"
+                }
+            ]
+        };
+
+        api.get.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            json: async () => enrichedData
+        });
+
+        render(<FollowupPipelineModal lead={mockLead} webhook={mockWebhook} onClose={vi.fn()} />);
+
+        await waitFor(() => {
+            expect(screen.getByText(/Início da contagem:/i)).toBeInTheDocument();
+            expect(screen.getByText(/Previsão:/i)).toBeInTheDocument();
+            expect(screen.getByText(/Temporizador reiniciado:/i)).toBeInTheDocument();
+            expect(screen.getByText(/Disparo Cancelado:/i)).toBeInTheDocument();
+            expect(screen.getByText(/compra-aprovada/i)).toBeInTheDocument();
+        });
+    });
 });

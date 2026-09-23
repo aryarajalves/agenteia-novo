@@ -193,4 +193,49 @@ describe('PromptEditor - Nova Arquitetura com Consultor', () => {
         expect(newValue).not.toContain('[IF:hora_atual');
         expect(newValue.trim()).toBe('Texto Superior\n\nTexto Inferior');
     });
+
+    it('deve ocultar a bolinha do assistente e alternar para modo expandido ao clicar em Tela Cheia', async () => {
+        render(<PromptEditor value="Texto qualquer" onChange={() => {}} />);
+        
+        // Inicialmente a bolinha flutuante está visível
+        expect(screen.getByText('🤖')).toBeInTheDocument();
+        
+        // Botão de Tela Cheia
+        const fullscreenBtn = screen.getByText(/🔲 Tela Cheia/i);
+        expect(fullscreenBtn).toBeInTheDocument();
+        
+        fireEvent.click(fullscreenBtn);
+        
+        // O botão deve alternar para Sair da Tela Cheia
+        await waitFor(() => {
+            expect(screen.getByText(/✖ Sair da Tela Cheia/i)).toBeInTheDocument();
+        });
+        
+        // A bolinha flutuante deve ser removida / desativada
+        expect(screen.queryByText('🤖')).not.toBeInTheDocument();
+        expect(document.body.classList.contains('prompt-fullscreen-active')).toBe(true);
+    });
+
+    it('deve sair do modo tela cheia e restaurar a bolinha do assistente ao pressionar Escape', async () => {
+        render(<PromptEditor value="Texto qualquer" onChange={() => {}} />);
+        
+        const fullscreenBtn = screen.getByText(/🔲 Tela Cheia/i);
+        fireEvent.click(fullscreenBtn);
+        
+        await waitFor(() => {
+            expect(screen.getByText(/✖ Sair da Tela Cheia/i)).toBeInTheDocument();
+        });
+        expect(screen.queryByText('🤖')).not.toBeInTheDocument();
+        
+        // Pressiona ESC para sair da tela cheia
+        fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+        
+        await waitFor(() => {
+            expect(screen.getByText(/🔲 Tela Cheia/i)).toBeInTheDocument();
+        });
+        
+        // A bolinha flutuante deve voltar a ser exibida
+        expect(screen.getByText('🤖')).toBeInTheDocument();
+        expect(document.body.classList.contains('prompt-fullscreen-active')).toBe(false);
+    });
 });

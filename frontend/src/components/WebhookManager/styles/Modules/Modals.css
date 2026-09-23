@@ -151,12 +151,27 @@ body.global-modal-open .main-content {
 }
 
 .tab-switcher-premium .tab-btn .tab-icon {
-  font-size: 1.1rem;
-  opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  opacity: 0.75;
+  transition: all 0.2s ease;
+}
+
+.tab-switcher-premium .tab-btn .tab-icon svg {
+  display: block;
+}
+
+.tab-switcher-premium .tab-btn:hover .tab-icon {
+  opacity: 1;
 }
 
 .tab-switcher-premium .tab-btn.active .tab-icon {
   opacity: 1;
+  color: #a5b4fc;
 }
 
 /* Área de conteúdo principal do Modal */

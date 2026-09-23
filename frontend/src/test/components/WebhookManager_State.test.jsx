@@ -54,8 +54,8 @@ describe('WebhookManager - Gestão de Estado de Abas', () => {
         // 1. Espera o título aparecer
         await waitFor(() => expect(screen.getByText(/Integrações Webhook/i)).toBeInTheDocument(), { timeout: 5000 });
 
-        // 2. Abre o histórico
-        const historicoBtn = await screen.findByText(/Histórico/i);
+        // 2. Abre os contatos/histórico
+        const historicoBtn = await screen.findByText(/Contatos|Histórico/i);
         fireEvent.click(historicoBtn);
 
         // Verifica se os eventos da aba 'disparos' aparecem

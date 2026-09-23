@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { API_URL, AGENT_API_KEY } from '../../config';
 import DeleteMessageModal from '../ConfigPanel/components/Modals/DeleteMessageModal';
+import LeadScoringFilters from './components/LeadScoringFilters';
+import LeadScoringCard from './components/LeadScoringCard';
+import { filterAndSortLeads } from './utils/leadScoringUtils';
 
 const LeadScoring = () => {
     const [leads, setLeads] = useState([]);
@@ -169,53 +172,8 @@ const LeadScoring = () => {
         }
     };
 
-    // Formatar data localmente
-    const formatDate = (isoString) => {
-        if (!isoString) return '';
-        const d = new Date(isoString);
-        return d.toLocaleDateString('pt-BR', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    };
-
-    // Obter classe correspondente para a temperatura do lead
-    const getClassificationClass = (classification) => {
-        if (!classification) return 'indefinida';
-        const clean = classification.toLowerCase();
-        if (clean.includes('quente')) return 'quente';
-        if (clean.includes('morno')) return 'morno';
-        if (clean.includes('frio')) return 'frio';
-        return 'indefinida';
-    };
-
-    // Filtrar e ordenar leads
-    const filteredLeads = leads
-        .filter(lead => {
-            const nameMatch = (lead.contato_nome || '').toLowerCase().includes(searchQuery.toLowerCase());
-            const phoneMatch = (lead.telefone || '').toLowerCase().includes(searchQuery.toLowerCase());
-            const queryMatch = nameMatch || phoneMatch;
-
-            if (filterClass === 'Todos') return queryMatch;
-            const itemClass = getClassificationClass(lead.lead_classification);
-            const filterClassClean = getClassificationClass(filterClass);
-            return queryMatch && itemClass === filterClassClean;
-        })
-        .sort((a, b) => {
-            if (sortBy === 'hot') {
-                // Pontuações mais altas primeiro
-                const scoreA = a.lead_score !== null ? a.lead_score : -1;
-                const scoreB = b.lead_score !== null ? b.lead_score : -1;
-                if (scoreB !== scoreA) return scoreB - scoreA;
-            }
-            // Fallback para os mais recentes/atualizados primeiro
-            const dateA = a.updated_at || a.created_at || '';
-            const dateB = b.updated_at || b.created_at || '';
-            return dateB.localeCompare(dateA);
-        });
+    // Filtrar e ordenar leads usando utilitário
+    const filteredLeads = filterAndSortLeads(leads, searchQuery, filterClass, sortBy);
 
     return (
         <div className="lead-scoring-container">
@@ -229,47 +187,14 @@ const LeadScoring = () => {
             </header>
 
             {/* Painel de Filtros e Busca */}
-            <div className="filters-panel">
-                <div className="search-box">
-                    <span className="search-icon">🔍</span>
-                    <input
-                        type="text"
-                        placeholder="Buscar por nome ou telefone..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="search-input"
-                    />
-                </div>
-
-                <div className="filter-groups">
-                    <div className="filter-group">
-                        <span className="filter-label">Temperatura:</span>
-                        <div className="filter-badges">
-                            {['Todos', 'Quente 🔥', 'Morno ⚡', 'Frio ❄️'].map(type => (
-                                <button
-                                    key={type}
-                                    className={`filter-badge ${filterClass === type ? 'active' : ''}`}
-                                    onClick={() => setFilterClass(type)}
-                                >
-                                    {type.replace(/🔥|⚡|❄️/g, '').trim()}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="filter-group">
-                        <span className="filter-label">Ordenar:</span>
-                        <select
-                            value={sortBy}
-                            onChange={(e) => setSortBy(e.target.value)}
-                            className="sort-select"
-                        >
-                            <option value="hot">Mais Quentes (Score)</option>
-                            <option value="recent">Mais Recentes</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
+            <LeadScoringFilters
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
+                filterClass={filterClass}
+                setFilterClass={setFilterClass}
+                sortBy={sortBy}
+                setSortBy={setSortBy}
+            />
 
             {/* Lista de Leads */}
             {loading ? (
@@ -291,169 +216,17 @@ const LeadScoring = () => {
                 <div className="leads-grid">
                     {filteredLeads.map(lead => {
                         const leadUniqueId = `${lead.leads_table}_${lead.id}`;
-                        const isExpanded = expandedLeadIds.has(leadUniqueId);
-                        const isRecalculating = recalculatingIds.has(leadUniqueId);
-                        const scoreClass = getClassificationClass(lead.lead_classification);
-                        const hasScore = lead.lead_score !== null && lead.lead_score !== undefined;
-
                         return (
-                            <div key={leadUniqueId} className="lead-card">
-                                <div className="lead-card-header" onClick={() => toggleExpand(leadUniqueId)}>
-                                    <div className="lead-main-info">
-                                        <div className={`lead-score-circle score-${scoreClass}`}>
-                                            <span className="lead-score-value">{hasScore ? lead.lead_score : '-'}</span>
-                                            {hasScore && <span className="lead-score-max">/13</span>}
-                                        </div>
-
-                                        <div className="lead-meta-details">
-                                            <h3 className="lead-name">{lead.contato_nome}</h3>
-                                            <div className="lead-phone">
-                                                <span>📱</span> {lead.telefone || 'Sem telefone'}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="lead-meta-badges">
-                                        <span className={`classification-badge ${scoreClass}`}>
-                                            {lead.lead_classification || 'Pendente ⏳'}
-                                        </span>
-                                        {lead.inbox_nome && (
-                                            <span className="inbox-badge">
-                                                📥 {lead.inbox_nome}
-                                            </span>
-                                        )}
-                                        {lead.agent_name && (
-                                            <span className="inbox-badge" style={{
-                                                background: 'rgba(99, 102, 241, 0.15)',
-                                                color: '#a5b4fc',
-                                                border: '1px solid rgba(99, 102, 241, 0.25)'
-                                            }}>
-                                                🤖 {lead.agent_name}
-                                            </span>
-                                        )}
-                                        <span className="date-badge">
-                                            {formatDate(lead.updated_at || lead.created_at)}
-                                        </span>
-                                    </div>
-
-                                    <div className="lead-actions-summary" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <button 
-                                            type="button"
-                                            className="btn-trash"
-                                            disabled={deletingLeadIds.has(leadUniqueId)}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setDeleteLeadModal({ isOpen: true, lead });
-                                            }}
-                                            style={{
-                                                background: 'transparent',
-                                                border: 'none',
-                                                color: '#ef4444',
-                                                fontSize: '1rem',
-                                                padding: '0.5rem',
-                                                borderRadius: '6px',
-                                                cursor: 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                transition: 'all 0.2s',
-                                                opacity: deletingLeadIds.has(leadUniqueId) ? 0.5 : 1
-                                            }}
-                                            onMouseOver={(e) => {
-                                                if (!deletingLeadIds.has(leadUniqueId)) {
-                                                    e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                                                }
-                                            }}
-                                            onMouseOut={(e) => {
-                                                e.currentTarget.style.background = 'transparent';
-                                            }}
-                                            title="Remover qualificação do lead"
-                                        >
-                                            🗑️
-                                        </button>
-                                        <button className={`btn-chevron ${isExpanded ? 'expanded' : ''}`}>
-                                            ▼
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {isExpanded && (
-                                    <div className="lead-card-content">
-                                        {/* Perguntas e Respostas */}
-                                        <div className="lead-details-section">
-                                            <h4 className="lead-section-title">💬 Respostas de Qualificação</h4>
-                                            <div className="qa-list">
-                                                {Array.isArray(lead.respostas_decoded) && lead.respostas_decoded.length > 0 ? (
-                                                    lead.respostas_decoded.map((qa, index) => (
-                                                        <div key={index} className="qa-item">
-                                                            <div className="qa-question">
-                                                                Perg: {qa.pergunta || qa.question || `Pergunta ${index + 1}`}
-                                                            </div>
-                                                            <div className="qa-answer">
-                                                                {qa.resposta || qa.answer || "Sem resposta"}
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <div className="qa-item">
-                                                        <div className="qa-answer" style={{ color: 'var(--text-secondary)' }}>
-                                                            {typeof lead.respostas_decoded === 'string' 
-                                                                ? lead.respostas_decoded 
-                                                                : 'Nenhuma resposta decodificada.'}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Justificativa da IA */}
-                                        {lead.lead_justification && (
-                                            <div className="lead-details-section">
-                                                <h4 className="lead-section-title">🧠 Justificativa da IA</h4>
-                                                <div className="justification-block">
-                                                    <p className="justification-text">
-                                                        {lead.lead_justification}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Ações */}
-                                        <div className="lead-card-actions">
-                                            <button
-                                                className="btn-lead-action recalc"
-                                                onClick={(e) => handleRecalculateScore(e, lead)}
-                                                disabled={isRecalculating}
-                                            >
-                                                {isRecalculating ? (
-                                                    <>
-                                                        <div className="mini-spinner"></div>
-                                                        <span>Recalculando...</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <span>🔄</span>
-                                                        <span>Recalcular Score</span>
-                                                    </>
-                                                )}
-                                            </button>
-
-                                            {(lead.chatwoot_conversation_url || lead.telefone) && (
-                                                <a
-                                                    href={lead.chatwoot_conversation_url || `https://web.whatsapp.com/send?phone=${String(lead.telefone).replace(/\D/g, '')}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="btn-lead-action chatwoot"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <span>💬</span>
-                                                    <span>Conversar no ZapVoice</span>
-                                                </a>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                            <LeadScoringCard
+                                key={leadUniqueId}
+                                lead={lead}
+                                isExpanded={expandedLeadIds.has(leadUniqueId)}
+                                isRecalculating={recalculatingIds.has(leadUniqueId)}
+                                isDeleting={deletingLeadIds.has(leadUniqueId)}
+                                onToggleExpand={toggleExpand}
+                                onRecalculate={handleRecalculateScore}
+                                onRequestDelete={(selectedLead) => setDeleteLeadModal({ isOpen: true, lead: selectedLead })}
+                            />
                         );
                     })}
                 </div>

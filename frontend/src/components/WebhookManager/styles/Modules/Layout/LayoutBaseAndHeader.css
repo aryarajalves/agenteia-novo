@@ -1,0 +1,81 @@
+﻿/* ============================================================
+   WEBHOOK MANAGER — Layout Base & Header
+   ============================================================ */
+
+:root {
+  --wh-bg-card: rgba(15, 23, 42, 0.55);
+  --wh-border: rgba(255, 255, 255, 0.07);
+  --wh-border-glow: rgba(99, 102, 241, 0.35);
+  
+  --wh-purple: #6366f1;
+  --wh-purple-dark: #4f46e5;
+  --wh-green: #10b981;
+  --wh-red: #ef4444;
+  --wh-blue: #3b82f6;
+  
+  --wh-text-primary: #e2e8f0;
+  --wh-text-secondary: #94a3b8;
+  --wh-text-muted: #64748b;
+  
+  --wh-radius-xl: 24px;
+  --wh-radius-lg: 16px;
+  --wh-radius-md: 12px;
+  --wh-radius-sm: 8px;
+  
+  --wh-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  --wh-shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.webhook-manager-container {
+  padding: 2rem 2.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  color: var(--wh-text-primary);
+  animation: fadeInUp 0.5s ease both;
+}
+
+.fade-in { animation: fadeInUp 0.4s ease both; }
+
+.webhook-manager-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2.5rem;
+}
+
+.header-title-group h1 {
+  margin: 0;
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.btn-new-webhook {
+  background: linear-gradient(135deg, var(--wh-purple), var(--wh-purple-dark));
+  color: #fff;
+  border: none;
+  border-radius: var(--wh-radius-md);
+  padding: 0.85rem 1.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
+  transition: all 0.3s ease;
+}
+
+.btn-new-webhook:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 15px 30px rgba(79, 70, 229, 0.4);
+  filter: brightness(1.1);
+}

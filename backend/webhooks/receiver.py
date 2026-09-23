@@ -15,6 +15,7 @@ from models import WebhookConfigModel, WebhookEventModel
 from webhook_tasks import process_webhook_automation, sync_memory_to_vector, process_media_content_task
 from .utils import normalize_phone, get_value_by_path
 from .service import ensure_leads_table, upsert_lead, handle_keyword_handoffs
+from .import_chat_modules.helpers import is_system_or_badge_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -222,6 +223,19 @@ async def receive_webhook(token: str, request: Request, db: AsyncSession = Depen
         logger.info(f"⏭️ Webhook ignorado: inbox_id '{extracted.get('inbox_id')}' não corresponde ao configurado '{target_client_id}'")
         return {"ok": True, "status": "ignored_inbox"}
 
+    # --- FILTRO DE BADGES E NOTIFICAÇÕES INTERNAS DE SISTEMA ---
+    # Ignora logs administrativos (ex: "O atendente Super Admin adicionou marcador(es)...", tags internas, início de funil)
+    # que não representam mensagens reais enviadas entre o contato e o agente/template
+    check_badge_dict = {
+        "content": extracted.get("mensagem") or "",
+        "sender_type": zap_msg.get("sender_type") if is_zapvoice else (body.get("sender_type") or body.get("message_type")),
+        "message_type": extracted.get("message_type") or "text",
+        "meta_data": zap_msg.get("metadata") if is_zapvoice else body.get("meta_data")
+    }
+    if is_system_or_badge_message(check_badge_dict):
+        logger.info(f"⏭️ Webhook ignorado: notificação interna de sistema/badge descartada para {phone} ({extracted['mensagem'][:50]})")
+        return {"ok": True, "status": "system_badge_ignored"}
+
     # --- FILTRO DE MENSAGENS DE SAÍDA (ECHO) ---
     if is_out:
         resetting_key = f"webhook:resetting:{config.id}:{phone}"
@@ -234,7 +248,96 @@ async def receive_webhook(token: str, request: Request, db: AsyncSession = Depen
             await upsert_lead(config.leads_table, {**extracted, "dono": "agente"}, config.id)
         except Exception as e:
             logger.error(f"Erro ao inserir lead de saída: {e}")
-        return {"ok": True, "status": "outgoing_ignored"}
+
+        # Ingerir mensagem de saída (Template ou Atendente) na tabela webhook_events para histórico e memória da IA
+        msg_out_text = (extracted.get("mensagem") or "").strip()
+        msg_id_out = str(extracted.get("mensagem_id") or "").strip()
+        
+        if msg_out_text or extracted.get("link"):
+            try:
+                # Deduplicação por mensagem_id
+                already_exists = False
+                if msg_id_out:
+                    dup_check = await db.execute(
+                        select(WebhookEventModel.id).where(
+                            WebhookEventModel.webhook_config_id == config.id,
+                            WebhookEventModel.mensagem_id == msg_id_out
+                        ).limit(1)
+                    )
+                    if dup_check.scalar_one_or_none():
+                        already_exists = True
+
+                if not already_exists:
+                    now_br = get_now_br()
+                    is_template = (
+                        extracted.get("message_type") == "template" or
+                        "template" in str(extracted.get("message_type", "")).lower() or
+                        (isinstance(body.get("message"), dict) and bool(body.get("message", {}).get("template_name")))
+                    )
+
+                    step_title = "📋 Disparo Template WhatsApp" if is_template else "📤 Mensagem do Agente / Atendente"
+                    step_detail = "Template Oficial disparado via ZapVoice" if is_template else "Mensagem enviada pelo atendente/sistema"
+
+                    steps = [{
+                        "step": step_title,
+                        "detail": step_detail,
+                        "timestamp": now_br.isoformat(),
+                        "metadata": {
+                            "is_out": True,
+                            "is_template": is_template,
+                            "origin": "outgoing_echo"
+                        }
+                    }]
+
+                    out_event = WebhookEventModel(
+                        webhook_config_id=config.id,
+                        event_type="message",
+                        status="completed",
+                        message_type="template" if is_template else (extracted.get("message_type") or "text"),
+                        conta_id=extracted.get("conta_id"),
+                        inbox_id=extracted.get("inbox_id"),
+                        inbox_nome=extracted.get("inbox_nome"),
+                        conversa_id=extracted.get("conversa_id"),
+                        mensagem_id=msg_id_out or None,
+                        contato_id=extracted.get("contato_id"),
+                        telefone=phone,
+                        labels=extracted.get("labels"),
+                        contato_nome=extracted.get("contato_nome"),
+                        mensagem=None,
+                        agent_response=msg_out_text,
+                        link=extracted.get("link"),
+                        raw_payload=json.dumps(body, ensure_ascii=False),
+                        dono="agente",
+                        created_at=now_br,
+                        updated_at=now_br,
+                        is_automatic=False,
+                        processing_steps=json.dumps(steps, ensure_ascii=False)
+                    )
+                    db.add(out_event)
+                    await db.commit()
+                    await db.refresh(out_event)
+
+                    await manager.broadcast({
+                        "type": "new_event",
+                        "webhook_id": config.id,
+                        "event": {
+                            "id": out_event.id,
+                            "event_type": out_event.event_type,
+                            "status": out_event.status,
+                            "telefone": out_event.telefone,
+                            "contato_nome": out_event.contato_nome,
+                            "mensagem": out_event.mensagem,
+                            "agent_response": out_event.agent_response,
+                            "dono": out_event.dono,
+                            "message_type": out_event.message_type,
+                            "created_at": out_event.created_at.isoformat() if out_event.created_at else None
+                        }
+                    })
+                    logger.info(f"✅ Mensagem de saída ({'Template' if is_template else 'Atendente'}) gravada em webhook_events: ID {out_event.id} para {phone}")
+            except Exception as e_evt:
+                logger.error(f"Erro ao salvar evento de saída em webhook_events: {e_evt}")
+
+        return {"ok": True, "status": "outgoing_recorded"}
 
     # --- FILTRO DE CONTATOS PERMITIDOS E BLOQUEADOS ---
     blocked_list = []
@@ -573,24 +676,53 @@ async def receive_memory_webhook(token: str, request: Request, db: AsyncSession 
         "event_type": "memory"
     }, config.id)
     
-    if dono in ("agente", "bot"):
-        logger.info(f"⏭️ Webhook de memória ignorado para criação de evento de agente ({phone}): '{mensagem_text[:30]}...'")
-        return {"ok": True, "phone": phone, "status": "agent_memory_echo_ignored"}
+    preview_msg = (mensagem_text[:50] + "...") if len(mensagem_text) > 50 else mensagem_text
+    logger.info(
+        f"💾 [MEMÓRIA RECEBIDA] Mensagem registrada no lead ({phone}) | "
+        f"Autor: {dono} | Nome: {memory_contato_nome or 'Desconhecido'} | Texto: '{preview_msg}'"
+    )
 
     now_br = get_now_br()
+    is_agent_message = dono in ("agente", "bot")
+
+    # Detecta se é disparo de template
+    is_template = bool(
+        get_value_by_path(body, "template_content") or 
+        get_value_by_path(body, "is_template") or 
+        str(get_value_by_path(body, "message_type") or "").lower() == "template"
+    )
+    detected_msg_type = "template" if is_template else (get_value_by_path(body, "message_type") or "text")
+
+    # Se for mensagem enviada pelo agente/empresa, status nasce completed para evitar loop de auto-resposta
+    event_status = "completed" if is_agent_message else "waiting"
+    agent_resp = (
+        "Modo Silencioso (Disparo de Template)" if is_template else "Modo Silencioso (Mensagem de Saída)"
+    ) if is_agent_message else None
+
+    detail_step = (
+        "Disparo de template registrado com sucesso no histórico do contato." if is_template else
+        "Mensagem de saída registrada com sucesso no histórico do contato."
+    ) if is_agent_message else "Os dados foram recebidos e estão aguardando o processamento da fila de vetorização."
+
+    step_title = "💾 Disparo de Template Registrado" if is_template else (
+        "💾 Mensagem de Saída Registrada" if is_agent_message else "📥 Recebido Webhook de Memória"
+    )
+
     event = WebhookEventModel(
         webhook_config_id=config.id,
         event_type="memory",
-        status="waiting",
+        message_type=detected_msg_type,
+        status=event_status,
         raw_payload=json.dumps(body, ensure_ascii=False),
         telefone=phone,
         contato_nome=memory_contato_nome or ("Lead_" + phone[-4:]),
         dono=dono,
         mensagem=mensagem_text,
+        agent_response=agent_resp,
         created_at=now_br,
         processing_steps=json.dumps([{
-            "step": "📥 Recebido Webhook de Memória",
-            "detail": "Os dados foram recebidos e estão aguardando o processamento da fila de vetorização.",
+            "step": step_title,
+            "detail": detail_step,
             "timestamp": now_br.isoformat()
         }], ensure_ascii=False)
     )
@@ -598,5 +730,14 @@ async def receive_memory_webhook(token: str, request: Request, db: AsyncSession 
     await db.commit()
     await db.refresh(event)
 
+    if is_agent_message:
+        logger.info(
+            f"🛡️ [HISTÓRICO REGISTRADO] Mensagem/Template do agente armazenado no histórico ({phone}) "
+            f"com ID {event.id} - IA não auto-responderá para evitar loop."
+        )
+        if body.get("facts"):
+            sync_memory_to_vector.delay(event.id)
+        return {"ok": True, "phone": phone, "event_id": event.id, "status": "agent_memory_saved_to_history"}
+
     sync_memory_to_vector.delay(event.id)
-    return {"ok": True, "phone": phone}
+    return {"ok": True, "phone": phone, "event_id": event.id}

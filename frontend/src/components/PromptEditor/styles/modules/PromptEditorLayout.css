@@ -14,18 +14,25 @@
 }
 
 .prompt-editor-layout.expanded {
-    position: fixed;
-    inset: 0;
-    height: 100vh;
-    width: 100vw;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    inset: 0 !important;
+    height: 100vh !important;
+    width: 100vw !important;
     z-index: 2147483647 !important;
-    border-radius: 0;
-    border: none;
-    animation: zoomIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #0b1120 !important;
+    margin: 0 !important;
+    animation: zoomIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes zoomIn {
-    from { opacity: 0; transform: scale(0.95); }
+    from { opacity: 0; transform: scale(0.98); }
     to { opacity: 1; transform: scale(1); }
 }
 
@@ -37,8 +44,9 @@
 }
 
 .editor-toolbar {
-    padding: 0.9rem 1.5rem;
-    background: rgba(255, 255, 255, 0.02);
+    padding: 0.85rem 1.5rem;
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(10px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
     justify-content: space-between;
@@ -47,12 +55,17 @@
     flex-wrap: wrap;
 }
 
+.prompt-editor-layout.expanded .editor-toolbar {
+    padding: 0.85rem 1.75rem;
+}
+
 .toolbar-actions {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
     align-items: center;
     justify-content: flex-end;
+    margin-right: 2px;
 }
 
 .toolbar-left {
@@ -122,12 +135,13 @@
 }
 
 .action-btn {
-    height: 40px;
-    padding: 0 1.1rem;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    color: #cbd5e1;
+    height: 38px;
+    padding: 0 1.15rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(8px);
+    color: #e2e8f0;
     font-size: 0.82rem;
     font-weight: 700;
     letter-spacing: 0.01em;
@@ -138,14 +152,15 @@
     justify-content: center;
     gap: 8px;
     white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .action-btn:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: white;
-    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.22);
     transform: translateY(-1px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 }
 
 .action-btn:active {
@@ -154,51 +169,73 @@
 
 /* Inserir Condicional - acento rosa/magenta */
 .action-btn.insert-cond-btn {
-    background: rgba(236, 72, 153, 0.1);
-    border-color: rgba(236, 72, 153, 0.3);
-    color: #f9a8d4;
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.14), rgba(219, 39, 119, 0.08));
+    border-color: rgba(244, 114, 182, 0.35);
+    color: #fbcfe8;
 }
 
 .action-btn.insert-cond-btn:hover {
-    background: rgba(236, 72, 153, 0.18);
-    border-color: rgba(236, 72, 153, 0.5);
-    color: #fbcfe8;
-    box-shadow: 0 6px 18px rgba(236, 72, 153, 0.25);
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.24), rgba(219, 39, 119, 0.16));
+    border-color: rgba(244, 114, 182, 0.6);
+    color: #ffffff;
+    box-shadow: 0 6px 18px rgba(236, 72, 153, 0.3);
 }
 
 /* Salvar Rascunho e Copiar Prompt - acento indigo neutro */
 .action-btn.secondary {
     background: rgba(99, 102, 241, 0.08);
-    border-color: rgba(99, 102, 241, 0.2);
-    color: #a5b4fc;
+    border-color: rgba(99, 102, 241, 0.25);
+    color: #c7d2fe;
 }
 
 .action-btn.secondary:hover {
-    background: rgba(99, 102, 241, 0.16);
-    border-color: rgba(99, 102, 241, 0.4);
-    color: #c7d2fe;
-    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.2);
+    background: rgba(99, 102, 241, 0.18);
+    border-color: rgba(165, 180, 252, 0.5);
+    color: #ffffff;
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.25);
 }
 
-.action-btn.primary {
-    background: linear-gradient(135deg, #6366f1, #818cf8);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: white;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-    padding: 0 1.3rem;
+/* Botão Tela Cheia (Entrar) */
+.action-btn.primary,
+.action-btn.fullscreen-toggle-btn {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    border-color: rgba(165, 180, 252, 0.35);
+    color: #ffffff;
+    box-shadow: 0 3px 12px rgba(99, 102, 241, 0.35);
+    padding: 0 1.25rem;
 }
 
-.action-btn.primary:hover {
+.action-btn.primary:hover,
+.action-btn.fullscreen-toggle-btn:hover {
+    background: linear-gradient(135deg, #4f46e5, #4338ca);
+    border-color: rgba(199, 210, 254, 0.6);
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
-    filter: brightness(1.08);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+}
+
+/* Botão Sair da Tela Cheia */
+.action-btn.fullscreen-exit-btn {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.12));
+    border: 1px solid rgba(248, 113, 113, 0.45);
+    color: #fca5a5;
+    box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2);
+    padding: 0 1.25rem;
+    margin-right: 4px;
+}
+
+.action-btn.fullscreen-exit-btn:hover {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.32), rgba(220, 38, 38, 0.22));
+    border-color: rgba(248, 113, 113, 0.75);
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
 }
 
 /* Copied Button State styling */
 .action-btn.copied {
-    background: rgba(16, 185, 129, 0.15) !important;
-    border-color: rgba(16, 185, 129, 0.4) !important;
+    background: rgba(16, 185, 129, 0.18) !important;
+    border-color: rgba(52, 211, 153, 0.5) !important;
     color: #34d399 !important;
-    box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.25) !important;
 }
 

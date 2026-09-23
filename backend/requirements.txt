@@ -70,11 +70,11 @@ pytest-cov==7.0.0         # Plugin do pytest para relatórios de cobertura (cove
 respx==0.21.1             # Mocking HTTPX for testing
 
 # === Utilitários e Core ===
-anyio==4.12.1             # Camada de compatibilidade assíncrona para múltiplas backends (asyncio/trio)
+anyio==4.15.1             # Camada de compatibilidade assíncrona para múltiplas backends (asyncio/trio)
 certifi==2026.2.25        # Coleção de certificados CA para validação de conexões SSL/TLS
 click==8.4.2              # Criação de interfaces de linha de comando elegantes
 pydantic==2.12.5          # Validação de dados e gestão de configurações usando types
 python-dotenv==1.2.3      # Carregamento de segredos e variáveis de ambiente de arquivos .env
 python-multipart==0.0.31  # Suporte para parsing de formulários multipart (upload de arquivos)
 PyYAML==6.0.3             # Leitura e escrita de arquivos no formato YAML
-typing_extensions==4.15.0 # Backport de novos recursos de typing para versões mais antigas do Python
+typing_extensions==4.16.0 # Backport de novos recursos de typing para versões mais antigas do Python

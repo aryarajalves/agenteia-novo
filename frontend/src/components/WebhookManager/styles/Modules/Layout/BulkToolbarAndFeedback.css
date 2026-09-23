@@ -1,0 +1,119 @@
+﻿/* ============================================================
+   WEBHOOK MANAGER — Bulk Toolbar, Leads, Toasts & Scrollbar
+   ============================================================ */
+
+.bulk-toolbar-premium {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--wh-radius-lg);
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  backdrop-filter: blur(10px);
+}
+
+.bulk-checkbox-ui {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--wh-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bulk-checkbox-ui.active {
+  background: var(--wh-red);
+}
+
+.btn-bulk-delete {
+  background: var(--wh-red);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.65rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.lead-card-premium {
+  transition: all 0.3s ease;
+}
+
+.lead-card-premium:hover {
+  transform: translateY(-4px);
+  background: rgba(30, 41, 59, 0.5) !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+}
+
+.lead-card-premium button:hover {
+  filter: brightness(1.2);
+  transform: scale(1.02);
+}
+
+.modal-header-premium .header-title {
+  font-size: 1.4rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+
+.toast-premium {
+  position: fixed;
+  top: 2rem;
+  right: 2rem;
+  padding: 1rem 1.5rem;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(15px);
+  border: 1px solid var(--wh-border);
+  border-radius: 16px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  z-index: 2000000; /* Superior a todos os modais (que usam 999999) */
+  animation: slideInDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 20px rgba(99, 102, 241, 0.3);
+  font-weight: 700;
+  min-width: 350px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.toast-premium.success { border-left: 4px solid var(--wh-green); }
+.toast-premium.error { border-left: 4px solid var(--wh-red); }
+
+@keyframes slideInDown {
+  from { opacity: 0; transform: translateY(-100%) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Custom Scrollbar para a Lista de Contatos */
+.premium-modal-content *::-webkit-scrollbar {
+  width: 6px;
+}
+.premium-modal-content *::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.1);
+}
+.premium-modal-content *::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+}
+.premium-modal-content *::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.3);
+}

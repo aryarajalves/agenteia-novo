@@ -1,0 +1,225 @@
+﻿/* ============================================================
+   WEBHOOK MANAGER — Cards & Actions
+   ============================================================ */
+
+.webhook-card-modern {
+  background: var(--wh-bg-card);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--wh-border);
+  border-radius: var(--wh-radius-xl);
+  padding: 1.75rem;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+}
+
+.webhook-list-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.selection-checkbox {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  border: 2px solid var(--wh-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.selection-checkbox.selected {
+  background: var(--wh-purple);
+  border-color: var(--wh-purple);
+  box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+}
+
+.webhook-card-modern:hover {
+  transform: translateY(-8px);
+  border-color: var(--wh-border-glow);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.card-title-premium {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 0.25rem;
+}
+
+.card-subtitle-premium {
+  font-size: 0.9rem;
+  color: var(--wh-text-secondary);
+}
+
+.toggle-switch {
+  width: 44px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--wh-border);
+  border-radius: 100px;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.toggle-switch.active {
+  background: var(--wh-green);
+  border-color: var(--wh-green);
+}
+
+.toggle-knob {
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.toggle-switch.active .toggle-knob {
+  left: 22px;
+}
+
+.card-info-row {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.info-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.info-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--wh-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.info-value-code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.url-display-premium {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--wh-border);
+  border-radius: var(--wh-radius-md);
+  padding: 0.75rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.copy-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--wh-border);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: #fff;
+}
+
+.card-footer-modern {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--wh-border);
+}
+
+.actions-group {
+  display: flex;
+  gap: 0.65rem;
+}
+
+.actions-group button {
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid transparent !important;
+}
+
+.btn-action-history { 
+  background: rgba(99, 102, 241, 0.08); 
+  color: #a5b4fc; 
+  border-color: rgba(99, 102, 241, 0.2) !important; 
+}
+.btn-action-history:hover { 
+  background: rgba(99, 102, 241, 0.2); 
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.btn-action-leads { 
+  background: rgba(16, 185, 129, 0.08); 
+  color: #4ade80; 
+  border-color: rgba(16, 185, 129, 0.2) !important; 
+}
+.btn-action-leads:hover { 
+  background: rgba(16, 185, 129, 0.2); 
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+.btn-action-edit { 
+  background: rgba(255, 255, 255, 0.05); 
+  color: #fff; 
+  border-color: rgba(255, 255, 255, 0.1) !important; 
+}
+.btn-action-edit:hover { 
+  background: rgba(255, 255, 255, 0.12); 
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+}
+
+.btn-action-delete { 
+  background: rgba(239, 68, 68, 0.08); 
+  color: #f87171; 
+  border-color: rgba(239, 68, 68, 0.2) !important; 
+}
+.btn-action-delete:hover { 
+  background: rgba(239, 68, 68, 0.2); 
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}

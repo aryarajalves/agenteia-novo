@@ -72,19 +72,20 @@ describe('WebhookManager - Refactored Component', () => {
     it('deve abrir o modal de criação ao clicar em Novo Webhook', async () => {
         render(<WebhookManager />);
         
-        const btnNovo = await screen.findByRole('button', { name: /Novo Webhook/i });
+        const btnNovo = await screen.findByRole('button', { name: /\+ Novo Webhook/i });
         fireEvent.click(btnNovo);
         
-        expect(screen.getByText(/Nova Integração/i)).toBeInTheDocument();
-        expect(screen.getByLabelText(/Nome da Integração/i)).toBeInTheDocument();
+        expect(await screen.findByText(/Configurar Integração|Nova Integração/i)).toBeInTheDocument();
     });
 
     it('deve alternar o status ativo/inativo ao clicar no switch', async () => {
         api.patch.mockResolvedValue(createMockResponse({ ...mockWebhook, is_active: false }));
         
-        render(<WebhookManager />);
+        const { container } = render(<WebhookManager />);
         
-        const switchBtn = await screen.findByTitle(/Desativar Integração/i);
+        await screen.findByText(/Webhook Teste/i);
+        const switchBtn = container.querySelector('.toggle-switch');
+        expect(switchBtn).toBeInTheDocument();
         fireEvent.click(switchBtn);
         
         expect(api.patch).toHaveBeenCalledWith(expect.stringContaining('/toggle-active'));

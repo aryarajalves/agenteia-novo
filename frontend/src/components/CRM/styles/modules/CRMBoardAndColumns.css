@@ -1,0 +1,140 @@
+/* CRMBoardAndColumns.css - Board Kanban, Colunas, Drag & Drop e Paginação */
+
+.crm-board {
+    display: flex;
+    gap: 1.25rem;
+    overflow-x: auto;
+    padding-bottom: 1.5rem;
+    min-height: 550px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(168, 85, 247, 0.3) rgba(0, 0, 0, 0.2);
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.crm-board.is-dragging {
+    cursor: grabbing;
+    cursor: -webkit-grabbing;
+}
+
+.crm-column {
+    flex: 0 0 310px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    max-height: 75vh;
+    backdrop-filter: blur(10px);
+    transition: border-color 0.2s ease;
+}
+
+.crm-column.drag-over {
+    border-color: #a855f7;
+    background: rgba(168, 85, 247, 0.08);
+}
+
+.crm-column-header {
+    padding: 1rem 1.1rem 0.85rem 1.1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.crm-column-title-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.crm-column-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.crm-column-badge {
+    padding: 0.2rem 0.55rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 800;
+}
+
+.crm-column-body {
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+    flex: 1;
+    scrollbar-width: thin;
+}
+
+.crm-empty-column {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: #64748b;
+    font-size: 0.78rem;
+    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    margin: 0.5rem 0;
+}
+
+/* Paginação da Coluna */
+.crm-column-pagination {
+    padding: 0.6rem 0.9rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 0 0 16px 16px;
+    font-size: 0.72rem;
+    color: #94a3b8;
+}
+
+.crm-pagination-info {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #94a3b8;
+}
+
+.crm-pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.crm-page-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #f8fafc;
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.65rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.crm-page-btn:hover:not(:disabled) {
+    background: rgba(168, 85, 247, 0.25);
+    border-color: #a855f7;
+    color: #fff;
+}
+
+.crm-page-btn:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+
+.crm-page-current {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #cbd5e1;
+    padding: 0 0.2rem;
+}

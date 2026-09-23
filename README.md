@@ -583,17 +583,32 @@ Esta versão traz melhorias no encerramento de conversas após o registro de dú
 
 ---
 
+### Novidades e Ajustes Recentes (v1.2.6) - Criado por Aryaraj
+- **Continuidade Inteligente e Reinício de Temporizador no Follow-Up**:
+  - Quando um contato envia uma mensagem enquanto está em um funil de follow-up ativo, o pipeline não é mais cancelado nem pausado indevidamente. O temporizador do passo atual é reiniciado mantendo o lead na mesma etapa.
+  - O follow-up agora só é pausado ou cancelado estritamente caso o contato tenha comprado o produto/curso (via webhook ou intenção de compra confirmada), possua etiquetas de exclusão configuradas, ou declare desinteresse explícito de compra.
+- **Detecção de Desinteresse Explícito no Pre-Router**:
+  - Nova regra inteligente de detecção por atalhos (`_is_disinterest_declaration`) e LLM (`eh_desinteresse`), capturando manifestações como *"não tenho interesse"*, *"não quero comprar"*, *"pare de me mandar mensagem"*, *"pode cancelar"*, cancelando o follow-up de forma segura e registrando o motivo no histórico do lead.
+- **Diagnóstico Transparente de Agendamento do Follow-Up na UI**:
+  - Modal do Pipeline de Follow-Up enriquecido com detalhes de quando o temporizador começou a contar (`started_at`), estimativa exata do próximo disparo (`estimated_dispatch_at`) e badge visual informativo caso o temporizador tenha sido reiniciado por resposta do cliente (`reset_by_lead_message`).
+- **Cálculo de Atraso em Tempo Real com Proteção de Horário Comercial**:
+  - Ajuste do cálculo de contagem regressiva para respeitar tempos reais corridos (ex: 24h = dia seguinte no mesmo horário, e não 2 dias úteis acumulados), mantendo a proteção para que disparos só aconteçam dentro da janela de horário comercial configurada.
+- **Atualização de Segurança de Dependências**:
+  - Correção de vulnerabilidade crítica no pacote `anyio` (atualizado para v4.15.1) e alinhamento do `typing_extensions` (v4.16.0), passando com 100% de conformidade nas auditorias de segurança do backend e frontend.
+
+---
+
 ## 📦 Deploy e Imagens Docker
 
 *(Aviso: Conforme as regras do projeto, nunca gerar ou dar push em tags `latest` no Docker Hub; use sempre tags de versão estritas.)*
 
 ### Backend
-1. **Build:** `docker build -t aryalvesfernandes/configuraagente:backend-1.2.4 ./backend`
-2. **Push:** `docker push aryalvesfernandes/configuraagente:backend-1.2.4`
+1. **Build:** `docker build -t aryalvesfernandes/configuraagente:backend-1.2.6 ./backend`
+2. **Push:** `docker push aryalvesfernandes/configuraagente:backend-1.2.6`
 
 ### Frontend
-1. **Build:** `docker build --target production -t aryalvesfernandes/configuraagente:frontend-1.2.4 ./frontend`
-2. **Push:** `docker push aryalvesfernandes/configuraagente:frontend-1.2.4`
+1. **Build:** `docker build --target production -t aryalvesfernandes/configuraagente:frontend-1.2.6 ./frontend`
+2. **Push:** `docker push aryalvesfernandes/configuraagente:frontend-1.2.6`
 
 
 

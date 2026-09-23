@@ -54,7 +54,8 @@ const FollowupFunnelsBar = ({
     };
 
     const handleCreate = (e) => {
-        e.preventDefault();
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
         const trimmedName = newFunnelName.trim();
         const cleanId = (newFunnelId.trim() || trimmedName.toLowerCase().replace(/[^a-z0-9_]/g, '_')).slice(0, 50);
 
@@ -98,7 +99,8 @@ const FollowupFunnelsBar = ({
     };
 
     const handleRename = (e) => {
-        e.preventDefault();
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
         const trimmedName = renameValue.trim();
         if (!trimmedName) return;
 

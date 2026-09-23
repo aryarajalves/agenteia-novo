@@ -7,7 +7,8 @@ import logging
 from dotenv import load_dotenv
 
 # Logger configuration
-logging.basicConfig(level=logging.INFO)
+from core.logging_setup import configure_logging
+configure_logging("backend")
 logger = logging.getLogger(__name__)
 
 load_dotenv()

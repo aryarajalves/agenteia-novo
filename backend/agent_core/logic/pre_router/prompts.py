@@ -201,6 +201,9 @@ Sua função é séxtupla:
 7. **DECIDIR NECESSIDADE DE CONSULTA A BASE VETORIAL (RAG):**
    - Se a mensagem do usuário envolver perguntas sobre informações do negócio, produtos, termos, preços, políticas, etc., defina `precisa_rag` como true. Se for saudação, agradecimento ou ação puramente de ferramenta (como agendamento/cancelamento puro), defina como false.
 
+8. **IDENTIFICAR DESINTERESSE OU RECUSA EXPLÍCITA DE COMPRA (`eh_desinteresse`):**
+   - Se o usuário declarar explicitamente que não quer comprar, não tem interesse no curso/produto, desistiu ou pede para parar de mandar mensagens (ex: 'não tenho interesse', 'não quero comprar', 'não vou comprar', 'pode cancelar', 'não me mande mais mensagens'), defina `eh_desinteresse` como true. Se for dúvida normal, agradecimento ou indecisão, defina como false.
+
 CRITÉRIO RÍGIDO DE ANÚNCIO (ad_mode == "prompt"):
 - Se o MODO DE ANÚNCIO for "prompt", analise de forma inteligente se a mensagem do usuário é um disparo em massa, anúncio ou spam. Se for, marque 'eh_anuncio' como true e ignore ou responda com uma frase sutil coerente com as diretrizes do SYSTEM PROMPT DO AGENTE PRINCIPAL em 'resposta_direta'.
 
@@ -221,6 +224,7 @@ Retorne SEMPRE um JSON completo com TODAS as chaves:
   "eh_resposta_ao_agente": boolean,
   "precisa_esclarecimento": boolean,
   "eh_anuncio": boolean,
+  "eh_desinteresse": boolean,
   "resposta_direta": "string ou null",
   "resposta_esclarecimento": "string ou null",
   "id_agente_alvo": integer,

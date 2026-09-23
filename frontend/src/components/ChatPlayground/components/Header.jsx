@@ -1,36 +1,97 @@
 import React from 'react';
+import { estimateTokens, formatTokenCount } from '../utils/tokenUtils';
 
-const Header = ({ agents, selectedAgentId }) => {
-    const selectedAgent = agents.find(a => a.id === selectedAgentId);
+const Header = ({
+    isSidebarOpen,
+    setIsSidebarOpen,
+    agents,
+    selectedAgentId,
+    isBattleMode,
+    battleTab,
+    setBattleTab,
+    challengerHotfixPrompt,
+    setShowResetChatConfirm,
+    handleExportTraining,
+    setIsNavigating
+}) => {
+    const currentAgent = agents.find(a => a.id == selectedAgentId);
+    const agentName = currentAgent?.name || 'Agente';
 
     return (
         <div className="chat-premium-header fade-in">
             <div className="agent-brand">
+                <button
+                    type="button"
+                    onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                    className="toggle-sidebar-btn"
+                    title={isSidebarOpen ? "Ocultar Painel Lateral" : "Exibir Painel Lateral"}
+                >
+                    {isSidebarOpen ? '◀' : '⚙️ Painel'}
+                </button>
                 <div className="agent-avatar-status">
                     <div className="avatar-mini">🤖</div>
                     <span className="status-dot"></span>
                 </div>
                 <div className="agent-meta-title">
-                    <h3>{selectedAgent?.name || 'Agente Inteligente'}</h3>
-                    <p>Assitente Virtual Nativo</p>
+                    <h3>{agentName}</h3>
                 </div>
-                {selectedAgentId && (
-                    <a
-                        href={`/agent/${selectedAgentId}?tab=prompts`}
-                        style={{
-                            display: 'flex', alignItems: 'center', gap: '5px',
-                            background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(168,85,247,0.15) 100%)',
-                            border: '1px solid rgba(99,102,241,0.35)',
-                            color: '#a5b4fc', borderRadius: '8px',
-                            padding: '5px 11px', fontSize: '0.75rem', fontWeight: 700,
-                            textDecoration: 'none', whiteSpace: 'nowrap',
-                            transition: 'all 0.2s ease', marginLeft: '12px',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.28) 0%, rgba(168,85,247,0.28) 100%)'; e.currentTarget.style.transform = 'scale(1.03)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(168,85,247,0.15) 100%)'; e.currentTarget.style.transform = 'scale(1)'; }}
+            </div>
+
+            {isBattleMode && (
+                <div className="arena-tabs-header">
+                    <button 
+                        type="button"
+                        className={`arena-tab-btn ${battleTab === 'chat' ? 'active' : ''}`}
+                        onClick={() => setBattleTab('chat')}
+                        data-testid="arena-tab-chat"
                     >
-                        ✏️ Editar Prompt
-                    </a>
+                        💬 Arena
+                    </button>
+                    <button 
+                        type="button"
+                        className={`arena-tab-btn challenger-tab ${battleTab === 'prompt' ? 'active' : ''}`}
+                        onClick={() => setBattleTab('prompt')}
+                        data-testid="arena-tab-prompt"
+                    >
+                        🥊 Desafiante
+                        {challengerHotfixPrompt && (
+                            <span className="arena-tab-badge">
+                                ~{formatTokenCount(estimateTokens(challengerHotfixPrompt))}t
+                            </span>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            <div className="header-actions-row">
+                <button
+                    onClick={() => setShowResetChatConfirm(true)}
+                    className="reset-chat-btn"
+                    title="Resetar conversa atual com o agente"
+                    data-testid="reset-chat-header-btn"
+                >
+                    🔄 Resetar
+                </button>
+                <button
+                    onClick={handleExportTraining}
+                    className="export-training-btn"
+                    title="Exportar conversa completa em formato HTML para estudar e melhorar o prompt"
+                    data-testid="export-training-btn"
+                >
+                    📄 Exportar
+                </button>
+                {selectedAgentId && (
+                    <button
+                        onClick={() => {
+                            if (setIsNavigating) setIsNavigating(true);
+                            window.location.href = `/agent/${selectedAgentId}?tab=prompts`;
+                        }}
+                        className="edit-prompt-link"
+                        data-testid="edit-prompt-header-btn"
+                        title="Editar Prompt do Agente"
+                    >
+                        ✏️ Prompt
+                    </button>
                 )}
             </div>
         </div>
@@ -38,3 +99,4 @@ const Header = ({ agents, selectedAgentId }) => {
 };
 
 export default Header;
+

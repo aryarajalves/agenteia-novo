@@ -12,5 +12,6 @@ Ao realizar refatorações ou expansões do sistema, a organização de arquivos
    - **Frontend:** Separe a lógica de estado (Hooks customizados), a renderização (Componentes), os utilitários e os estilos (CSS modularizado dentro da pasta `styles/` com arquivos menores que 500 linhas).
    - **Backend:** Separe as rotas (Routers), os modelos de dados (Schemas/Models) e a lógica de negócio (Services).
 3. **Proibição de Componentes Aninhados:** Não defina sub-componentes dentro do mesmo arquivo se eles possuírem lógica complexa ou mais de 50 linhas de código. Extraia para a pasta `components/`.
+4. **Isenção de Códigos de Teste:** Arquivos de testes automatizados (pastas `tests/`, `src/test/`, arquivos com sufixo `.test.jsx`, `.test.js`, `.test.ts`, `.test.tsx`, ou prefixo `test_*.py`) **NÃO** devem entrar no escopo de refatoração/modularização. Testes não devem ser quebrados artificialmente apenas por contagem de linhas, pois precisam manter o contexto completo dos cenários de validação de um módulo, e não devem ser listados como arquivos pendentes de refatoração.
 
 Isso mantém a base de código limpa, escalável e fácil de navegar.
